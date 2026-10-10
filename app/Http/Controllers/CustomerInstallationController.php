@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Constants\Permissions;
 use App\Services\InstallationBillingService;
+use App\Services\InstallationPlanService;
 use App\Models\CustomerDocument;
 use App\Models\CustomerInstallation;
 use App\Models\CustomerProfile;
@@ -15,16 +16,33 @@ use App\Models\User;
 use App\Services\Templates\TemplateRenderer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CustomerInstallationController extends Controller
 {
     protected TemplateRenderer $templateRenderer;
 
-    public function __construct(TemplateRenderer $templateRenderer)
+    public function __construct(TemplateRenderer $templateRenderer, private InstallationPlanService $planService)
     {
         $this->templateRenderer = $templateRenderer;
+    }
+
+    /** Relaciones que necesita formatRow() en cada respuesta de una orden. */
+    private const ROW_RELATIONS = ['customer.customerProfile', 'prospect', 'technicianUser', 'invoice', 'plannedItems'];
+
+    /**
+     * El plan recibido, o null si la petición no trae la clave. Null significa
+     * «no tocar»: un cliente que no conoce el plan no lo borra por omisión.
+     * Un arreglo vacío, en cambio, sí lo vacía.
+     */
+    private function plannedItemsFrom(array $data): ?array
+    {
+        return array_key_exists('planned_items', $data) && is_array($data['planned_items'])
+            ? $data['planned_items']
+            : null;
     }
 
     private function authTenant(Request $request): int
@@ -66,9 +84,15 @@ class CustomerInstallationController extends Controller
     }
 
     /**
-     * Returns true when the authenticated user is allowed to see/edit billing fields.
-     * Mirrors CustomerInstallationPolicy::hasFinancialAccess() for collection contexts
-     * where a model instance isn't available (all(), index() list endpoints).
+     * Quién puede LEER la cartera de la orden (valor, abono, saldo).
+     *
+     * Dos permisos la abren: `edit_discount`, que es el que la gobernaba desde
+     * siempre y por eso se conserva —retirarlo dejaría a ciegas a los roles
+     * Staff y Contabilidad—, y `view_installation_cost`, el permiso de lectura
+     * propio que un técnico de campo puede recibir sin poder tocar precios.
+     *
+     * Espejo de CustomerInstallationPolicy::hasFinancialReadAccess() para los
+     * listados, donde no hay instancia del modelo sobre la que autorizar.
      */
     private function userCanViewBilling(Request $request): bool
     {
@@ -77,7 +101,107 @@ class CustomerInstallationController extends Controller
             return true;
         }
         $user->loadMissing('role');
+        $role = $user->role;
+
+        return $role !== null && (
+            $role->hasPermission(Permissions::EDIT_DISCOUNT)
+            || $role->hasPermission(Permissions::VIEW_INSTALLATION_COST)
+        );
+    }
+
+    /**
+     * Quién puede ESCRIBIR la cartera. Sigue siendo sólo `edit_discount`: es la
+     * misma puerta que exige el middleware de `PUT /installations/{id}/billing`.
+     *
+     * Guardar cartera emite o recalcula la factura de instalación y registra el
+     * pago recibido. `view_installation_cost` no alcanza aquí a propósito.
+     */
+    private function userCanEditBilling(Request $request): bool
+    {
+        $user = $request->user();
+        if ((int) $user->role_id === 1) {
+            return true;
+        }
+        $user->loadMissing('role');
+
         return $user->role?->hasPermission(Permissions::EDIT_DISCOUNT) ?? false;
+    }
+
+    /**
+     * Reglas de la marca «sin cobro», iguales vengan del formulario de la orden
+     * o del bloque de cartera.
+     *
+     * @return array<string, string>
+     */
+    private function noChargeRules(): array
+    {
+        return [
+            'no_charge'        => 'nullable|boolean',
+            'no_charge_reason' => 'nullable|string|max:255',
+        ];
+    }
+
+    /**
+     * Decide si el cambio de la marca «sin cobro» sobre una orden YA EXISTENTE
+     * puede guardarse, y devuelve los datos ya filtrados.
+     *
+     * DOS PUERTAS, Y CADA UNA TAPA UN AGUJERO DISTINTO
+     *
+     * 1. Cambiarla exige `edit_discount`, el mismo permiso que escribir la
+     *    cartera. Decidir que una visita no se cobra es decidir sobre dinero;
+     *    si bastara con poder editar la orden, el permiso de agendar valdría
+     *    para perdonar facturas. Al CREAR la orden no se exige: ahí forma parte
+     *    del acto de agendar, y quien agenda es quien sabe si va de garantía.
+     *
+     * 2. No se puede marcar una orden que YA tiene factura. La factura no se
+     *    borra desde aquí —en este proyecto el dinero se anula, nunca se
+     *    destruye, porque borrar una factura pagada deja el pago suelto— así
+     *    que el camino es anularla en Facturación y volver.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function guardNoChargeChange(Request $request, CustomerInstallation $installation, array $data): array
+    {
+        $tocaLaMarca = array_key_exists('no_charge', $data)
+            && (bool) $data['no_charge'] !== (bool) $installation->no_charge;
+
+        // El formulario manda cadena vacía donde la base guarda NULL. Sin
+        // normalizar, reenviar el formulario sin tocar nada contaría como un
+        // cambio y le daría un 403 a quien sólo quería corregir la dirección.
+        $motivoNuevo = trim((string) ($data['no_charge_reason'] ?? '')) ?: null;
+        $motivoViejo = trim((string) ($installation->no_charge_reason ?? '')) ?: null;
+
+        $tocaElMotivo = array_key_exists('no_charge_reason', $data) && $motivoNuevo !== $motivoViejo;
+
+        if (array_key_exists('no_charge_reason', $data)) {
+            $data['no_charge_reason'] = $motivoNuevo;
+        }
+
+        if (!$tocaLaMarca && !$tocaElMotivo) {
+            // Nada que decidir: se quitan las claves para no reescribir lo mismo.
+            unset($data['no_charge'], $data['no_charge_reason']);
+            return $data;
+        }
+
+        abort_if(
+            !$this->userCanEditBilling($request),
+            403,
+            'No tienes permiso para cambiar si esta orden se le cobra al cliente.'
+        );
+
+        if ($tocaLaMarca && $data['no_charge']) {
+            $installation->loadMissing('invoice');
+
+            if ($installation->invoice) {
+                throw ValidationException::withMessages([
+                    'no_charge' => "Esta orden ya tiene la factura #{$installation->invoice->number}. "
+                        . 'Anúlala en Facturación antes de marcarla sin cobro: aquí no se borran facturas.',
+                ]);
+            }
+        }
+
+        return $data;
     }
 
     /**
@@ -89,7 +213,8 @@ class CustomerInstallationController extends Controller
     {
         $row = $this->formatRow($inst);
         $canBilling = $this->userCanViewBilling($request);
-        $row['can_edit_billing'] = $canBilling;
+        $row['can_view_billing'] = $canBilling;
+        $row['can_edit_billing'] = $this->userCanEditBilling($request);
         if (!$canBilling) {
             $row = $this->stripBillingFields($row);
         }
@@ -97,8 +222,18 @@ class CustomerInstallationController extends Controller
     }
 
     /**
-     * Remove the 11 billing/cartera fields from a formatted row array.
+     * Remove the 12 billing/cartera fields from a formatted row array.
      * Used to sanitize list and detail responses for non-financial roles.
+     *
+     * Se ELIMINAN del JSON, no se envían en cero: un cero es un dato, y un
+     * técnico que ve «Valor de instalación: $0» concluye que la instalación
+     * fue gratis.
+     *
+     * `no_charge` NO está en la lista, y es deliberado: es justo lo que el
+     * técnico sin permisos de cartera tiene que ver. Ocultárselo lo dejaría
+     * cobrando a pulso una visita de garantía, que es el problema que la marca
+     * viene a resolver. Además no revela ninguna cifra — dice si se cobra, no
+     * cuánto.
      */
     private function stripBillingFields(array $row): array
     {
@@ -143,6 +278,13 @@ class CustomerInstallationController extends Controller
             'invoice_id'     => $inst->relationLoaded('invoice') ? $inst->invoice?->id     : null,
             'invoice_number' => $inst->relationLoaded('invoice') ? $inst->invoice?->number : null,
             'invoice_status' => $inst->relationLoaded('invoice') ? $inst->invoice?->status : null,
+            // Plan previsto (no mueve inventario). Sin precios: lo ve también
+            // quien no tiene permiso de cartera.
+            'planned_items'  => $this->planService->rows($inst),
+            // Lo que la pantalla necesita para explicar por qué una orden no se
+            // puede borrar ni cancelar. Quien decide sigue siendo el servidor.
+            'equipment_items_count' => (int) ($inst->equipment_items_count ?? $inst->equipmentItems()->count()),
+            'is_signed'      => $inst->isSigned(),
         ]);
     }
 
@@ -150,17 +292,20 @@ class CustomerInstallationController extends Controller
     {
         $tenantId   = $this->authTenant($request);
         $canBilling = $this->userCanViewBilling($request);
+        $canEdit    = $this->userCanEditBilling($request);
 
-        $installations = CustomerInstallation::with(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])
+        $installations = CustomerInstallation::with(self::ROW_RELATIONS)
+            ->withCount('equipmentItems')
             ->where('tenant_id', $tenantId)
             ->when($request->status, fn($q, $s) => $q->where('status', $s))
             ->when($request->from,   fn($q, $d) => $q->whereDate('scheduled_date', '>=', $d))
             ->when($request->to,     fn($q, $d) => $q->whereDate('scheduled_date', '<=', $d))
             ->orderBy('scheduled_date', 'desc')
             ->get()
-            ->map(function ($i) use ($canBilling) {
+            ->map(function ($i) use ($canBilling, $canEdit) {
                 $row = $this->formatRow($i);
-                $row['can_edit_billing'] = $canBilling;
+                $row['can_view_billing'] = $canBilling;
+                $row['can_edit_billing'] = $canEdit;
                 if (!$canBilling) {
                     $row = $this->stripBillingFields($row);
                 }
@@ -174,14 +319,17 @@ class CustomerInstallationController extends Controller
     {
         $customer   = $this->resolveCustomer($request, $customerId);
         $canBilling = $this->userCanViewBilling($request);
+        $canEdit    = $this->userCanEditBilling($request);
 
-        $installations = CustomerInstallation::with(['technicianUser', 'invoice'])
+        $installations = CustomerInstallation::with(['technicianUser', 'invoice', 'plannedItems'])
+            ->withCount('equipmentItems')
             ->where('customer_id', $customer->id)
             ->orderBy('scheduled_date', 'desc')
             ->get()
-            ->map(function ($i) use ($canBilling) {
+            ->map(function ($i) use ($canBilling, $canEdit) {
                 $row = $this->formatRow($i);
-                $row['can_edit_billing'] = $canBilling;
+                $row['can_view_billing'] = $canBilling;
+                $row['can_edit_billing'] = $canEdit;
                 if (!$canBilling) {
                     $row = $this->stripBillingFields($row);
                 }
@@ -194,7 +342,7 @@ class CustomerInstallationController extends Controller
     public function show(Request $request, $installationId)
     {
         $inst = $this->resolveInstallation($request, $installationId);
-        $inst->load(['customer.customerProfile', 'prospect', 'technicianUser', 'documents', 'invoice']);
+        $inst->load([...self::ROW_RELATIONS, 'documents']);
 
         return response()->json($this->formatRowForUser($request, $inst));
     }
@@ -211,30 +359,45 @@ class CustomerInstallationController extends Controller
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
             'status'         => 'in:pendiente,completada,cancelada',
-        ]);
+        ] + $this->noChargeRules() + $this->planService->rules($customer->tenant_id));
 
         $data['technician_id'] = $this->validateTechnician(
             $data['technician_id'] ?? null,
             $customer->tenant_id
         );
 
-        $installation = CustomerInstallation::create([
-            'tenant_id'      => $customer->tenant_id,
-            'customer_id'    => $customer->id,
-            'scheduled_date' => $data['scheduled_date'],
-            'technician_id'  => $data['technician_id'],
-            'technician'     => $data['technician'] ?? null,
-            'address'        => $data['address'] ?? null,
-            'equipment'      => $data['equipment'] ?? null,
-            'notes'          => $data['notes'] ?? null,
-            'status'         => $data['status'] ?? 'pendiente',
-            'completed_at'   => ($data['status'] ?? 'pendiente') === 'completada' ? now() : null,
-            'created_by'     => $request->user()?->id,
-        ]);
+        // Orden y plan en la misma transacción: un plan inválido no deja una
+        // orden a medias.
+        [$installation, $avisos] = DB::transaction(function () use ($data, $customer, $request) {
+            $installation = CustomerInstallation::create([
+                'tenant_id'      => $customer->tenant_id,
+                'customer_id'    => $customer->id,
+                'scheduled_date' => $data['scheduled_date'],
+                'technician_id'  => $data['technician_id'],
+                'technician'     => $data['technician'] ?? null,
+                'address'        => $data['address'] ?? null,
+                'equipment'      => $data['equipment'] ?? null,
+                'notes'          => $data['notes'] ?? null,
+                'status'         => $data['status'] ?? 'pendiente',
+                'completed_at'   => ($data['status'] ?? 'pendiente') === 'completada' ? now() : null,
+                'created_by'     => $request->user()?->id,
+                // Al crear no se pide `edit_discount`: marcar la visita como
+                // «de garantía» es parte de agendarla, y quien agenda es quien lo
+                // sabe. Cambiarlo DESPUÉS sí exige el permiso — ver
+                // guardNoChargeChange().
+                'no_charge'        => (bool) ($data['no_charge'] ?? false),
+                'no_charge_reason' => $data['no_charge_reason'] ?? null,
+            ]);
+
+            $avisos = $this->planService->sync($installation, $this->plannedItemsFrom($data), $request->user());
+
+            return [$installation, $avisos];
+        });
 
         return response()->json([
-            'message'      => 'Orden de instalación creada correctamente.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'message'           => 'Orden de instalación creada correctamente.',
+            'installation'      => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
+            'planning_warnings' => $avisos,
         ], 201);
     }
 
@@ -266,11 +429,11 @@ class CustomerInstallationController extends Controller
             'technician'     => 'nullable|string|max:120',
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
-        ]);
+        ] + $this->noChargeRules() + $this->planService->rules($tenantId));
 
         $data['technician_id'] = $this->validateTechnician($data['technician_id'] ?? null, $tenantId);
 
-        $installation = \Illuminate\Support\Facades\DB::transaction(function () use ($data, $tenantId, $request) {
+        [$installation, $avisos] = DB::transaction(function () use ($data, $tenantId, $request) {
             $prospect = Prospect::create([
                 'tenant_id'  => $tenantId,
                 'name'       => $data['name'],
@@ -287,7 +450,7 @@ class CustomerInstallationController extends Controller
                 'created_by' => $request->user()?->id,
             ]);
 
-            return CustomerInstallation::create([
+            $installation = CustomerInstallation::create([
                 'tenant_id'      => $tenantId,
                 'prospect_id'    => $prospect->id,
                 'scheduled_date' => $data['scheduled_date'],
@@ -298,12 +461,19 @@ class CustomerInstallationController extends Controller
                 'notes'          => $data['notes'] ?? null,
                 'status'         => 'pendiente',
                 'created_by'     => $request->user()?->id,
+                'no_charge'        => (bool) ($data['no_charge'] ?? false),
+                'no_charge_reason' => $data['no_charge_reason'] ?? null,
             ]);
+
+            $avisos = $this->planService->sync($installation, $this->plannedItemsFrom($data), $request->user());
+
+            return [$installation, $avisos];
         });
 
         return response()->json([
-            'message'      => 'Prospecto e instalación creados correctamente.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'message'           => 'Prospecto e instalación creados correctamente.',
+            'installation'      => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
+            'planning_warnings' => $avisos,
         ], 201);
     }
 
@@ -335,7 +505,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Prospecto actualizado.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
         ]);
     }
 
@@ -355,26 +525,38 @@ class CustomerInstallationController extends Controller
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
             'status'         => 'in:pendiente,completada,cancelada',
-        ]);
+        ] + $this->noChargeRules() + $this->planService->rules($tenantId));
 
         $data['technician_id'] = $this->validateTechnician(
             $data['technician_id'] ?? null,
             $tenantId
         );
 
-        $installation = CustomerInstallation::create([
-            'tenant_id'      => $tenantId,
-            'prospect_id'    => $prospect->id,
-            'scheduled_date' => $data['scheduled_date'],
-            'technician_id'  => $data['technician_id'],
-            'technician'     => $data['technician'] ?? null,
-            'address'        => $data['address'] ?? $prospect->address,
-            'equipment'      => $data['equipment'] ?? null,
-            'notes'          => $data['notes'] ?? null,
-            'status'         => $data['status'] ?? 'pendiente',
-            'completed_at'   => ($data['status'] ?? 'pendiente') === 'completada' ? now() : null,
-            'created_by'     => $request->user()?->id,
-        ]);
+        [$installation, $avisos] = DB::transaction(function () use ($data, $tenantId, $prospect, $request) {
+            $installation = CustomerInstallation::create([
+                'tenant_id'      => $tenantId,
+                'prospect_id'    => $prospect->id,
+                'scheduled_date' => $data['scheduled_date'],
+                'technician_id'  => $data['technician_id'],
+                'technician'     => $data['technician'] ?? null,
+                'address'        => $data['address'] ?? $prospect->address,
+                'equipment'      => $data['equipment'] ?? null,
+                'notes'          => $data['notes'] ?? null,
+                'status'         => $data['status'] ?? 'pendiente',
+                'completed_at'   => ($data['status'] ?? 'pendiente') === 'completada' ? now() : null,
+                'created_by'     => $request->user()?->id,
+                // Al crear no se pide `edit_discount`: marcar la visita como
+                // «de garantía» es parte de agendarla, y quien agenda es quien lo
+                // sabe. Cambiarlo DESPUÉS sí exige el permiso — ver
+                // guardNoChargeChange().
+                'no_charge'        => (bool) ($data['no_charge'] ?? false),
+                'no_charge_reason' => $data['no_charge_reason'] ?? null,
+            ]);
+
+            $avisos = $this->planService->sync($installation, $this->plannedItemsFrom($data), $request->user());
+
+            return [$installation, $avisos];
+        });
 
         // Move the prospect into "agendado" once it has at least one scheduled install.
         if ($prospect->status === 'interesado') {
@@ -382,8 +564,9 @@ class CustomerInstallationController extends Controller
         }
 
         return response()->json([
-            'message'      => 'Instalación agendada al prospecto.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'message'           => 'Instalación agendada al prospecto.',
+            'installation'      => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
+            'planning_warnings' => $avisos,
         ], 201);
     }
 
@@ -399,7 +582,7 @@ class CustomerInstallationController extends Controller
             'equipment'      => 'nullable|string|max:255',
             'notes'          => 'nullable|string|max:1000',
             'status'         => 'in:pendiente,completada,cancelada',
-        ]);
+        ] + $this->noChargeRules() + $this->planService->rules($installation->tenant_id));
 
         if (array_key_exists('technician_id', $data)) {
             $data['technician_id'] = $this->validateTechnician(
@@ -408,18 +591,61 @@ class CustomerInstallationController extends Controller
             );
         }
 
+        if (($data['status'] ?? null) === 'cancelada' && $installation->status !== 'cancelada') {
+            $this->assertCancellable($installation);
+        }
+
         if (isset($data['status']) && $data['status'] === 'completada' && $installation->status !== 'completada') {
             $data['completed_at'] = now();
         } elseif (isset($data['status']) && $data['status'] !== 'completada') {
             $data['completed_at'] = null;
         }
 
-        $installation->update($data);
+        $data = $this->guardNoChargeChange($request, $installation, $data);
+
+        $plan = $this->plannedItemsFrom($data);
+        unset($data['planned_items']);
+
+        $avisos = DB::transaction(function () use ($installation, $data, $plan, $request) {
+            $installation->update($data);
+
+            return $this->planService->sync($installation, $plan, $request->user());
+        });
 
         return response()->json([
-            'message'      => 'Orden de instalación actualizada correctamente.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'message'           => 'Orden de instalación actualizada correctamente.',
+            'installation'      => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
+            'planning_warnings' => $avisos,
         ]);
+    }
+
+    /**
+     * Una orden que ya consumió inventario o ya se firmó no se cancela.
+     *
+     * El consumo registrado es REAL: el material se gastó y el equipo quedó en
+     * casa del cliente. Cancelar la orden lo dejaría sin una orden vigente que
+     * lo respalde, y deshacer las líneas para poder cancelarla sería inventar
+     * una devolución que no ocurrió. La conciliación de esos consumos es otra
+     * entrega (B); hasta entonces, el bloqueo es la forma de no perder nada.
+     */
+    private function assertCancellable(CustomerInstallation $installation): void
+    {
+        $lineas = $installation->equipmentItems()->count();
+
+        if ($lineas > 0) {
+            throw ValidationException::withMessages([
+                'status' => "No se puede cancelar esta orden: registra {$lineas} línea(s) de equipos o materiales "
+                    . 'usados en la visita, que ya salieron del inventario. Ese consumo es real y cancelar la '
+                    . 'orden lo dejaría sin respaldo. La orden se mantiene en su estado actual hasta que exista '
+                    . 'la conciliación de consumos.',
+            ]);
+        }
+
+        if ($installation->isSigned()) {
+            throw ValidationException::withMessages([
+                'status' => 'No se puede cancelar esta orden: ya tiene la hoja de instalación firmada por el cliente.',
+            ]);
+        }
     }
 
     /**
@@ -451,7 +677,7 @@ class CustomerInstallationController extends Controller
             'customer_retention' => 'nullable|boolean',
             'special_attention'  => 'nullable|boolean',
             'promotion_notes'    => 'nullable|string',
-        ]);
+        ] + $this->noChargeRules());
 
         // additional_charges siempre refleja la suma de los adicionales itemizados
         // cuando el cliente los envía; así los reportes agregados siguen cuadrando.
@@ -467,13 +693,33 @@ class CustomerInstallationController extends Controller
             $data['additional_charges'] = array_sum(array_column($items, 'amount'));
         }
 
+        $data = $this->guardNoChargeChange($request, $installation, $data);
+
+        // La marca puede venir en esta misma petición, así que se razona sobre
+        // el estado RESULTANTE y no sobre el guardado.
+        $sinCobro = array_key_exists('no_charge', $data)
+            ? (bool) $data['no_charge']
+            : (bool) $installation->no_charge;
+
+        if ($sinCobro) {
+            $this->assertFreeVisitHasNoMoney($installation, $data);
+        }
+
         $installation->update($data);
         $installation->refresh();
 
         $invoice        = null;
         $invoiceWarning = null;
 
-        if ($installation->customer_id) {
+        if ($sinCobro) {
+            // Aquí está el nudo de todo el cambio: se guarda la cartera (el
+            // acuerdo de pago, las notas, la retención) pero NO se emite ni se
+            // recalcula factura. Antes, cualquier guardado creaba una factura
+            // —aunque fuera de $0— y el cliente aparecía con un documento de
+            // cobro por una visita que iba de regalo.
+            $invoiceWarning = 'Esta orden está marcada sin cobro al cliente: no se generó factura. '
+                . 'Los equipos cargados siguen descontados del inventario.';
+        } elseif ($installation->customer_id) {
             $invoice = $billingService->upsertInstallationInvoice($installation, $installation->tenant_id);
         } else {
             $invoiceWarning = 'No se generó factura: la instalación no tiene un cliente asignado aún.';
@@ -481,15 +727,69 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'         => 'Información de cartera actualizada correctamente.',
-            'installation'    => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'installation'    => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
             'invoice'         => $invoice?->load('items'),
             'invoice_warning' => $invoiceWarning,
         ]);
     }
 
+    /**
+     * Una orden sin cobro no puede llevar cifras encima.
+     *
+     * No se ponen en cero por las bravas: borrar dinero en silencio es
+     * exactamente cómo se pierde la pista de un abono que el cliente SÍ
+     * entregó. Si la orden traía valores, quien la marca tiene que decidir qué
+     * hace con ellos —y si hubo un abono, hay que devolverlo o moverlo, no
+     * hacerlo desaparecer con una casilla.
+     *
+     * Se mira el estado resultante: lo que trae la petición si viene, y lo que
+     * ya estaba guardado si no.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function assertFreeVisitHasNoMoney(CustomerInstallation $installation, array $data): void
+    {
+        $valor = function (string $campo) use ($data, $installation) {
+            return (float) (array_key_exists($campo, $data)
+                ? ($data[$campo] ?? 0)
+                : ($installation->{$campo} ?? 0));
+        };
+
+        $items = array_key_exists('additional_items', $data)
+            ? ($data['additional_items'] ?? [])
+            : ($installation->additional_items ?? []);
+
+        $conCifras = $valor('installation_cost') > 0
+            || $valor('additional_charges') > 0
+            || $valor('discount') > 0
+            || $valor('payment_received') > 0
+            || array_sum(array_map(fn ($it) => (float) ($it['amount'] ?? 0), $items ?: [])) > 0;
+
+        if ($conCifras) {
+            throw ValidationException::withMessages([
+                'no_charge' => 'Esta orden está marcada sin cobro al cliente, así que no puede llevar '
+                    . 'valor de instalación, adicionales, descuento ni abono recibido. '
+                    . 'Deja esos campos en cero, o quita la marca si sí hay que cobrarla.',
+            ]);
+        }
+    }
+
     public function destroy(Request $request, $installationId)
     {
         $installation = $this->resolveInstallation($request, $installationId);
+
+        // Se comprueba ANTES de tocar nada —ni las firmas en S3—: si se
+        // rechaza, la orden queda exactamente como estaba.
+        $bloqueos = $this->deletionBlockers($installation);
+
+        if ($bloqueos) {
+            return response()->json([
+                'message'    => 'No se puede eliminar esta orden: ' . implode('; ', array_values($bloqueos)) . '. '
+                    . 'Borrarla haría perder ese historial. Si la orden no sigue adelante, déjala registrada.',
+                'error'      => 'installation_has_history',
+                'blocked_by' => array_keys($bloqueos),
+            ], 409);
+        }
 
         foreach (['customer_signature_path', 'technician_signature_path'] as $col) {
             if ($installation->{$col}) {
@@ -499,6 +799,42 @@ class CustomerInstallationController extends Controller
         $installation->delete();
 
         return response()->json(['message' => 'Orden de instalación eliminada correctamente.']);
+    }
+
+    /**
+     * Qué historial perdería el borrado de la orden (P-69).
+     *
+     *  - equipment: líneas descargadas del inventario. La FK es CASCADE y el
+     *    borrado se las llevaba sin devolver nada: los equipos seguían
+     *    instalados en el cliente y el material consumido quedaba sin respaldo.
+     *  - signed: la hoja firmada es el acta de la visita.
+     *  - invoice: la factura quedaba huérfana de su orden (FK SET NULL).
+     *
+     * El plan previsto NO bloquea: no mueve inventario y se va con la orden.
+     *
+     * @return array<string, string>
+     */
+    private function deletionBlockers(CustomerInstallation $installation): array
+    {
+        $bloqueos = [];
+
+        $lineas = $installation->equipmentItems()->count();
+        if ($lineas > 0) {
+            $bloqueos['equipment'] = "tiene {$lineas} línea(s) de equipos o materiales descargadas del inventario";
+        }
+
+        $firmada = $installation->isSigned()
+            || CustomerDocument::where('installation_id', $installation->id)->where('signed', true)->exists();
+        if ($firmada) {
+            $bloqueos['signed'] = 'tiene la hoja de instalación firmada';
+        }
+
+        $installation->loadMissing('invoice');
+        if ($installation->invoice) {
+            $bloqueos['invoice'] = "tiene la factura #{$installation->invoice->number}";
+        }
+
+        return $bloqueos;
     }
 
     /**
@@ -514,7 +850,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Hoja de instalación guardada.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
         ]);
     }
 
@@ -679,7 +1015,7 @@ class CustomerInstallationController extends Controller
 
         return response()->json([
             'message'      => 'Instalación firmada y completada.',
-            'installation' => $this->formatRowForUser($request, $installation->fresh(['customer.customerProfile', 'prospect', 'technicianUser', 'invoice'])),
+            'installation' => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
             'document'     => $document,
         ]);
     }

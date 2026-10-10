@@ -56,11 +56,80 @@ class SettingsController extends Controller
      * `view_settings` dejaría sin poder responder esa pregunta justamente al
      * usuario que llama a soporte.
      */
+    /**
+     * Estado real del sistema para el tile «Estado del Sistema» (P-33 / KAN-68).
+     *
+     * Antes el tile decía «Operativo» con texto fijo, aunque el planificador
+     * estuviera caído. Ahora refleja la señal que de verdad hace falta: si el
+     * planificador sigue latiendo, porque de él depende todo el ciclo de
+     * facturación, recordatorios y cortes. Lee la MISMA clave y el MISMO umbral
+     * que `/health` (config/health.php), así que el tile y el centinela externo
+     * no se pueden contradecir.
+     *
+     * No expone nada sensible: sólo el estado y cuántos segundos lleva sin
+     * latir. Abierto a cualquier autenticado, igual que la versión.
+     */
+    public function status()
+    {
+        if (! config('health.scheduler.expected')) {
+            return response()->json(['scheduler' => ['status' => 'not_expected']]);
+        }
+
+        $last = \Illuminate\Support\Facades\Cache::get(config('health.scheduler.cache_key'));
+        $maxSilence = (int) config('health.scheduler.max_silence_seconds');
+
+        if ($last === null) {
+            return response()->json(['scheduler' => [
+                'status'              => 'never',
+                'max_silence_seconds' => $maxSilence,
+            ]]);
+        }
+
+        $silence = max(0, now()->getTimestamp() - (int) $last);
+
+        return response()->json(['scheduler' => [
+            'status'               => $silence > $maxSilence ? 'stale' : 'ok',
+            'last_run_seconds_ago' => $silence,
+            'max_silence_seconds'  => $maxSilence,
+        ]]);
+    }
+
     public function version()
     {
         return response()->json([
             'version'     => config('version.number'),
             'released_at' => config('version.released_at'),
+            'build'       => $this->buildId(),
         ]);
+    }
+
+    /**
+     * Identificador del BUNDLE que está sirviendo este despliegue (KAN-101).
+     *
+     * `version` no sirve para detectar un despliegue: la mayoría de los
+     * despliegues corrigen algo sin mover el número de SemVer, y el navegador
+     * que tuviera la aplicación abierta seguiría con el código viejo sin que
+     * nada se lo dijera. El manifiesto de Vite, en cambio, cambia SIEMPRE que
+     * cambia un chunk — es la lista de los nombres con hash.
+     *
+     * El frontend guarda el primer `build` que ve al cargar y compara los
+     * siguientes contra ése: si cambia, hay código nuevo en el servidor.
+     *
+     * Devuelve null cuando no hay manifiesto (desarrollo con el dev server de
+     * Vite), y entonces el aviso simplemente no aparece: allí está el HMR.
+     */
+    private function buildId(): ?string
+    {
+        static $buildId = false;
+
+        if ($buildId !== false) {
+            return $buildId;
+        }
+
+        $manifest = public_path('build/manifest.json');
+
+        return $buildId = is_file($manifest)
+            ? substr((string) sha1_file($manifest), 0, 12)
+            : null;
     }
 }

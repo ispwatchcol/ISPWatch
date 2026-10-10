@@ -1,12 +1,30 @@
 <template>
   <div id="app">
     <router-view /> <!-- Aquí se renderizan todas las páginas según la ruta -->
+
+    <!--
+      EL ÚNICO contenedor de notificaciones. Se monta aquí, fuera del
+      `router-view`, para que sobreviva a los cambios de página y quede por
+      encima de cualquier modal (`.z-app-toast`). Ninguna pantalla debe montar
+      otro: `NotificationToast` es sólo un adaptador que escribe en la misma
+      cola. Ver `composables/useNotifications.js`.
+    -->
+    <NotificationHost />
+
+    <!--
+      Aviso de "hay una versión nueva" (KAN-101 · P-46). También fuera del
+      `router-view`: el vigilante debe sobrevivir a los cambios de página, o se
+      reiniciaría su referencia de versión en cada navegación.
+    -->
+    <NewVersionBanner />
   </div>
 </template>
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from './stores/auth';
+import NotificationHost from './components/NotificationHost.vue';
+import NewVersionBanner from './components/NewVersionBanner.vue';
 
 const authStore = useAuthStore();
 

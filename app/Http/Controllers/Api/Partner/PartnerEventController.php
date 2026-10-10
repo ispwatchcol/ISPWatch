@@ -17,9 +17,17 @@ use Illuminate\Validation\Rule;
  * integrador lo recorre, así que la página 2 de hace un minuto ya no contiene
  * las mismas filas — se saltan eventos sin que nadie lo note.
  *
- * Con cursor sobre un id autoincremental eso no puede pasar: el integrador
- * guarda el último id procesado y pide lo siguiente. Si se cae, retoma donde
- * quedó; si necesita reprocesar, vuelve atrás. No hay estado del lado nuestro.
+ * Con cursor eso no puede pasar: el integrador guarda el último `event_id`
+ * procesado y pide lo siguiente. Si se cae, retoma donde quedó; si necesita
+ * reprocesar, vuelve atrás. No hay estado del lado nuestro.
+ *
+ * EL CURSOR ES `seq`, NO `id` (KAN-112)
+ * -------------------------------------
+ * `id` se toma al insertar y las transacciones confirman en cualquier orden,
+ * así que un cursor sobre `id` podía saltarse para siempre un evento que
+ * confirmó tarde. `seq` lo asigna PartnerEventSequencer después del commit y
+ * en serie; hacia afuera se llama `event_id`. Los eventos anteriores a este
+ * cambio tienen `seq = id`, así que ningún cursor guardado cambió de sentido.
  *
  * POR QUÉ EL EVENTO ES DELGADO
  * -----------------------------
@@ -47,10 +55,14 @@ class PartnerEventController extends PartnerController
         $tenantId = $this->tenantId($request);
         $limit    = (int) $request->query('limit', self::DEFAULT_LIMIT);
         $limit    = max(1, min($limit, self::MAX_LIMIT));
+        $since    = (int) $request->query('since', 0);
+
+        $this->publishPendingEvents();
 
         $query = PartnerEvent::query()
+            ->published()
             ->where('tenant_id', $tenantId)
-            ->where('id', '>', (int) $request->query('since', 0));
+            ->where('seq', '>', $since);
 
         if ($type = $request->query('event_type')) {
             $query->where('event_type', $type);
@@ -60,30 +72,30 @@ class PartnerEventController extends PartnerController
             $query->where('customer_id', (int) $customerId);
         }
 
-        // Orden ascendente estricto por id: es lo que hace que el cursor sea
+        // Orden ascendente estricto por `seq`: es lo que hace que el cursor sea
         // correcto. Cualquier otro orden rompe la garantía de no saltarse nada.
-        $events = $query->orderBy('id')->limit($limit)->get();
+        $events = $query->orderBy('seq')->limit($limit)->get();
 
         $last = $events->last();
 
         return response()->json([
             'data' => $events->map(fn (PartnerEvent $e) => [
-                'event_id'    => (int) $e->id,
+                'event_id'    => (int) $e->seq,
                 'event_type'  => $e->event_type,
                 'customer_id' => (int) $e->customer_id,
                 'service_id'  => $e->service_id !== null ? (int) $e->service_id : null,
                 'changes'     => $e->changes,
                 'occurred_at' => $e->occurred_at?->toIso8601String(),
-                // El id del evento ES la revisión del recurso tras el cambio:
+                // El `event_id` ES la revisión del recurso tras el cambio:
                 // permite comparar contra el `revision` que devuelven
                 // /customers y /services sin pedir nada más.
-                'revision'    => (int) $e->id,
+                'revision'    => (int) $e->seq,
             ])->values(),
             'meta' => [
                 // Cursor a mandar en la próxima llamada. Si no hubo eventos se
                 // devuelve el mismo `since` recibido, para que el integrador
                 // pueda reintentar sin lógica especial.
-                'next_since' => $last ? (int) $last->id : (int) $request->query('since', 0),
+                'next_since' => $last ? (int) $last->seq : $since,
                 'count'      => $events->count(),
                 // true = quedan más ahora mismo; el integrador puede seguir
                 // pidiendo sin esperar al próximo ciclo.

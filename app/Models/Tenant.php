@@ -46,6 +46,11 @@ class Tenant extends Model
         'timezone',
         'currency',
         'next_invoice_number',
+        // Gasto automático al ingresar inventario (KAN-91). Apagado por defecto:
+        // encenderlo cuando el ISP ya registra a mano la factura del proveedor
+        // contaría la compra dos veces.
+        'inventory_entry_creates_expense',
+        'inventory_expense_category_id',
         'contract_prefix',
         'next_contract_number',
         'legal_name',
@@ -69,6 +74,7 @@ class Tenant extends Model
      */
     protected $casts = [
         'google_maps_api_key' => 'encrypted',
+        'inventory_entry_creates_expense' => 'boolean',
     ];
 
     /** Never include the raw key in any JSON response. */

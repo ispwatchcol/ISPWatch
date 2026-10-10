@@ -36,6 +36,10 @@ class SuspensionActionLog extends Model
         'ip',
         'action',
         'reason',
+        // Motivo normalizado del desenlace (App\Support\ReconnectionOutcome).
+        // Distinto de `reason`, que dice qué ORIGINÓ la acción; éste dice cómo
+        // TERMINÓ, en un vocabulario cerrado que sí se puede filtrar y pintar.
+        'outcome',
         'status',
         'attempts',
         'error_message',
@@ -65,6 +69,41 @@ class SuspensionActionLog extends Model
     {
         return $this->status === self::STATUS_FAILED
             && $this->attempts >= self::MAX_ATTEMPTS;
+    }
+
+    /**
+     * La reconexión pendiente vigente de un cliente, o null si no tiene ninguna.
+     *
+     * "Vigente" = el último movimiento de reconexión de este cliente quedó con
+     * un desenlace pendiente y nadie lo ha resuelto después. Se mira el ÚLTIMO
+     * UNSUSPEND y no "cualquiera pendiente" a propósito: una reconexión que
+     * falló ayer y hoy salió bien no es un problema abierto, y sacarla como
+     * alerta mandaría al operador a revisar un equipo que ya está bien.
+     *
+     * Es la fuente de la alerta persistente en la ficha del cliente: mientras
+     * esta consulta devuelva una fila, el aviso sigue en pantalla.
+     */
+    public static function pendingReconnectionFor(int $customerId): ?self
+    {
+        $latest = static::where('customer_id', $customerId)
+            ->where('action', self::ACTION_UNSUSPEND)
+            ->latest('id')
+            ->first();
+
+        if (!$latest) {
+            return null;
+        }
+
+        // Dos condiciones, no una: el motivo tiene que ser de los pendientes Y
+        // la fila no puede estar cerrada en éxito. Con sólo el motivo, una fila
+        // que un reintento dejó en `success` seguiría encendiendo la alerta si
+        // alguien olvidara actualizarle el `outcome` — y una alerta que no se
+        // apaga cuando el problema se resuelve deja de creerse.
+        if ($latest->status === self::STATUS_SUCCESS) {
+            return null;
+        }
+
+        return \App\Support\ReconnectionOutcome::isPending($latest->outcome) ? $latest : null;
     }
 
     /**

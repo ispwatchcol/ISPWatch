@@ -171,7 +171,8 @@ resources/js/
 │   ├── billing.js
 │   └── api/                # 19 módulos: customers, routers, plans, …
 ├── composables/            # useNotification, usePermissions,
-│                           # useProvisionPolling, useTableControls
+│                           # useProvisionPolling, useTableControls,
+│                           # useVersionWatcher (avisa de despliegue nuevo)
 ├── layouts/DefaultLayout.vue
 ├── components/             # Sidebar, BillingPanel, DatePicker, …
 ├── pages/                  # 44 páginas + subcarpeta Billing/
@@ -221,11 +222,26 @@ sequenceDiagram
 | `permission` / `can_do` | `CheckPermission` | Exige uno o varios permisos con **semántica OR** (`permission:a,b`); **bypass si `role_id == 1`** |
 | `staff_profile` | `CheckStaffProfile` | Pese al nombre, comprueba `role.code ∈ {admin, staff}` o `role_id == 1`; **no** exige fila en `staff_profile` |
 | `throttle:<limitador>` | Laravel | Límite de peticiones: `api` (120/min), `router-ops` (10/min), `bulk-ops` (5/min) |
-| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:` (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
+| *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:`, y **`Cache-Control: no-store` en toda respuesta HTML** (KAN-101: el documento del SPA con URL estable hacía que el navegador siguiera pidiendo los chunks viejos; `/build/assets` no pasa por PHP y conserva su caché) (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
 | *(api, prepend)* | `EnsureFrontendRequestsAreStateful` | Sanctum SPA |
 
 `trustProxies(at: '*')` está activo (necesario tras el balanceador de DigitalOcean).
 Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpers\ErrorMessages`.
+
+**Contrato de error bajo `api/*` (KAN-41 / KAN-97).** Dos renderizadores más en
+`withExceptions`: `AuthenticationException` devuelve **401 JSON** —antes se iba por
+`redirectGuestsTo('/')` y contestaba 302 al panel, que el cliente HTTP sigue hasta un 200 con
+HTML— y el resto de `HttpException` (403, 404, 405, 429) se serializa conservando sus
+cabeceras. El catch-all del SPA excluye `api`, igual que ya excluía `health`, y
+`routes/api.php` cierra con un fallback propio que distingue **404** (la URL no existe) de
+**405 + `Allow`** (existe, pero la API pública es de solo lectura). La API partner conserva su
+sobre `{error, message}`; la del panel usa `{success, message}`.
+
+**Salvaguarda de base de datos (KAN-95).** `DatabaseSafetyServiceProvider` y
+`App\Support\ProductionDatabaseGuard`: `DB_SCHEMA` ya no tiene valor por defecto —fuera de
+producción, sin ella la aplicación no arranca— y ningún comando de consola escribe en el
+esquema `public` de Supabase desde un entorno que no sea `production` sin confirmación
+tecleada. La decisión se toma sobre la configuración **resuelta**, nunca sobre `env()`.
 
 ### Servicios de dominio (`app/Services`)
 
@@ -235,8 +251,10 @@ Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpe
 | `OverdueSuspensionService` | 412 | Corte automático por mora según config del router |
 | `CustomerProvisioningService` | 338 | Aprovisionar un cliente según el **método de control** del router |
 | `RouterProvisioningService` | 218 | Suspender/reactivar en el router |
+| `ReconnectionPreflight` | 103 | ¿Se **puede** operar el equipo de este cliente? Se responde antes de abrir nada contra él |
 | `RouterPolicyInstallerService` | 151 | Instalar reglas de bloqueo en el router |
-| `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento) |
+| `InstallationBillingService` | 253 | Facturar la instalación (costo + adicionales − descuento). **No se llama** si la orden está marcada `no_charge` |
+| `PaymentMethodLinker` | 202 | Único criterio para enlazar un pago con su forma de pago del catálogo (`payment_method_id`): mismo tenant, nombre normalizado, coincidencia **única**. Lo usan el alta de pagos, la facturación de instalaciones, la migración y `payments:link-methods` (KAN-109) |
 | `PaymentReminderService` | 209 | Recordatorios de pago (email/WhatsApp): **un mensaje por cliente** con todas sus facturas pendientes |
 | `TrafficHistoryService` | 164 | Muestreo y agregación de tráfico WAN |
 | `VpnService` | 945 | Generación y verificación de scripts de túnel (WireGuard v7 · L2TP/IPSec v6) |
@@ -281,6 +299,100 @@ Las pantallas de **Entregas y traspasos** (`/inventory/transfers`) sí pueden mo
 cualquier custodio —recoger lo que un técnico no usó es su función— porque exigen
 `view_inventory` y el movimiento queda escrito. Lo que nunca se permite es *consumir* existencias
 ajenas en silencio.
+
+**4. Por dónde sale el inventario: la visita.** Hay dos puertas, y hasta el 2026-09-23 sólo
+estaba construida una.
+
+| Puerta | Tabla de líneas | Sentidos | Método del ledger |
+|---|---|---|---|
+| Orden de instalación | `installation_equipment` | sólo entrega | `assignDeviceToInstallation()` / `assignMaterialToInstallation()` |
+| **Ticket de soporte** | `ticket_equipment` | entrega **y retiro** | `assignDeviceToTicket()` / `assignMaterialToTicket()` / `returnDeviceFromTicket()` |
+
+La instalación sólo entrega: el cliente empieza sin nada. **La visita de soporte casi siempre
+cambia un equipo por otro**, y ése es el motivo de que `ticket_equipment` sea una tabla propia y
+no una columna más: lleva `direction` (`out` = se le dejó al cliente, `in` = se le retiró). Un
+cambio de router son dos líneas del mismo ticket.
+
+Antes de esto, el retiro no existía en **ninguna** parte del sistema. Un equipo que llegaba a
+`status = installed` sólo salía de ahí borrando la línea de la instalación, que es una corrección
+de captura y no un retiro: borraba la historia de la visita en la que se entregó. Y como en la
+práctica la mitad de los equipos se entregan en un ticket, lo que ocurría era que el técnico
+cobraba el router escribiendo la descripción a mano en «Cargo Asociado» y el aparato seguía
+figurando disponible en bodega para siempre.
+
+`canTakeFrom()` pasó a aceptar `CustomerInstallation|SupportTicket`: el «técnico asignado a la
+visita» es `technician_id` en una y `staff_id` en el otro, y la regla de custodia es la misma.
+`assertCanHandOverTo()` es su espejo para el sentido contrario —quien **recibe** el equipo
+retirado responde por él, así que nadie se lo mete en la mochila a otro técnico—.
+
+**El retiro tiene tres destinos, y el tercero no es un custodio.** Un equipo puede volver a la
+mochila del técnico, a una bodega, o **de baja** (`scrap`): volvió quemado y no vuelve a
+circular. La distinción no es cosmética — un aparato muerto devuelto a bodega cuenta como
+disponible y alguien lo va a prometer en la siguiente instalación. La baja no comprueba custodia
+(no hay nadie que responda por la chatarra) y escribe `baja` en el kardex en vez de `devolucion`.
+
+**Cargar un equipo no es cobrarlo.** La línea guarda `unit_price` congelado del catálogo y la
+interfaz ofrece «Cobrar equipo del ticket», que lo **precarga editable** en el formulario de
+cargo; facturar sigue siendo una decisión aparte, con su propio bloqueo por `no_charge`. Las
+líneas `in` nacen sin precio: un retiro no se cobra, y dejar ahí una cifra invitaría a
+arrastrarla al cargo por descuido.
+
+Efecto colateral que hubo que corregir para que el retiro sirviera de algo:
+`installation_equipment.device_id` era **único**, así que un equipo devuelto no se podía instalar
+nunca más en otro cliente. Hoy es un índice normal; el invariante real —un equipo no está en dos
+casas a la vez— lo sostiene `inventory_device.status`, que es una fila por aparato.
+
+**5. Planificar, usar y cobrar son tres actos distintos (2026-09-30, selector de inventario A).**
+
+| Acto | Dónde vive | ¿Mueve inventario? |
+|---|---|---|
+| **Planificar** al agendar/editar la orden | `installation_planned_items` (`InstallationPlanService`) | **No.** No descuenta, no reserva, no escribe kardex |
+| **Usar** en la visita | `installation_equipment` / `ticket_equipment` (`InventoryLedger`) | **Sí, una sola vez** |
+| **Cobrar** lo usado | adicionales de la cartera / cargo del ticket | **No.** Copia descripción y precio congelado |
+
+El plan referencia productos del catálogo del tenant (`stock_id`) y **congela** `label`, `unit` e
+`is_serialized` al crearse: renombrar o borrar el producto no reescribe lo planificado. La
+sincronización conserva las líneas por `id` (una línea reenviada sólo cambia cantidad y notas);
+borrar y recrear en cada guardado habría vuelto a copiar el nombre del catálogo de hoy. Se puede
+planificar más de lo que hay: el servidor lo acepta y devuelve `planning_warnings`, porque el
+saldo que manda es el del momento de usar, y ése lo vuelve a validar el ledger con permiso,
+origen y cantidad. El texto libre `customer_installations.equipment` se conserva para las
+órdenes anteriores y para lo que no está en el inventario.
+
+El catálogo de planificación (`GET /installations/planning-catalog`) muestra la disponibilidad
+**agregada del tenant**. Sin `view_inventory` no lleva precios ni el desglose por bodega o
+persona; la regla es `InventoryLedger::managesInventory()`, la misma que abre las bodegas.
+
+**Plan por modelo, uso por unidad.** Un producto serializado se planifica como modelo y cantidad;
+al usarlo se elige **una unidad concreta** (`device_id`) y la línea y el kardex guardan esa
+unidad y su serial. Nunca sale como «una cualquiera» del modelo ni como cantidad genérica: el
+servidor rechaza un `stock_id` serializado por la vía de materiales. Las pantallas distinguen
+dos cifras que no son la misma: **«en la empresa, para planificar»** (catálogo agregado) y
+**«a tu alcance, para registrar»** (lo que `/equipment/available` devuelve para ese usuario y esa
+orden o ticket, ya filtrado por las fuentes que puede tomar). El selector de unidades
+(`SerialDevicePicker.vue`) registra sólo con su botón; elegir en la lista o pulsar «Elegir serial»
+en el plan no mueve nada.
+
+**6. Un vacío se explica, no se esconde.** `InventoryAvailability::materialsStatus()` dice por
+qué la lista de consumibles de una orden o un ticket sale vacía: no hay productos «por
+cantidad», ninguno tiene saldo, o el saldo está en custodios de los que ese usuario no puede
+tomar (sólo el recuento, nunca dónde ni cuánto). Es un diagnóstico **general**: no identifica
+la causa de un producto concreto.
+
+**7. Lo que ya consumió inventario no se borra ni se cancela (P-69, bloqueo preventivo).**
+
+| Operación | Se rechaza si… | Respuesta |
+|---|---|---|
+| Borrar la orden | tiene líneas usadas, hoja firmada o factura | `409 installation_has_history` + `blocked_by` |
+| Cancelar la orden | tiene líneas usadas o está firmada | `422` en `status` |
+| Cargar o quitar líneas | la orden está firmada (y cargar, si está cancelada) | `422` en `installation` |
+| Entregar, consumir, retirar o revertir en un ticket | el ticket está en un estado terminal | `422 ticket_already_closed` |
+
+Además `CustomerInstallation` lanza en `deleting` si tiene líneas, igual que `TicketEquipment`:
+cubre un borrado por consola o por código. La cancelación **no** sugiere deshacer las líneas: el
+consumo es real, y «Quitar» (`releaseFromInstallation`) es la corrección de una captura
+equivocada antes de firmar, no una devolución. La conciliación y las correcciones auditadas
+después de la firma son la entrega B. El cobro de lo ya usado no depende del estado del ticket.
 
 ### Composición de la factura mensual
 
@@ -351,9 +463,78 @@ acto (`InstallationBillingService`). El resultado era una cuenta a medias — in
 cobrada, servicio no — y un prorrateo que el formulario le había mostrado al operador en
 la vista previa pero que no llegaba a existir.
 
-**Idempotencia.** No hay riesgo de doble cobro: la corrida mensual comprueba el solape de
-periodos (`monthlyInvoiceExists`) antes de crear nada, así que al llegar su día ve el mes
-ya facturado y lo salta.
+**Idempotencia.** La corrida mensual comprueba el solape de periodos
+(`monthlyInvoiceExists`) antes de crear nada, así que al llegar su día ve el mes ya
+facturado y lo salta. Esa comprobación **no basta sola** cuando dos caminos llegan a la vez;
+ver «Una mensualidad por cliente y mes» más abajo.
+
+#### Una mensualidad por cliente y mes (2026-10-01)
+
+La puerta es `BillingService::withMonthlyInvoiceLock()`. Abre una transacción, bloquea la fila
+de `customer_profile` del cliente (que es también donde vive `credit_balance`) y vuelve a
+buscar la mensualidad del mes **dentro** del bloqueo. Si la encuentra, lanza
+`App\Billing\MonthlyInvoiceAlreadyExists` sin escribir nada. `createMonthlyInvoiceFor()` la
+usa siempre; `billing:generate-tenant` también, aunque arma la factura con sus propias reglas.
+
+| Camino | Pasa por la puerta | Qué hace con `MonthlyInvoiceAlreadyExists` |
+|---|---|---|
+| Corrida mensual (scheduler, `POST /billing/run-monthly`) | Sí | La da por hecha: no la marca para reintento |
+| `retryFailedInvoice` | Sí | Cierra el log como éxito con la factura existente |
+| `issueFirstInvoiceOnSignup` | Sí | Omite la primera factura |
+| `applyMissingInvoicePlan` (reparación) | Sí | Bajo el bloqueo del lote no puede ocurrir; si el plan cambió, aborta antes |
+| `billing:generate-tenant` | Sí | La cuenta como «Already had the month» |
+| Factura manual / cargo con tipo `monthly` | **No** | — (P-86) |
+
+**La unicidad no es global**: no cubre una mensualidad creada a mano (P-86).
+
+El aviso al cliente sale con `DB::afterCommit`: después del commit de la transacción más
+externa. Un fallo de correo no deshace la factura, y un lote que se deshace no avisa.
+
+**Diagnóstico y reparación de faltantes.** `explainMonthlyInvoice()` recorre las mismas
+puertas que la corrida, en el mismo orden, sin escribir, y devuelve `missing`, `present`
+(puede estar anulada) o `not_applicable` con su motivo. `billing:missing-invoices` simula por
+defecto e imprime la huella del plan (`App\Billing\MissingInvoicePlan`).
+
+`applyMissingInvoicePlan()` sólo aplica un plan aprobado:
+
+- bloquea a todos los clientes del lote;
+- los re-evalúa bajo el bloqueo;
+- si la huella cambió en cualquier dato financiero o de fecha, lanza
+  `MissingInvoicePlanChanged` y no escribe nada.
+
+Una prueba fija que diagnóstico y corrida coincidan cliente por cliente, y otra
+(`MonthlyInvoiceConcurrencyPostgresTest`) prueba la exclusión con dos procesos reales sobre
+PostgreSQL.
+
+### La visita que no se le cobra al cliente (2026-09-21)
+
+Un mantenimiento o una garantía —se quema el router, el técnico lo cambia— consume
+inventario pero no genera ingreso. El equipo sale de la bodega y lo asume la empresa; el
+cliente no paga nada.
+
+`customer_installations.no_charge` y `support_ticket.no_charge` son la misma marca en los
+dos módulos por los que entra una visita, y cada uno la aplica donde emite dinero:
+
+| Módulo | Qué hace la marca |
+|---|---|
+| Orden de instalación | `CustomerInstallationController::updateBilling()` **salta** `InstallationBillingService`: se guarda la cartera (acuerdo, notas, retención) y no se emite ni se recalcula factura. La orden además no admite cifras |
+| Ticket de soporte | `POST /support/{id}/charge` responde 422. El cambio de la marca queda en `support_ticket_history` (`no_charge_changed`) |
+
+**Por qué una marca y no un catálogo de tipos de orden.** «Qué se fue a hacer» y «si se
+cobra» son dos preguntas distintas: hay mantenimientos que sí se cobran —el cliente rompió
+el equipo— y traslados regalados por retención. Atar el cobro al tipo obliga a desdoblar el
+catálogo en cuanto aparece la primera excepción, que aparece siempre. Un tipo de orden, si
+se pide, será una columna aparte que no entra en conflicto con ésta.
+
+**Por qué no se ponen las cifras en cero solas.** Borrar dinero en silencio es como se
+pierde la pista de un abono que el cliente sí entregó. Una orden con valores puestos se
+rechaza con un mensaje, y quien la marca decide qué hace con ellos. Es el mismo criterio
+que impide borrar facturas (§ *Anulación de facturas*): el dinero se anula, no se destruye.
+
+**El gasto del equipo regalado ya estaba contabilizado** —si el ISP encendió
+`inventory_entry_creates_expense`, al entrar el equipo al inventario— así que esta marca no
+crea ningún gasto nuevo: crearlo duplicaría el de la compra. La pantalla de la orden sí
+muestra el **costo interno** de la visita, sumando `installation_equipment.unit_price`.
 
 **Cuándo NO factura** (devuelve `null`, sin error, y deja el motivo en el log):
 
@@ -775,8 +956,11 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `billing:verify-monthly` | Auditoría de *no-show*: detecta routers que no facturaron |
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
+| `billing:reconcile-reconnections` | Reconcilia en el sentido inverso (reabre lo que la BD da por activo y el equipo no confirmó) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
 | `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
+| `billing:audit-books` | **Cierre de libros**: las catorce invariantes contables. Lector puro |
+| `billing:statement` | Extracto conciliable de un mes bajo todos los criterios, con el precio de cada diferencia |
 | `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos (arranca en dry-run) |
 | `vpn:verify-tunnels` | Alerta los routers sin túnel vivo contra el CORE |
 | `billing:send-reminders` | Recordatorios de pago |
@@ -791,6 +975,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences` | Repara secuencias de PostgreSQL desincronizadas |
 | `documents:migrate-to-s3 {--dry-run}` | Migra documentos locales a S3 |
+| `documents:audit-storage {--tenant=} {--show=50}` | **Solo lectura.** Lista los documentos de cliente sin archivo en S3, separa los anteriores al 2026-07-29 y no cuenta como perdido un error de consulta (P-9) |
 | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
 | `router:probe-overlay {id?} {--tenant=}` | Sondea la flota: ¿qué routers responden de verdad en su dirección del overlay? |
 
@@ -983,10 +1168,64 @@ corta, y es deliberado — el propio script de provisión abre TCP 22/8291/8728 
 gestión pero **no** abre ICMP, así que un cliente bien configurado con *drop* por defecto en
 el chain `input` no contesta ping y se administra sin problema.
 
+### Antes de marcar: ¿este router se puede gestionar? (2026-09-23)
+
+`Router::manageabilityIssue()` responde con una consulta a la base y sin tocar la red. Es la
+primera compuerta de `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()`,
+justo detrás de la de RADIUS.
+
+| Estado del router | Qué pasa |
+|---|---|
+| `radius = true` | Gestionable por delegación: no hay nada que escribirle |
+| Con credenciales **y** (IP **o** usuario de VPN) | Gestionable: sigue el camino normal |
+| Sin credenciales, o sin IP y sin VPN | **Se rechaza aquí**, con la razón escrita, y queda un log `failed` en `suspension_action_logs` |
+
+**Por qué importa dónde vive esta comprobación.** La reconexión automática al pagar
+(`BillingService::reactivateIfCleared()`) corre **dentro** de la petición HTTP que registra el
+pago. Contra un equipo sin configurar, esa llamada encadena dos sesiones SSH —la del
+resolver y la del `ssh-exec`— y espera los dos tiempos de espera completos; el gateway corta
+con un **504** y el cajero ve un error por un pago que **sí** se guardó, porque la transacción
+confirma antes. De ahí salían los cobros dobles: vuelve a cobrar «porque falló».
+
+`reactivateIfCleared()` comprueba lo mismo antes de llamar al servicio y, si el equipo no es
+gestionable, **no da al cliente por reactivado**: nadie le levantó el corte, así que sigue
+suspendido y la respuesta del pago lo dice. La salida es una decisión humana —el botón
+«Activar igualmente» del recaudo, que llama al endpoint de activación manual de siempre y
+queda en `audit_logs` con su autor— y no un automatismo que mienta sobre el estado del
+servicio.
+
 **Escapado de comandos:** el comando interno usa comillas planas `"` (no `\"`), y una
 única capa de `addslashes()` la aplica `coreSshExecCommand()`. Todo *statement* va
 envuelto en `:do {} on-error={}` y delimitado con centinelas `ISP_BEGIN`/`ISP_FAIL`/`ISP_END`
 para poder distinguir un fallo real de una salida vacía.
+
+**La contraseña se escapa aparte, y con tres caracteres** (2026-09-22). Viaja dentro de una
+cadena entrecomillada de RouterOS, donde `\` escapa, `$` interpola una variable y `"` cierra
+la cadena. Hasta este cambio sólo se neutralizaban las comillas, así que una clave con `\` o
+con `$` llegaba deformada al cliente y volvía como `authentication failure` — idéntica a una
+credencial equivocada, y por eso irresoluble desde el panel. Lo hace un único `strtr()`:
+encadenar `str_replace()` volvería a escapar las barras que introdujo el reemplazo anterior.
+
+#### Los tres desenlaces de un `ssh-exec`, y por qué se distinguen
+
+`DetectsSshExecFailures` clasifica la salida antes de que ningún manager la interprete. Los
+tres casos terminan en «no se cargó al router», pero mandan a sitios distintos:
+
+| Salida del CORE | Qué pasó | Dónde está el remedio |
+|---|---|---|
+| `<connection failed>`, `action timed out`, `connection refused` | La sesión SSH **no se abrió**. En el cliente no corrió nada | IP overlay obsoleta, puerto SSH, `available from` del servicio |
+| `authentication failure` | La sesión se abrió y el cliente **rechazó la clave**. Tampoco corrió nada | Credenciales del router en ISPWatch, `address=` del usuario de RouterOS, o la IP ahora es de otro equipo |
+| `bad parameter`, `no such item`, `exit-code ≠ 0` | El cliente ejecutó y **rechazó el comando** | El plan/perfil, el nombre de la cola, la sintaxis |
+
+El del medio es el que se añadió el 2026-09-22, y hasta entonces caía en el tercer cajón:
+la palabra «failure» hace match con el vocabulario de error genérico, así que un rechazo de
+credenciales se reportaba como «no se pudo crear/actualizar la queue» y mandaba al operador a
+revisar una cola que nunca se llegó a intentar.
+
+**La trampa del segundo caso** —y la razón de que el mensaje la nombre explícitamente— es que
+la sesión la abre **el CORE desde su IP overlay**, no ISPWatch. Un usuario de RouterOS
+restringido con `address=` a la IP vieja rechaza la contraseña **correcta**, mientras esa
+misma contraseña entra sin problema desde el portátil del operador.
 
 **El tiempo de espera es parte del contrato, no un detalle.** El primer salto
 (APP→CORE) es rápido; el segundo (CORE→RB) incluye un *handshake* SSH completo
@@ -1133,6 +1372,84 @@ devuelve al cajero en la respuesta del pago (`reactivation.router_ok = false`).
 El aviso **previo** al cobro lo sirve `suspensionStatusFor()`, que evalúa exactamente las
 mismas dos señales para que el aviso y la acción no puedan contradecirse.
 
+### El desenlace de la reconexión: por qué es un código y no un booleano
+
+Corolario del apartado anterior. Si la BD se corrige aunque el equipo no confirme, entonces
+**«el cliente quedó activo» y «el servicio está arriba» son dos afirmaciones distintas**, y el
+sistema las estaba devolviendo como una sola: tres booleanos y un texto libre. Esa forma no
+permite decir *por qué* no se reconectó — y en el caso de un cliente sin router asignado
+devolvía, literalmente, éxito (§ 72 de `BITACORA_TECNICA.md`).
+
+```
+registerPayment()                    ← transacción: pago + asignación a facturas
+        │ commit
+        ▼
+reactivateIfCleared()                ← nunca lanza; el pago ya está guardado
+        │
+        ├── ¿cortado? ¿sin vencidas?  → si no: no_aplica / ya_reactivado
+        │
+        ▼
+attemptReconnection()
+        │
+        ├── ReconnectionPreflight    ← ¿se PUEDE operar este equipo?
+        │     router asignado · configurado en la sede · activo y sin falla
+        │     general · con credenciales · IP del cliente · dirección a la que discar
+        │        └── si algo falta → pendiente_* SIN tocar el equipo
+        │
+        ├── Cache::lock por cliente  ← una reconexión por servicio a la vez
+        │     └── RouterProvisioningService::unsuspendCustomer()
+        │             true  → reactivado_automaticamente
+        │             false → pendiente_error_mikrotik
+        ▼
+recordReconnectionOutcome()          ← estampa el motivo en suspension_action_logs
+```
+
+**Tres piezas nuevas**, ninguna con tabla propia:
+
+| Pieza | Responsabilidad |
+|---|---|
+| `App\Support\ReconnectionOutcome` | El vocabulario cerrado: 8 códigos, cada uno con su motivo legible y su acción recomendada. Sin IPs ni credenciales: se pinta en pantalla |
+| `App\Services\ReconnectionPreflight` | Decide si el equipo es operable **antes** de abrir nada contra él |
+| `suspension_action_logs.outcome` | Dónde persiste el motivo. Columna nueva en la tabla que ya llevaba el ciclo de cortes |
+
+**Por qué el preflight va antes y no después.** «Sin router asignado» y «el router respondió con
+error» tienen responsables y soluciones distintas, y después del hecho son indistinguibles:
+lanzar un SSH contra una dirección vacía vuelve como un timeout genérico, que el operador lee
+como «el equipo está caído» y se va a auditar un router que está perfectamente.
+
+**Por qué no hay tabla nueva.** El ciclo corte/reconexión ya vive entero en
+`suspension_action_logs` (acción, estado, intentos, backoff, error). Lo que faltaba era el
+*motivo* en un vocabulario que se pueda contar y filtrar; `reason` responde otra pregunta y
+`error_message` es texto libre del RouterOS. Su `router_id` ya era nullable, así que el caso que
+no dejaba ningún rastro —cliente sin equipo asignado— por fin queda escrito.
+
+#### La misma pregunta, en las seis puertas (2026-09-23)
+
+El preflight protege el camino del **pago**. Pero a empujar algo al router se entra por seis
+puertas —el panel (activar y suspender), el reintento manual de un log fallido, el corte
+automático por mora, el reconciliador y la reactivación al pagar— y las otras cinco seguían
+marcando a ciegas: contra un equipo sin credenciales, la sesión SSH no falla, **espera**, y se
+lleva el tiempo de espera completo.
+
+Por eso `RouterProvisioningService::suspendCustomer()` y `unsuspendCustomer()` —el punto por el
+que pasan las seis— hacen la comprobación justo detrás de la de RADIUS, y devuelven `false` con
+la razón escrita en `suspension_action_logs` sin abrir nada.
+
+**Qué necesita un router para ser operable lo define `Router::manageabilityIssue()`, y lo define
+una sola vez.** `ReconnectionPreflight` delega ahí esa parte en vez de repetir la lista de
+campos: dos definiciones de lo mismo empiezan iguales y terminan distintas, y la que se queda
+corta es siempre la que nadie recuerda actualizar. Lo que el preflight **no** delega es el
+motivo que viaja al navegador, que sigue siendo el código cerrado de `ReconnectionOutcome` y
+nunca el texto que nombra qué campo falta.
+
+**Dos candados contra reconexiones simultáneas** del mismo servicio: uno en el endpoint de
+reintento (`409` si ya hay una corriendo) y otro dentro del intento. Dos procesos escribiendo la
+misma lista del RouterBoard es la carrera que produce falsos positivos.
+
+La alerta **persiste** mientras el problema siga abierto: `pendingReconnectionFor()` la sirve
+desde el log y la pinta la ficha del cliente, no sólo la pantalla del cobro. Se apaga sola
+cuando un reintento cierra el caso.
+
 ---
 
 ## 9. Multi-tenancy
@@ -1163,6 +1480,33 @@ el test falla si alguna deja de ser cierta:
 | `CustomerProfile` | Su frontera la pone el `User`: toda lectura del perfil va precedida de `User::where('tenant_id', …)->findOrFail($id)`. Su columna `tenant_id` existe como insumo de RLS, no como filtro de aplicación. |
 | `BulkProvisionRun` | Los jobs en cola leen y escriben la corrida sin sesión; el filtrado se hace explícito en el controlador. |
 | `Billing` | Sólo se llega por `router.billing_router_id`, y `Router` sí lleva scope. Sus filas antiguas tienen `tenant_id NULL`, así que activarlo escondería la configuración de cobro. Deuda anotada. |
+
+### El otro lado del mismo problema: la ESCRITURA (KAN-110, 2026-09-29)
+
+El *global scope* protege las **lecturas** y los `findOrFail`. No protege una escritura que
+trae el `tenant_id` puesto: el hook `creating` de `BelongsToTenant` sólo rellena la columna
+**cuando viene vacía**, así que un `tenant_id` del cuerpo se respeta sin más.
+
+Eso es lo que pasó en `POST /billing/payments`: el controlador armaba el payload con
+`$request->all()`, el `tenant_id` del cuerpo sobrevivía hasta `Payment::create()`, y la regla
+`customer_id => exists:users,id` —sin acotar por tenant— dejaba pasar además un cliente ajeno.
+Con dos campos del cuerpo se creaba un pago completo en otro operador. `Payment` **sí** tiene
+el scope; no sirvió de nada, porque el scope filtra lo que se lee, no lo que se escribe.
+
+Dos reglas que salen de ahí, aplicables a cualquier endpoint de alta:
+
+1. **El `tenant_id` se sobrescribe desde la sesión después de leer el cuerpo**, no se valida.
+   Validar que coincida obliga a decidir qué hacer cuando no coincide; sobrescribirlo hace que
+   la pregunta no exista. Cuando el valor recibido difiere, se registra una advertencia — un
+   cliente legítimo manda el suyo y siempre coincide, así que una diferencia es señal.
+2. **Toda clave foránea a una entidad con dueño se valida acotada al tenant.** `exists:tabla,id`
+   a secas es una comprobación de existencia, no de pertenencia. El patrón del proyecto es
+   `Rule::exists('tabla', 'id')->where('tenant_id', $request->user()?->tenant_id)`, que acota
+   en la misma consulta y no se puede olvidar en un segundo paso.
+
+La segunda regla importa especialmente con `User` y `CustomerProfile`, que están en la tabla
+de excepciones de arriba: al no tener scope automático, **cada** referencia a un cliente desde
+otro módulo tiene que acotarse a mano.
 
 ### Por qué la frontera no puede quedarse en esta capa
 
@@ -1200,18 +1544,28 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 
 | Frecuencia | Comando | Notas |
 |---|---|---|
-| Cada hora | `billing:generate-monthly` | `withoutOverlapping`; el gate de día **y hora** está dentro del servicio |
+| Cada hora | `billing:generate-monthly` | `withoutOverlapping(55)`; el gate de día **y hora** está dentro del servicio |
 | Cada hora | `billing:retry-failed` | Sólo procesa filas con `next_retry_at` vencido |
 | Cada hora | `billing:auto-cut` | Gate por `cut_day` + `cut_time` de cada router |
 | Cada hora | `billing:reconcile-suspensions` | Failover DB ⇄ RouterBoard |
-| Cada hora | `billing:send-reminders` | `withoutOverlapping`; idempotente por ciclo |
+| Cada hora | `billing:reconcile-reconnections` | Failover de reconexiones (P-29) |
+| Cada hora | `billing:send-reminders` | `withoutOverlapping(55)`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
-| Diario 08:00 | `billing:verify-orphan-payments` | Auditoría de caja: `pagos == aplicado + saldo a favor` |
+| Diario 08:00 | `billing:verify-orphan-payments` | Auditoría de caja: `pagos == aplicado + ganado` (ver § libros) |
+| Diario 08:30 | `billing:audit-books --mail --warnings-ok` | Cierre de libros. Sólo los **críticos** mandan correo: un aviso diario acabaría silenciando el comando entero |
 | Diario 09:00 | `contracts:remind-unsigned` | **Un solo** aviso por enlace de firma, a las 24 h. Insistir a diario acabaría marcando como spam el dominio del ISP, y con él las facturas y los avisos de corte |
-| Cada 30 min | `vpn:verify-tunnels` | Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
-| Cada 5 min | `traffic:collect` | Sólo routers con `historial_trafico = true` |
+| Cada 30 min | `vpn:verify-tunnels` | `withoutOverlapping(25)`. Salud del túnel por router (`last-handshake` WireGuard / `/ppp active` L2TP) |
+| Cada 5 min | `traffic:collect` | `withoutOverlapping(4)`. Sólo routers con `historial_trafico = true` |
 | Diario | `traffic:prune --days=30` | Conserva los agregados diarios |
+
+**Candados de solapamiento: siempre con vencimiento menor que el intervalo.** El candado de
+`withoutOverlapping` vive en `cache_locks` y sólo se suelta cuando la tarea termina. Si el proceso
+muere a mitad —el `worker` que aloja al planificador se recicla cada hora y en cada despliegue—, el
+candado se queda. Con el valor por defecto de Laravel (1440 min), la tarea no volvía a correr hasta
+el día siguiente, y así salió tarde la facturación de octubre (BITACORA § 89). Con un vencimiento
+menor que el intervalo, una corrida muerta cuesta como mucho un tick. `ScheduledTaskLockExpiryTest`
+lo exige a toda tarea agendada.
 
 **Diseño de idempotencia y recuperación:** los comandos horarios no dependen de
 ejecutarse en el minuto exacto. `generate-monthly` comprueba `today->day >= create_day`,
@@ -1405,6 +1759,10 @@ de instalación.
   (llave, tenant, ruta, IP, código, milisegundos, motivo del rechazo). El logging
   nunca lanza: un fallo de auditoría no puede tumbar la petición del cliente.
 - `api-keys:prune-logs` corre a diario (03:30) y conserva 90 días.
+- `api-keys:expiring` corre a diario (08:30). Avisa por correo, **una vez por llave**
+  (`expiry_notified_at`), de las llaves vivas que vencen en 7 días. Los destinatarios son
+  `api_clients.contact_email` y `api_keys.self_service.notify_email`. Omite las integraciones
+  que ya rotaron a una llave que dura más (P-KEYS-1, KAN-43).
 - El cubo de rate limit es **propio del token**, no compartido con el limitador
   general de la API: el consumo del integrador no puede comerse la capacidad que
   el personal del ISP necesita para cobrar y reconectar.
@@ -1486,6 +1844,48 @@ Los tipos del esquema se verificaron **contra la base de producción**, no contr
 los modelos: los importes son cadenas (`"85000.00"`, PostgreSQL entrega `numeric`
 como texto), `plan.speed_down` es texto (`"10M"`) y `plan.price` es entero. Un
 esquema escrito leyendo los controladores habría sido verosímil y equivocado.
+
+### 14.8 El feed de cambios: cobertura y publicación en serie
+
+**Añadido:** 2026-09-30 (KAN-111 a KAN-115) · Contrato 1.1.0
+
+El feed (`partner_events`) es una **bandeja de salida transaccional**: el evento se
+inserta dentro de la misma transacción que el cambio que lo origina, así que no
+puede existir un evento de un cambio revertido ni un cambio confirmado sin su
+evento. Lo que se publica hacia afuera no es el `id` sino `seq`:
+
+```
+cambio de negocio ─┬─ UPDATE customer_profile ...
+   (transacción)   └─ INSERT partner_events (seq = NULL)      ← PartnerEventObserver
+                           │   / recordMany()
+                        COMMIT
+                           │
+lector partner ──► PartnerEventSequencer::publishPending()
+   (/events,           │  lock consultivo (pgsql) · sólo filas confirmadas
+    /customers,        │  UPDATE ... SET seq = id + desplazamiento
+    /services)         ▼  (una sentencia, por encima del máximo publicado)
+                    SELECT ... WHERE seq > :since ORDER BY seq
+```
+
+| Decisión | Por qué |
+|---|---|
+| Cursor sobre `seq` y no sobre `id` | El `id` se toma al insertar y las transacciones confirman en cualquier orden. Con la carga masiva de actualización (una sola transacción de minutos) un cursor sobre `id` se saltaba para siempre los eventos que confirmaban tarde |
+| El insert sigue dentro de la transacción de negocio | Escribir el evento en `afterCommit` resolvía el orden pero perdía atomicidad: una caída entre el commit y el insert es un evento perdido, y el contrato es "al menos una vez" |
+| No se filtra por `xid`/`pg_snapshot_xmin` | Sólo existe en PostgreSQL (la suite corre en SQLite) y obligaba a cambiar el formato del cursor del contrato |
+| Se publica **al leer**, no con un proceso aparte | Lo no publicado es invisible y quien lee lo publica, así que el feed es correcto sin depender del planificador ni de una cola. Sin pendientes cuesta una consulta por índice |
+| `seq = id + desplazamiento` en un solo UPDATE | Numera cualquier cantidad de filas con una sentencia, portable a los dos motores. Deja huecos, que el contrato ya admitía |
+| El rango se acota por abajo con el `id` mínimo pendiente | Una fila de id menor que confirme entre el SELECT y el UPDATE recibiría un `seq` por debajo del ya publicado. Queda para la siguiente corrida |
+| Backfill `seq = id` en la migración | Los cursores y revisiones que ya tenían los integradores siguen significando lo mismo |
+
+**Quién emite qué.** `PartnerEventObserver` cubre todo lo que pasa por Eloquent
+(`CustomerProfile`, `UserService` y, desde KAN-114, `Router`). Lo que no pasa por
+Eloquent emite a mano con `PartnerEvent::recordMany()`, en inserciones por bloque:
+la carga masiva de clientes (`CustomersSheetImport`) y el cambio de modo RADIUS de
+un router, que afecta a todos sus clientes sin tocar sus filas.
+
+**Listados por cursor.** `PartnerController::listing()` pagina por `id > after_id`
+cuando el integrador manda `after_id`, y por página si no. Con borrado físico de
+clientes, OFFSET corre la paginación y salta filas sin error; el cursor no.
 
 ---
 

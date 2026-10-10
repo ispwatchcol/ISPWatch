@@ -245,6 +245,18 @@ class QueueManager
                 ];
             }
 
+            // El CORE llegó y el router rechazó la clave: no corrió nada, pero la
+            // causa y el remedio son otros. Va ANTES del error genérico porque
+            // «authentication failure» hace match con la palabra «failure».
+            if ($output && $this->isSshExecAuthFailure($output)) {
+                $this->logProvisionStep('QueueManager', 'queue_add_set_end', ['target' => $targetIp, 'outcome' => 'auth_failure'], $stepStart);
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecAuthFailureMessage($clientIp, $output, $clientSshPort),
+                ];
+            }
+
             // Empty stdout means the nested SSH never reported back. Reporting
             // that as success tells the operator the queue is loaded while the
             // router never received it.

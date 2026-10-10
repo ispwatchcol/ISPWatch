@@ -3,7 +3,10 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\QueryException;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Illuminate\Support\Facades\Route;
 use App\Helpers\ErrorMessages;
 use App\Support\DatabaseFailure;
@@ -66,6 +69,62 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // ── Contrato de la API: responder JSON aunque falte el Accept ──────
+        //
+        // KAN-41 (P-30) y su gemelo KAN-97 (P-41). Un cliente de API que no
+        // manda `Accept: application/json` —curl, Postman recién abierto, un
+        // integrador nuevo— recibía una REDIRECCIÓN 302 al panel cuando su
+        // llave era inválida, porque `redirectGuestsTo('/')` se aplica a todo.
+        // Un 302 a HTML no se parece en nada a "tu credencial no sirve": el
+        // integrador ve un 200 con la página de login al seguir el redirect y
+        // cree que su llave funciona.
+        //
+        // La regla es la misma para toda la familia: bajo `api/*` el contrato
+        // es JSON, lo pida el cliente o no.
+        $exceptions->render(function (AuthenticationException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            // La API partner tiene su propio sobre {error, message}, el mismo
+            // que usa EnsureApiKeyRequest para los demás rechazos. Cambiarlo
+            // aquí obligaría al integrador a distinguir dos formatos según qué
+            // capa lo rechazó.
+            if ($request->is('api/v1/partner*')) {
+                return response()->json([
+                    'error'   => 'invalid_credentials',
+                    'message' => 'Se requiere una llave de API (Bearer token).',
+                ], 401);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'No autenticado.',
+            ], 401);
+        });
+
+        // El resto de los errores HTTP bajo `api/*`: 404 de una ruta que no
+        // existe, 403 de un `abort()`, 405 de un verbo equivocado, 429 del
+        // limitador. Sin esto, cualquiera de ellos devuelve la página de error
+        // en HTML a quien no mandó el Accept.
+        $exceptions->render(function (HttpExceptionInterface $e, Request $request) {
+            if (! $request->is('api/*') || $request->expectsJson()) {
+                return null;
+            }
+
+            $message = method_exists($e, 'getMessage') && $e->getMessage() !== ''
+                ? $e->getMessage()
+                : 'La petición no pudo ser atendida.';
+
+            $body = $request->is('api/v1/partner*')
+                ? ['error' => 'http_error', 'message' => $message]
+                : ['success' => false, 'message' => $message];
+
+            // Las cabeceras del error son parte de la respuesta: Retry-After en
+            // un 429 y Allow en un 405 le dicen al cliente qué hacer después.
+            return response()->json($body, $e->getStatusCode())->withHeaders($e->getHeaders());
+        });
+
         // Handle database exceptions with user-friendly messages
         $exceptions->render(function (QueryException $e, $request) {
             $infrastructure = DatabaseFailure::isInfrastructure($e);

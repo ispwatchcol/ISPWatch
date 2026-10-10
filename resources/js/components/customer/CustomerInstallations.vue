@@ -35,8 +35,11 @@
             class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             <option value="pendiente">Pendiente</option>
             <option value="completada">Completada</option>
-            <option value="cancelada">Cancelada</option>
+            <option value="cancelada" :disabled="!!form.cancel_blocked && form.original_status !== 'cancelada'">Cancelada</option>
           </select>
+          <p v-if="form.cancel_blocked && form.original_status !== 'cancelada'" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            {{ form.cancel_blocked }}
+          </p>
         </div>
 
         <!-- Técnico -->
@@ -53,10 +56,13 @@
             class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
 
-        <!-- Equipo -->
+        <!-- Equipo: plan con productos del inventario + texto libre -->
         <div class="sm:col-span-2">
-          <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales</label>
-          <input v-model="form.equipment" type="text" placeholder="Ej: Router TP-Link, cable UTP 20m, antena sectorial"
+          <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Equipo / Materiales previstos</label>
+          <InstallationPlanEditor v-model="form.planned_items" :disabled="form.is_signed"
+            disabled-reason="La orden ya está firmada: el plan queda como estaba." />
+          <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mt-3 mb-1">Notas de equipo (texto libre)</label>
+          <input v-model="form.equipment" type="text" maxlength="255" placeholder="Opcional: lo que no esté en el inventario"
             class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
 
@@ -65,6 +71,24 @@
           <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones</label>
           <textarea v-model="form.notes" rows="3" placeholder="Notas adicionales para la instalación..."
             class="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
+        </div>
+
+        <!-- Visita que no se le cobra al cliente -->
+        <div class="sm:col-span-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input v-model="form.no_charge" type="checkbox"
+              class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+            <span>
+              <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+              <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                Mantenimiento o garantía. Los equipos se descuentan igual del inventario y siguen siendo
+                gasto de la empresa, pero esta orden no genera factura.
+              </span>
+            </span>
+          </label>
+          <input v-if="form.no_charge" v-model="form.no_charge_reason" type="text" maxlength="255"
+            placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+            class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
         </div>
       </div>
 
@@ -105,6 +129,11 @@
               <span :class="statusBadge(inst.status)" class="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase">
                 {{ inst.status }}
               </span>
+              <span v-if="inst.no_charge"
+                :title="inst.no_charge_reason || 'Esta orden no se le cobra al cliente'"
+                class="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                Sin cobro
+              </span>
               <span class="text-sm font-semibold text-gray-800 dark:text-white">
                 {{ formatDate(inst.scheduled_date) }}
               </span>
@@ -124,11 +153,11 @@
                 </svg>
                 {{ inst.address }}
               </div>
-              <div v-if="inst.equipment" class="sm:col-span-2 flex items-start gap-1.5">
+              <div v-if="equipmentSummary(inst)" class="sm:col-span-2 flex items-start gap-1.5">
                 <svg class="w-3.5 h-3.5 shrink-0 text-gray-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
                 </svg>
-                {{ inst.equipment }}
+                {{ equipmentSummary(inst) }}
               </div>
               <div v-if="inst.notes" class="sm:col-span-2 text-gray-500 dark:text-gray-400 text-xs italic mt-1">
                 {{ inst.notes }}
@@ -146,8 +175,9 @@
               class="text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-3 py-1.5 rounded-lg transition font-medium">
               Editar
             </button>
-            <button @click="removeInstallation(inst)"
-              class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-3 py-1.5 rounded-lg transition font-medium">
+            <button @click="removeInstallation(inst)" :disabled="!!deleteBlockedReason(inst)"
+              :title="deleteBlockedReason(inst) || 'Eliminar la orden'"
+              class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-3 py-1.5 rounded-lg transition font-medium disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">
               Eliminar
             </button>
           </div>
@@ -175,6 +205,14 @@
 import { ref, onMounted } from 'vue'
 import api from '@/services/api'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
+import InstallationPlanEditor from '@/components/InstallationPlanEditor.vue'
+import {
+  equipmentSummary,
+  deleteBlockedReason,
+  cancelBlockedReason,
+  planPayload,
+  copyPlan,
+} from '@/utils/installationPlan'
 
 const props = defineProps({
   customerId: { type: [String, Number], required: true },
@@ -194,8 +232,14 @@ const emptyForm = () => ({
   technician: '',
   address: '',
   equipment: '',
+  planned_items: [],
   notes: '',
   status: 'pendiente',
+  original_status: null,
+  cancel_blocked: '',
+  is_signed: false,
+  no_charge: false,
+  no_charge_reason: '',
 })
 
 const form = ref(emptyForm())
@@ -221,8 +265,14 @@ const openForm = (inst = null) => {
       technician: inst.technician ?? '',
       address: inst.address ?? '',
       equipment: inst.equipment ?? '',
+      planned_items: copyPlan(inst),
       notes: inst.notes ?? '',
       status: inst.status,
+      original_status: inst.status,
+      cancel_blocked: cancelBlockedReason(inst),
+      is_signed: !!inst.is_signed,
+      no_charge: !!inst.no_charge,
+      no_charge_reason: inst.no_charge_reason ?? '',
     }
   } else {
     editing.value = null
@@ -245,17 +295,28 @@ const saveForm = async () => {
   }
   saving.value = true
   try {
+    // Sólo lo que el servidor espera: los campos de apoyo de la pantalla
+    // (estado original, motivo de bloqueo) no viajan.
+    const { original_status, cancel_blocked, is_signed, ...campos } = form.value
+    const payload = { ...campos, planned_items: planPayload(form.value.planned_items) }
+
+    let data
     if (editing.value) {
-      await api.customers.updateInstallation(editing.value, form.value)
+      ({ data } = await api.customers.updateInstallation(editing.value, payload))
       emit('notify', { type: 'success', title: 'Actualizada', message: 'Orden de instalación actualizada.' })
     } else {
-      await api.customers.createInstallation(props.customerId, form.value)
+      ({ data } = await api.customers.createInstallation(props.customerId, payload))
       emit('notify', { type: 'success', title: 'Creada', message: 'Orden de instalación creada correctamente.' })
     }
+    // Planificar más de lo disponible se permite: el aviso informa, no bloquea.
+    const avisos = data?.planning_warnings ?? []
+    if (avisos.length) emit('notify', { type: 'info', title: 'Revisa el plan', message: avisos.join(' ') })
     closeForm()
     await loadInstallations()
   } catch (err) {
-    const msg = err.response?.data?.message || 'Error al guardar la orden.'
+    const errors = err.response?.data?.errors
+    const first  = errors ? Object.values(errors)[0]?.[0] : null
+    const msg = first || err.response?.data?.message || 'Error al guardar la orden.'
     formError.value = msg
     emit('notify', { type: 'error', title: 'Error', message: msg })
   } finally {
@@ -278,8 +339,10 @@ const confirmDelete = async () => {
     emit('notify', { type: 'success', title: 'Eliminada', message: 'Orden de instalación eliminada.' })
     deleteTarget.value = null
     await loadInstallations()
-  } catch {
-    emit('notify', { type: 'error', title: 'Error', message: 'No se pudo eliminar la orden.' })
+  } catch (err) {
+    // El servidor dice qué historial se perdería (líneas, firma, factura).
+    emit('notify', { type: 'error', title: 'No se eliminó', message: err.response?.data?.message || 'No se pudo eliminar la orden.' })
+    deleteTarget.value = null
   } finally {
     deleting.value = false
   }

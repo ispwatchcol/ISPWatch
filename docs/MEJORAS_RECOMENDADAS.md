@@ -490,6 +490,10 @@ facturación lleva meses saliendo— pero con tres costes:
    conviene hacerlo pronto.**
 3. **Dos procesos en 0,5 GB.** Compiten por memoria; un pico de la cola puede llevarse por
    delante al planificador.
+4. **El reciclaje horario mata tareas a mitad de corrida** (añadido 2026-10-02, § 89). Con el
+   candado de 24 h de `withoutOverlapping()`, eso dejaba la tarea un día entero sin correr: así
+   salió tarde la facturación de octubre. El candado ya está acotado (P-87). Separar el
+   componente baja la frecuencia de esos asesinatos, pero los despliegues lo siguen matando.
 
 El componente `scheduler` ya está definido en `.do/deploy.template.yaml`. Separarlo es el
 arreglo de fondo, sin urgencia una vez que el latido está desplegado.
@@ -611,6 +615,8 @@ Prerrequisitos de datos ya resueltos: `customer_profile.tenant_id` (migración
 
 ### 🟡 P-RLS-2 · `Billing` sin global scope hasta verificar el backfill
 
+> **2026-10-06 · KAN-121:** la falta de scope **sí** era explotable. `GET` y `PUT /api/billing/configs` no filtraban por tenant: un usuario con `view_billing` leía las configuraciones de todos los ISP y modificaba la de otro, incluidos los días de facturación y de corte. Se corrigió con un filtro en el controlador que también reconoce las filas antiguas con `tenant_id` NULL por su router (bitácora § 110). El scope global sigue pendiente, a la espera de verificar el backfill.
+
 `Billing` es la única excepción de la lista que no es estructural, sino de datos: su
 `tenant_id` quedó en NULL en las filas anteriores a que `RouterController` lo poblara.
 Activarle el scope antes de confirmar que no quedan NULL **escondería la configuración de
@@ -665,6 +671,12 @@ se puede cubrir en código; lo que queda es lo que el código no puede decidir:
    `api-keys:expiring` que avise por correo con una semana de margen es trabajo pequeño y
    evita ese corte.
 
+   > **Hecho 2026-10-05 (KAN-43), solo el vencimiento** (bitácora § 99). El comando existe,
+   > corre a diario a las 08:30 y avisa una vez por llave. **Sigue pendiente** la otra mitad:
+   > avisar de las llaves que llevan 60 días sin usarse. Los puntos 1 a 3 siguen como están:
+   > el 3 es configuración de producción (`API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`). Sin él, el
+   > aviso solo llega al contacto de la integración.
+
 ### 🟡 P-RADIUS-1 · El snapshot de respaldo puede reconectar a un cortado reciente
 
 **Deuda aceptada conscientemente**, no un descuido. Ver § 32.3 de la bitácora.
@@ -703,6 +715,31 @@ que `BillingService::notifyInvoiceCreated()` consulte antes que la del cliente, 
 precedencia grupo → cliente. Es chico, pero toca el camino de facturación: va con test que
 cubra las cuatro combinaciones.
 
+### ✅ P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa — RESUELTO 2026-10-05 (KAN-102)
+
+> **Resuelto** en la bitácora § 92: con `radius = true`, `ip`, `user_rb`, `password_rb` y
+> `firmware_version` son opcionales al crear y se pueden vaciar al editar; al salir de RADIUS
+> se exigen si el router no los tiene guardados. `status` sigue siendo obligatorio. El Centro de
+> Ayuda se corrigió con la migración `2026_10_05_100000`. Lo de abajo queda como contexto.
+
+Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 75 de la bitácora).
+
+Con `radius = true`, ISPWatch no abre una sola sesión contra el equipo. Aun así,
+`StoreRouterRequest` y `UpdateRouterRequest` siguen exigiendo `ip` (con formato de IP
+válido), `user_rb`, `password_rb` y `firmware_version`. El provisioning ya los ignora
+—`CustomerProvisioningService` se salta el pre-check de credenciales para routers RADIUS—,
+así que la validación pide datos que ninguna ruta del sistema va a leer.
+
+Muerde justo en el caso que el modo habilita: usar routers como **agrupadores lógicos**
+sin Mikrotik detrás. El operador tiene que inventarse una IP y unas credenciales para poder
+guardar. Hoy el manual lo explica ("puedes poner valores de relleno"), que es documentar el
+síntoma.
+
+**Recomendación.** Hacerlos condicionales al método ya normalizado. El trait
+`NormalizesRouterControlMode` expone `normalizedControlMode()` precisamente para esto, y su
+comentario ya anticipaba el caso. Cuidado con el orden: la normalización corre en
+`prepareForValidation()`, así que la regla condicional ve el modo definitivo. Va con test de
+que un router RADIUS guarda con esos campos vacíos y uno no-RADIUS los sigue exigiendo.
 ### 🟡 P-RADIUS-2 · Doble contabilidad de tráfico sin fuente autoritativa
 
 `radius_sessions` (octetos por sesión, vía Accounting) y el historial WAN existente
@@ -714,7 +751,22 @@ recibir llamadas por dos números distintos en dos pantallas de la misma app.
 
 ### 🔴 P-00 · 91 clientes con dinero recibido que no respalda nada (producción)
 
-Detectado el 2026-08-13 con el comando nuevo `billing:verify-orphan-payments`, que comprueba
+> ⚠️ **La cifra de abajo está inflada y hay que volver a medirla (2026-09-22).** Se obtuvo con
+> la versión del comando que comparaba contra `credit_balance`, el **saldo actual**. Aplicar
+> saldo a favor a una factura baja `balance_due` y baja el saldo **sin crear asignación**, así
+> que ese dinero salía de los dos términos de la resta: el informe **denunciaba a todo cliente
+> que alguna vez hubiera gastado su saldo**, por el importe exacto que gastó. El tercer término
+> correcto es lo **ganado** (`earned − reversed`), y así está ya el comando (§ 76).
+>
+> **Antes de tocar un solo peso**, volver a correr:
+> ```
+> php artisan billing:verify-orphan-payments --limit=100
+> php artisan billing:audit-books --detail=C6
+> ```
+> Lo mismo vale para el hallazgo de «9 clientes con $1.252.000 fuera del pipeline»: parte podía
+> ser saldo a favor legítimamente consumido.
+
+Detectado el 2026-08-13 con el comando `billing:verify-orphan-payments`, que comprueba
 por cliente la invariante `sum(pagos) == sum(aplicado a facturas) + saldo a favor`:
 
 | Medida | Valor |
@@ -739,6 +791,23 @@ devolver el importe al saldo a favor o reasignar el pago a la factura que corres
 bug de anulación de pagos que esa rama arregla, y sin ella las correcciones no quedan
 registradas en el libro de auditoría — que es justamente lo que se necesita aquí.
 
+### 🟠 P-00b · Recaudos y Finanzas no suman el mismo mes
+
+El listado de **Recaudos** suma todos los pagos a propósito («lo que está en la tabla es dinero
+efectivamente recibido»); el panel de **Finanzas** filtra `status = 'completed'`. Cualquier pago
+con otro estado sale en una pantalla y no en la otra, y el cliente ve dos recaudos distintos del
+mismo mes sin que nada se lo explique.
+
+Hoy los dos caminos que crean pagos (`BillingService::registerPayment()` e
+`InstallationBillingService`) escriben `completed`, así que **el riesgo es de datos heredados o
+de un tercer camino futuro**, no del flujo actual. `billing:audit-books` lo reporta como `C10` y
+`billing:statement` le pone precio a la diferencia.
+
+**Recomendación.** Decidir **un** criterio y aplicarlo en los dos sitios. Si se mantiene el
+filtro, el listado debería excluir igual y decirlo en pantalla; si no, quitarlo del panel. Lo
+que no puede quedarse es la divergencia silenciosa: es exactamente la forma de descuadre que un
+cliente descubre con un Excel.
+
 ### 📋 P-0 · La devolución de saldo al borrar una factura no des-consume el origen
 
 Al borrar una factura que había sido pagada con saldo a favor, el saldo vuelve al cliente como un
@@ -753,7 +822,14 @@ des-consumir en orden LIFO los `earned` que financiaron esa factura, en vez de c
 ajuste. Hoy no compensa la complejidad: el caso es raro y el error resultante siempre favorece al
 cliente, nunca al ISP.
 
-### 📋 P-1 · Falta un permiso `delete_clients`
+### ✅ P-1 · Falta un permiso `delete_clients` — RESUELTO 2026-08-31 (con el nombre `delete_customers`)
+
+> **Ya estaba resuelto** cuando se revisó KAN-44 (2026-10-05): `Permissions::DELETE_CUSTOMERS`,
+> concedido **solo** a los roles `code = 'admin'` por la migración `2026_08_31_000001`, protege
+> `DELETE /api/customers/{customer}`. Lo fijan `CustomerDeletionControlsTest` y
+> `ApiAuthorizationTest`. Se descartó la recomendación original de darlo también a `staff`,
+> porque el borrado arrastra facturas y pagos (P-43). Esta entrada y un comentario de
+> `routes/api.php` seguían diciendo lo contrario. Lo de abajo queda como contexto.
 
 Borrar un cliente se apoya hoy en `edit_internet_service` porque el catálogo no tiene un
 permiso propio para ello. Es más laxo de lo deseable: quien puede editar el servicio puede
@@ -763,7 +839,16 @@ borrar al cliente con todo su historial.
 `admin` y `staff` y ejecutar `permissions:sync` (que ya existe justamente para esto). Es
 seguro porque el sync es aditivo y cubre los 30 roles canónicos.
 
-### 📋 P-2 · Las contraseñas de router se serializan en la API
+### ✅ P-2 · Las contraseñas de router se serializan en la API — RESUELTO 2026-10-05 (KAN-45)
+
+> **Resuelto** en la bitácora § 97. Primero el formulario: `RouterEdit.vue` ya no prellena la
+> contraseña, «en blanco = conservar», y solo envía `password_rb` si se escribe. Después,
+> `Router::$hidden` = `password_rb`, `vpn_password` y `wg_private_key` (la clave privada de
+> WireGuard **también** salía, y no estaba en la tarjeta), más `has_password_rb`.
+> `VpnService::verifyConnection()` tampoco devuelve la contraseña. Ojo: en contra de lo que
+> decía la recomendación, el backend **no** ignoraba un `password_rb` vacío: lo rechazaba
+> (`sometimes|required`). Por eso el arreglo es omitir el campo. Lo de abajo queda como
+> contexto.
 
 `password_rb` y `vpn_password` viajan en la respuesta de `GET /api/routers/{id}`. No se
 pusieron en `$hidden` porque `RouterEdit.vue` prellena el formulario con ese valor y lo
@@ -914,7 +999,14 @@ columna se llama `state` y "departamento" es el término del formato CRC, mientr
 nombre de WispHub quedó documentada en la tabla de migración de marcadores de
 `docs/MANUAL_USUARIO.md`. Ver `docs/BITACORA_TECNICA.md` § 15.4.
 
-### 📋 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página
+### 🟡 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página — aviso en vista previa HECHO 2026-10-05 (KAN-60)
+
+> **(b) resuelto** en la bitácora § 94: `TemplateDiagnostics` emite `kind: long_table_cell` por
+> `X-Template-Warnings` cuando una celda pasa de 2.500 caracteres de texto visible. **La causa
+> sigue en pie**, porque dompdf sigue recortando. Lo de raíz es P-15 (cambiar de motor de PDF).
+> El umbral es una heurística y no mide el desborde real: puede avisar de una celda que sí
+> cabe, y no avisa de una más corta que desborde por letra grande o por un marcador que
+> resuelve mucho texto.
 
 Detectado 2026-08-04 diagnosticando páginas en blanco en un contrato real exportado de WispHub.
 dompdf **no sabe partir una celda de tabla entre páginas**: si el contenido de un `<td>` excede el
@@ -945,7 +1037,13 @@ envuelvas texto largo en una celda de tabla, usa `<div>`* — ya reflejado en `M
 header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloques huérfanos. Es la
 única forma de que el tenant se entere sin tener que comparar el PDF carácter por carácter.
 
-### 📋 P-9 · Auditoría de Finanzas (2026-08-05): deuda restante tras ejecutar el plan
+### 🟡 P-9 · Auditoría de Finanzas (2026-08-05): deuda restante tras ejecutar el plan — punto 3 HECHO 2026-10-05 (KAN-52)
+
+> **Punto 3 resuelto** (bitácora § 108): las 9 descargas que dejaban el blob en memoria usan
+> `downloadBlob()`, cada una con su MIME. La vista previa de plantillas revoca su URL a los 60 s.
+> Las otras 2 de las 13 ya limpiaban. `BlobDownloadLeakTest` impide que vuelva el patrón.
+> **Siguen pendientes** el punto 1 (búsqueda sin índice, `pg_trgm`) y el 2 (adoptar o borrar
+> `SearchBar`, `StatusBadge` y `LoadingSkeleton`, que es una decisión).
 
 Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
 Categorías de Gasto. Las **Fases 1** (debounce y guard anti-carrera en Facturación, índices
@@ -1009,7 +1107,14 @@ aquí**, y el día que alguien no se acuerde, el error no dará ninguna señal.
 **Recomendación.** Borrarlo si ya cumplió su propósito (es la opción limpia), o reescribirlo para
 que delegue en `createMonthlyInvoiceFor()` con un flag que suprima las notificaciones — que es lo
 único que justificaba tener una copia.
-### 📋 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue
+### 🟡 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue — auditoría HECHA 2026-10-05 (KAN-62)
+
+> **Hecho** (bitácora § 101): `php artisan documents:audit-storage`, de solo lectura, lista
+> los documentos sin archivo en S3. Separa «perdido» de «no se pudo consultar» y marca si son
+> anteriores al paso a S3. **No se ha ejecutado contra producción.** Necesita autorización y
+> lo corre quien tenga acceso. **Sigue pendiente la decisión** de qué hacer con los perdidos:
+> purgarlos, o marcarlos con una columna para que la interfaz diga «se perdió antes de
+> julio». Mientras no se decida, la interfaz sigue sin distinguirlos.
 
 Hasta el 29-jul-2026 (`828865c`) los documentos de cliente se escribían en el disco `public`
 de Laravel y se servían con `asset('storage/…')`. En App Platform el sistema de archivos del
@@ -1068,7 +1173,14 @@ hoy no está claro cuál se quiso mostrar. El manual documenta **el comportamien
 `$monthlyRevenue`; si debía ser lo facturado, cambiar la clave de la respuesta y avisar del
 cambio de significado. No tocarlo a ciegas — el número que hoy ve el operador cambiaría.
 
-### 📋 P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción
+### ✅ P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción — RESUELTO 2026-10-05 (KAN-75)
+
+> **Punto 1:** el camino sancionado ya existía desde el 2026-08-19. Es una migración de datos
+> idempotente que lee `database/seeders/content/*.php` y solo reescribe lo que nadie editó
+> (huella md5; ver `2026_10_01_100000`). **Punto 2, resuelto en la bitácora § 104:**
+> `HelpCenterSeeder` ya no empieza borrando todo. Es un upsert por nombre de categoría y por
+> (categoría, título), y no toca lo creado desde la UI. Límite: un artículo que se renombre en el
+> seeder deja el viejo, que debe retirarse con una migración. Lo de abajo queda como contexto.
 
 El contenido que el usuario lee dentro de la app vive en `help_categories` / `help_articles` y
 lo produce `HelpCenterSeeder`. Hay dos problemas encadenados:
@@ -1099,6 +1211,15 @@ producción a mano".
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de
 soporte y un WhatsApp **fijos en el código** (`+573001234567`), iguales para todos los
 tenants. Deberían salir de `tenant.billing_phone`.
+
+> **2026-10-05 (KAN-81), parcial.** Se **retiró** el número falso (bitácora § 107): ahora el
+> portal remite al teléfono que figura en la factura o el contrato del abonado. **No** se pudo
+> reemplazar por `tenant.billing_phone`, porque el portal no sabe de qué ISP es el abonado: los
+> routers redirigen por `dst-nat` a una sola `PORTAL_IP` de la plataforma, y la redirección no
+> lleva el tenant. **Decisión pendiente** sobre cómo identificarlo. Las opciones:
+> - una `PORTAL_IP` o un subdominio por tenant;
+> - un parámetro en los enlaces que comparte el ISP (expone nombre y teléfono por enumeración);
+> - resolverlo por la IP de origen del abonado. No es viable con NAT.
 
 ---
 
@@ -1133,7 +1254,9 @@ sugerirlo. Es el mismo camino que P-8 propone para las celdas largas, y ataca la
 clase entera de reportes. Relacionado con la nota existente sobre placeholders *cross-type* que se
 blanquean sin aviso — es el mismo agujero de diagnóstico, visto desde otro ángulo.
 
-### 📋 P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper
+### ✅ P-14 · Los mocks de dompdf en los tests se rompen con cada método nuevo del wrapper — RESUELTO 2026-10-05 (KAN-65)
+
+> **Resuelto** en la bitácora § 109: `Tests\TestCase::fakePdf()` centraliza el doble y deja escrito el motivo una sola vez. Las 26 copias de 8 archivos lo usan, y `FakePdfHelperTest` impide volver a mockear `PDF::class` a mano. Lo de abajo queda como contexto.
 
 Detectado 2026-08-05 al agregar `setPaper()` en `TemplateRenderer`: 14 pruebas fallaron con
 `BadMethodCallException: Method Mockery_…_PDF::setPaper() does not exist on this mock object`,
@@ -1268,9 +1391,30 @@ sólo cuando el elemento elegido es una NAP — el mismo criterio que ya usa `Cu
 media hora de trabajo; no se hizo en el mismo cambio para no mezclar el arreglo del arrastre de
 datos con una ampliación del contrato de la hoja.
 
-### 📋 P-19 · El inventario con custodia deja tres cabos sueltos conocidos
+### ✅ P-19 · El inventario con custodia deja tres cabos sueltos conocidos — RESUELTO 2026-09-10
 
 Detectado 2026-08-06 al implementar custodia, consumibles y kardex (`BITACORA_TECNICA.md` § 23).
+Los tres cabos quedaron cerrados en la rama `fix/kan77-inventario-cabos-sueltos` (KAN-77):
+
+1. **Cambio de `is_serialized`** → `InventoryStockController::rechazarCambioDeConteoConExistencias()`
+   devuelve 422 cuando el modelo tiene `devices` o `balances`, con un mensaje que dice cuántas
+   existencias estorban. Antes sólo lo impedía la pantalla, y una interfaz no es una restricción.
+2. **Saldos huérfanos** → `GET /api/inventory/orphan-balances` los lista y la pantalla de
+   Movimientos los muestra con un botón para traspasarlos. Hizo falta además **permitir un origen
+   huérfano** en el traspaso: sin eso quedaban visibles pero atrapados, que es la mitad inútil del
+   arreglo.
+3. **Importación por rango de `id`** → un candado por empresa (`Cache::lock`) serializa las cargas
+   del mismo tenant y responde 409 a la segunda. Cierra a la vez el problema del rango de `id` y el
+   de la deduplicación de seriales cacheada en memoria, que era el otro motivo por el que dos
+   importaciones simultáneas se corrompían. Como pedía la nota original: quien arregló lo uno
+   arregló lo otro.
+
+Pruebas: `tests/Feature/Inventory/InventoryStockSerializationChangeTest.php`,
+`InventoryOrphanBalancesTest.php`, `InventoryImportConcurrencyTest.php`.
+
+<details>
+<summary>Descripción original del hallazgo</summary>
+
 Nada de esto bloquea el uso, pero conviene tenerlo escrito antes de que aparezca como sorpresa:
 
 1. **Cambiar `is_serialized` de un modelo con existencias no está bloqueado en el backend.** El
@@ -1289,6 +1433,8 @@ Nada de esto bloquea el uso, pero conviene tenerlo escrito antes de que aparezca
    simultáneas del mismo tenant** podrían atribuirse filas entre sí. Ese escenario ya estaba roto
    antes por otro motivo (la deduplicación de seriales se cachea en memoria por instancia), así
    que no se agrava nada; se documenta para que quien arregle lo uno arregle lo otro.
+
+</details>
 
 ### 📋 P-20 · La allowlist de IPs de las llaves de API es falsificable por cabecera
 
@@ -1480,7 +1626,12 @@ hará exactamente eso.
 correspondiente de `ticket_catalog_version` para que los integradores externos detecten
 el cambio.
 
-### 📋 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa
+### 🟡 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa — punto 1 RESUELTO 2026-10-05 (KAN-78)
+
+> **Punto 1, hecho** (bitácora § 105): alternar una capa redibuja sin mover la cámara. Solo
+> reencuadran la carga inicial y los cambios del conjunto de clientes (filtros). **Punto 2,
+> pendiente:** al cambiar un filtro, los `bounds` siguen incluyendo cobertura y nodos visibles
+> que no están sujetos al filtro. Lo de abajo queda como contexto.
 
 `applyLayers()` (`resources/js/pages/CustomerMap.vue`) termina **siempre** con
 `map.fitBounds(bounds)`. Como un `watch` la invoca ante cualquier cambio de
@@ -1503,7 +1654,13 @@ cambios de filtro), no al alternar capas; y calcular los `bounds` sólo con las 
 usuario está mirando. Alternativa mínima: recordar el `zoom`/`center` y restaurarlos cuando
 el redibujado no venga de un cambio de filtro.
 
-### 📋 P-26 · El script de provisión no abre ICMP desde la red de gestión
+### 🟡 P-26 · El script de provisión no abre ICMP desde la red de gestión — en el generador desde 2026-10-05 (KAN-56)
+
+> **Código hecho** (bitácora § 102): los dos scripts (L2TP y WireGuard) instalan también
+> `protocol=icmp src-address=<red de gestión>`, con el mismo comentario `ISPWatch-CORE-MGMT`,
+> así que re-aplicarlos no duplica. **Los routers ya provisionados no la tienen** hasta que
+> se les vuelva a aplicar el script. No se programó una pasada por la flota, tal como pedía
+> la recomendación: entra con el próximo cambio que ya obligue a re-aplicar.
 
 `VpnService::generateL2tpScript()` y `generateWireguardScript()` instalan
 `ISPWatch-CORE-MGMT` como `action=accept protocol=tcp ... dst-port=22,8291,8728`. **Sólo
@@ -1550,7 +1707,13 @@ para esos routers en vez de omitirlos (informativa, sin marcar fallo el primer m
 la pantalla de Routers marque visualmente al que tiene configuración de facturación
 asignada pero sin día. Coste bajo; evita descubrir el hueco cliente por cliente.
 
-### 📋 P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido
+### ✅ P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido — RESUELTO 2026-10-05 (KAN-53)
+
+> **Resuelto** con `billing:reconcile-reconnections` (cada hora), bitácora § 91. Candidato =
+> `status = true` cuya **última** fila en `suspension_action_logs` es un `UNSUSPEND` sin éxito;
+> reintenta con `BillingService::attemptReconnection()` (preflight, candado por cliente y
+> desenlace estampado). Omite routers RADIUS, fichas que se contradicen, backoff, agotados y
+> filas `pending` de menos de 15 min (intento en curso). Lo de abajo queda como contexto.
 
 `billing:reconcile-suspensions` sólo va en **un** sentido: barre los clientes con
 `status = false` y re-corta en la RB lo que la BD dice cortado. No existe la simétrica —
@@ -1573,7 +1736,14 @@ reintentar `unsuspendCustomer()`. Reusa el backoff y `MAX_ATTEMPTS` que ya tiene
 `SuspensionActionLog`; el trabajo real es el comando y agendarlo. Prioridad media-alta: es
 justamente el caso en que el cliente ya pagó.
 
-### 🟡 P-FK-1 · El borrado de un router se protege en la aplicación, no en el esquema
+### ✅ P-FK-1 · El borrado de un router se protege en la aplicación, no en el esquema — RESUELTO 2026-10-05 (KAN-55)
+
+> **Resuelto** en la bitácora § 106 con la migración `2026_10_05_120000`, solo en PostgreSQL.
+> Busca en el catálogo todas las FK de `customer_profile.router_id` hacia `router` (el nombre no
+> se supone), las elimina y crea una sola con `ON DELETE RESTRICT`. El camino `force` suelta las
+> bajas a mano dentro de la transacción. `suspension_action_logs`, `billing_action_logs` e
+> `ip_assignment` se dejan en `SET NULL` a propósito. **No se ha aplicado en producción.** Lo de
+> abajo queda como contexto.
 
 Desde el § 44 de la bitácora, `RouterController::destroy()` rechaza con 409 el borrado de un
 router con clientes vivos. Pero la FK sigue siendo:
@@ -1599,7 +1769,16 @@ pasa la operación real.
 Mismo patrón, sin revisar: `ip_assignment.router_id` y `suspension_action_logs.router_id`
 también son `SET NULL`.
 
-### 📋 P-30 · La API partner responde 302 en vez de 401 sin `Accept: application/json`
+### ✅ P-30 · La API partner responde 302 en vez de 401 sin `Accept: application/json` — RESUELTO 2026-09-21
+
+> **Resuelto el 2026-09-21** (KAN-41), junto con P-41. **Sin tocar `redirectGuestsTo`**, que es
+> justo lo que hacía temer un 500: un renderizador de `AuthenticationException` en
+> `bootstrap/app.php` devuelve 401 JSON cuando la petición es `api/*`, con el sobre
+> `{error, message}` en la API partner y `{success, message}` en la del panel. El grupo `web`
+> sigue redirigiendo igual que antes. Se añadió además un renderizador para el resto de
+> `HttpException` bajo `api/*` (403, 404, 405, 429) que conserva sus cabeceras —`Retry-After`
+> y `Allow` son parte de la respuesta—. Ver `BITACORA_TECNICA.md` § 65. El diagnóstico
+> original se conserva abajo.
 
 `bootstrap/app.php` declara `redirectGuestsTo('/')`, que aplica a **toda** la aplicación.
 Una petición a `/api/v1/partner/*` sin llave válida y sin la cabecera `Accept` no recibe un
@@ -1648,7 +1827,12 @@ sería derivarlo de `config('app.url')` al servir `/openapi.yaml`; no se hizo po
 reescribir el YAML al vuelo obliga a parsearlo, y el proyecto no trae `symfony/yaml`.
 
 
-### 📋 P-33 · «Estado del Sistema: Operativo» no comprueba nada
+### ✅ P-33 · «Estado del Sistema: Operativo» no comprueba nada — RESUELTO 2026-10-05 (KAN-68)
+
+> **Resuelto** en la bitácora § 100: el recuadro lee `GET /api/system/status`, que es el latido
+> de `system:heartbeat` con el mismo umbral que `/health`, y se pinta verde, ámbar o gris. El
+> umbral es el de `/health` (5 min) y no las 2 h que sugería la recomendación, para que el
+> recuadro y el centinela externo no se contradigan. Lo de abajo queda como contexto.
 
 En **Configuración → Sistema**, junto a la versión, hay un punto verde que dice «Operativo».
 Es texto fijo en la plantilla: diría lo mismo con el planificador caído, la cola parada y la
@@ -1682,6 +1866,19 @@ más simple: que el propio pipeline de despliegue cree el tag leyendo la config,
 deja de haber un paso manual que olvidar.
 
 ### 🟠 P-35 · El tenant operador de las llaves de API no existe: ese camino lleva meses muerto
+
+> **2026-10-05 (KAN-38), parcial.** El punto 2 está hecho (bitácora § 96): el superadmin ve en
+> Configuración un aviso cuando el tenant operador no existe o no está configurado
+> (`App\Support\ApiKeyOperator`, `data.api_key_operator_issue`). **El punto 1 sigue pendiente**:
+> definir `API_KEYS_OPERATOR_TENANT_ID` en producción y redesplegar es un cambio de
+> configuración de producción que requiere aprobación. `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`
+> también sigue sin definir.
+>
+> **Deriva de esquema encontrada de paso:** `users.is_superadmin` existe en producción
+> (BASE_DATOS.md) pero **ninguna migración la crea**. En una base nueva, o en las pruebas, no
+> existe, y `$user->is_superadmin` es `null`. Las pruebas la fijan en memoria. Hace falta una
+> migración idempotente (`if (!Schema::hasColumn(...))`) para que el esquema de migraciones
+> coincida con producción.
 
 `config/api_keys.php` toma `operator_tenant_id` de `API_KEYS_OPERATOR_TENANT_ID`, **por
 defecto `1`**. En producción esa variable no está definida y **el tenant 1 no existe** (los
@@ -1734,7 +1931,12 @@ borrar las copias `scoped`. Activar `@tailwindcss/forms` es la otra mitad, pero 
 gratis**: normaliza todos los controles nativos de la aplicación de golpe, así que exige
 revisar pantalla por pantalla y va en su propio PR, no colado en otro.
 
-### 🟠 P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona
+### ✅ P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona — RESUELTO 2026-10-05 (KAN-39)
+
+> **Resuelto** en la bitácora § 95: el 403 `ip_not_allowed` trae `your_ip`, el OpenAPI pasó a
+> 1.2.0 con el campo documentado, y los manuales ya no mandan a `/ping` en ese caso. **La
+> decisión aparte, si la allowlist debería poder editarse con auditoría, sigue sin tomarse**: es
+> de producto. Lo de abajo queda como contexto.
 
 Cuando una llave se usa desde una IP no autorizada, la respuesta es:
 
@@ -1803,7 +2005,17 @@ públicamente alcanzable hoy. Si lo es, cerrarlo es la prioridad — no requiere
 sólo configuración de la app en DigitalOcean.
 
 
-### 🔴 P-39 · Nada impide que un `php artisan migrate` local escriba en producción
+### ✅ P-39 · Nada impide que un `php artisan migrate` local escriba en producción — RESUELTO 2026-09-21
+
+> **Resuelto el 2026-09-21** (KAN-95). Dos salvaguardas: `config/database.php` ya no trae
+> `public` como valor por defecto de `DB_SCHEMA` —fuera de producción, sin esa variable la
+> aplicación no arranca y lo dice—, y `App\Support\ProductionDatabaseGuard` frena cualquier
+> comando de consola cuya conexión **ya resuelta** apunte al esquema `public` de Supabase
+> mientras `APP_ENV` no sea `production`: con terminal pide teclear el nombre del esquema,
+> sin terminal se detiene. La escotilla es `ISPWATCH_ALLOW_PRODUCTION_DB=true`.
+>
+> Pasan sin preguntar el diagnóstico (`migrate:status`, `db:show`), el andamiaje (`make:`,
+> `config:`, `route:`, `view:`, `optimize`) y `test`. Ver `BITACORA_TECNICA.md` § 65.
 
 La suite de pruebas tiene una salvaguarda seria: `tests/TestCase.php` inspecciona la
 conexión **ya resuelta** y aborta si no es SQLite en memoria o un PostgreSQL desechable.
@@ -1854,7 +2066,13 @@ migraciones e `ispwatch_dev` con 172, faltando
 `ispwatch_dev` del 2026-08-21 cerró la brecha.
 
 
-### 🟠 P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero
+### ✅ P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero — RESUELTO 2026-10-05 (KAN-96)
+
+> **Resuelto** en la bitácora § 93. La subida va a `s3`, `url` apunta a
+> `GET /api/sectorials/{sectorial}/photos/{photo}` (autenticado, con comprobación de tenant y
+> lista blanca en línea) y queda el respaldo al disco `public` para las filas antiguas. Las
+> fotos subidas antes **no se recuperan**: se fueron con el contenedor, y el endpoint responde
+> 404 con mensaje. Lo de abajo queda como contexto.
 
 El endurecimiento posterior al PR #2 (2026-08-23) retiró este patrón de los adjuntos de
 tickets, pero `SectorialPhoto` lo conserva intacto:
@@ -1890,7 +2108,20 @@ es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde prod
 del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
 `run_command` o si se prohíbe ese disco por convención.
 
-### 🟡 P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes
+**Sigue abierto tras KAN-96 (2026-10-05):** el único uso de escritura que queda en el disco
+`public` son los **logos de tenant**: `TenantController` guarda en `tenant_logos/{id}` con
+`asset()`, y tiene exactamente el mismo fallo de disco efímero. No entró en KAN-96 para no
+ampliar el alcance. Necesita su propia tarjeta, y la decisión `storage:link` frente a prohibir
+`public` sigue pendiente: es un cambio de despliegue que requiere aprobación.
+
+### ✅ P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes — RESUELTO 2026-09-21
+
+> **Resuelto el 2026-09-21** (KAN-97). El catch-all excluye ahora `api`, igual que ya excluía
+> `health`, y `routes/api.php` cierra con su propio fallback. Distingue dos cosas que no son
+> lo mismo: si la URL no existe, **404**; si existe bajo otro verbo, **405** con `Allow`. Lo
+> segundo importa porque la API pública es de solo lectura y ese 405 es como lo comunica —
+> registrar el fallback con el helper `Route::fallback()` (sólo GET) lo convertía en 404, y lo
+> cazó `ApiKeySecurityTest`. Ver `BITACORA_TECNICA.md` § 65.
 
 `routes/web.php` cierra con un catch-all que sirve el SPA:
 
@@ -2011,7 +2242,22 @@ no hay caso de uso que hoy lo pida.
 
 Relacionado con **D-05** (retención) y con la pregunta de fondo: cuánto tiempo se conserva qué.
 
-### 🟡 P-44 · El serial de un equipo se compara distinto según por dónde entre — KAN-100
+### ✅ P-44 · El serial de un equipo se compara distinto según por dónde entre — RESUELTO 2026-09-21 (KAN-100)
+
+> **Resuelto el 2026-09-21.** Tres capas: `App\Support\InventoryIdentifier` como única
+> definición de «el mismo serial» (se guarda tal como se escribió, se compara en minúsculas y
+> sin espacios), la validación del formulario comparando con `LOWER(columna)` por tenant, y
+> los índices únicos funcionales y parciales `inventory_device_tenant_serial_ci_unique` /
+> `..._mac_ci_unique`. La importación usa ya el mismo helper, así que no quedan dos
+> definiciones.
+>
+> **La migración aborta si encuentra duplicados**, a propósito: son equipos reales y decidir
+> cuál fila se queda con el valor es una decisión de inventario. Para verlos antes:
+> `php artisan inventory:duplicate-identifiers` (cuenta con `COUNT(*)` real).
+>
+> **Conteo hecho el 2026-09-21 contra producción: cero duplicados** de serial y de MAC sobre
+> 130 equipos. La migración está aplicada en los dos esquemas —`public` (lote 104) e
+> `ispwatch_dev`— y los cuatro índices existen. Ver `BITACORA_TECNICA.md` § 65.
 
 **Detectado:** 2026-09-10, arreglando el binding roto de `/api/inventory/{id}`
 (§ 58 de `BITACORA_TECNICA.md`). **Prioridad:** media · **Estado:** deuda aceptada.
@@ -2044,7 +2290,9 @@ son dos problemas distintos y mezclarlos habría retrasado el que tenía al clie
 ### 🟠 P-45 · `view_inventory` es el único permiso del módulo: ver, crear, editar y **borrar** son el mismo — KAN-99
 
 **Detectado:** 2026-09-10, al arreglar el binding de `/api/inventory/{id}`
-(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** no implementado.
+(§ 59 de `BITACORA_TECNICA.md`). **Prioridad:** alta · **Estado:** **resuelto a medias el
+2026-09-11** — el borrado ya tiene permiso propio (§ 63 de la bitácora); la separación de
+lectura y escritura sigue abierta (punto 4 de la lista de abajo).
 
 `app/Constants/Permissions.php` declara **un solo** permiso de inventario, `VIEW_INVENTORY`, y
 con él se protegen todas las escrituras del módulo: alta y edición de equipos, entregas y
@@ -2067,13 +2315,521 @@ un equipo en bodega, o asignado a un técnico, se borra sin más. El kardex cons
 
 **Qué hacer:**
 
-1. Añadir `DELETE_INVENTORY` al catálogo y aplicarlo sólo al `DELETE`, dejando el resto en
-   `view_inventory` (no romper entregas ni bajas, que son operación diaria).
-2. Migración de backfill que lo conceda a los roles con `code = 'admin'` — sin ella el permiso
-   nuevo no llega a los roles ya sembrados y nadie puede borrar (ver la trampa nº 6).
-3. Gatear el botón en `Inventory.vue` con ese permiso.
-4. De paso, decidir si `view_inventory` debería partirse también en lectura y escritura: hoy
-   quien consulta la bodega puede mover existencias.
+1. ✅ **Hecho (2026-09-11).** `DELETE_INVENTORY` en el catálogo, aplicado sólo a los `destroy`,
+   con el resto en `view_inventory` (entregas y bajas intactas).
+2. ✅ **Hecho.** Migración `2026_09_11_000003_grant_delete_inventory_to_admin_roles`, que lo
+   concede a los roles con `code = 'admin'` y no por arrastre desde `view_inventory`.
+3. ✅ **Hecho, y en las cuatro pantallas.** El alcance era mayor de lo escrito aquí: los `destroy`
+   de stock, proveedores y sucursales colgaban del mismo permiso, así que se gatearon los **ocho**
+   botones —tabla y tarjeta móvil de `Inventory.vue`, `StockList.vue`, `ProviderList.vue` y
+   `BranchList.vue`—, no sólo el de equipos.
+4. ⬜ **Pendiente.** Decidir si `view_inventory` debería partirse también en lectura y escritura:
+   hoy quien consulta la bodega puede crear, editar y mover existencias. Es lo que mantiene esta
+   entrada abierta.
+
+### ✅ P-46 · Tras un despliegue, el navegador sigue mostrando la aplicación vieja — RESUELTO 2026-09-21
+
+**Detectado:** 2026-09-10, cerrando el incidente del § 60. **Prioridad:** media.
+
+Los chunks de Vite llevan hash de contenido y **nunca** se sirven rancios. El HTML que los
+referencia, no: tiene una URL estable, y un navegador que lo tenga cacheado sigue pidiendo los
+nombres de chunk viejos —sigue ejecutando la aplicación anterior— aunque el servidor ya sirva
+la nueva. Ese día, con el arreglo desplegado y verificado desde fuera, el cliente seguía viendo
+el formulario roto hasta que limpió la caché a mano.
+
+> **Resuelto el 2026-09-21** (KAN-101), con las dos mitades:
+>
+> 1. `Cache-Control: no-store` en toda respuesta HTML (`SecurityHeaders`). La caché agresiva de
+>    `/build/assets` queda intacta: esos archivos no pasan por PHP.
+> 2. Aviso de «hay una versión nueva, recarga», que **no** recarga solo —hacerlo por sorpresa a
+>    alguien a medio llenar un alta le borra el trabajo—.
+>
+> Lo que se compara NO es el número de versión: `version` sólo se mueve al publicar y la mayoría
+> de los despliegues corrigen algo sin tocarlo. `GET /api/system/version` publica ahora `build`,
+> la huella del manifiesto de Vite, que cambia siempre que cambia un chunk.
+
+### 🟡 P-44 · Los cargos del ticket siguen sin permiso propio
+
+El PR B separó `view_support` en 20 capacidades `ticket_*` y dejó **todas** las rutas de ticket
+detrás de un permiso… salvo dos:
+
+```
+POST /api/support/{id}/charge
+GET  /api/support/{id}/charges
+```
+
+Siguen con `staff_profile` a secas, que comprueba el **código de rol** (`admin`/`staff`), no
+una capacidad. Cualquier usuario con ficha de personal puede generar un cargo facturable desde
+un ticket.
+
+**Por qué no se corrigió en el PR B.** Son facturación, no operación del ticket: no aparecen en
+la matriz de permisos del requerimiento, y atarlos al permiso de facturación existente
+—`view_billing`— se los quitaría a roles que hoy sí pueden generarlos. Es el mismo tipo de
+decisión que exigió el permiso propio para borrar clientes (§56): hace falta saber **quién debe
+poder facturar desde un ticket**, y eso es una pregunta de negocio.
+
+**Qué hacer:** decidir si generar un cargo desde un ticket es una capacidad de soporte o de
+facturación, y crear el permiso correspondiente con el backfill que preserve el comportamiento
+actual.
+
+Hay un test —`toda_ruta_de_ticket_exige_un_permiso`— que fija que éstas son **la única**
+excepción: si mañana alguien agrega otra ruta de ticket sin permiso, falla.
+
+> **Actualización 2026-09-19.** El PR de anulación de facturas **no cierra P-44**, pero acota su
+> daño: el cargo que ese endpoint genera ya no se puede destruir. Antes, quien lo creaba sin
+> permiso propio podía además borrarlo con `delete_invoice` y no quedaba rastro; ahora el
+> borrado está bloqueado y anularlo exige `invoice_void`, motivo y auditoría. La pregunta de
+> negocio —**quién debe poder facturar desde un ticket**— sigue abierta.
+
+### 🟡 P-45 · `staff_profile` decide por código de rol, no por capacidad
+
+`CheckStaffProfile` deja pasar a quien tenga `code` ∈ {`admin`, `staff`} más el superadmin
+global. No mira permisos.
+
+Eso significa que renombrar el `code` de un rol —o crear uno nuevo con otro código— cambia
+silenciosamente qué puede hacer su gente en el módulo de tickets, al margen de los permisos que
+tenga asignados. El PR B añadió el permiso concreto **encima** de `staff_profile` en cada ruta,
+así que hoy hacen falta las dos cosas; pero mantener dos sistemas de autorización en paralelo
+es deuda.
+
+**Qué hacer:** una vez el cliente confirme la matriz de roles (**D-09**), evaluar si
+`staff_profile` puede retirarse de las rutas de ticket y quedar cubierto por los permisos
+`ticket_*`. No antes: quitarlo ahora **ampliaría** el acceso.
+
+### ✅ Decisión · Una factura emitida se anula, no se borra — 2026-09-19
+
+Registro de la política, no de una deuda. Se anota aquí porque es la clase de decisión que
+alguien deshace por comodidad dentro de seis meses si no está escrita en alguna parte.
+
+**Lo que se encontró** (auditoría previa al PR de anulación):
+
+| Hallazgo | Estado antes |
+|---|---|
+| `DELETE /billing/invoices/{id}` destruía **cualquier** factura, incluida la que es el cargo de un ticket | Detrás de `delete_invoice`, que tienen Administración y Contabilidad en los cinco tenants |
+| Anular ya se podía con `PUT` + `status: cancelled` | Detrás de **`view_billing`**, un permiso de **LECTURA**. Sin motivo, sin confirmación, sin `audit_logs` |
+| La misma validación aceptaba `pending` | No existe en el CHECK de `invoices.status`: 23514 en PostgreSQL, y en SQLite pasa |
+| `draft` nunca se produce | Las siete rutas de creación asignan número y dejan la factura en `issued` |
+
+**La política que queda:**
+
+1. Borrar alcanza **sólo** un borrador sin número y sin ticket. En la práctica, ninguna.
+2. Todo lo demás se **anula** (`void`): conserva número, importes, titular, ítems, fechas y
+   vínculo con el ticket. Permiso propio `invoice_void`, motivo de 10–500 caracteres, evento
+   `invoice.voided` en `audit_logs` con `correlation_id`.
+3. Una factura anulada es de **sólo lectura**.
+4. El dinero ya aplicado vuelve como saldo a favor y **el pago se conserva**. Es deliberado y
+   distinto de `markInvoiceUnpaid()`, que sí borra el pago: el recaudo es un hecho ocurrido.
+
+**Por qué no se retiró `delete_invoice` de los roles.** Lo que protege el histórico es el
+bloqueo del endpoint, no quién tiene la casilla marcada. Quitarlo habría sido ruido, y la
+política de borradores podría cambiar.
+
+**Relación con P-43.** P-43 impidió que dar de baja a un cliente destruyera sus facturas
+(`customer_id` a `SET NULL` + titular congelado). Esto cierra la otra puerta: la que permitía
+destruirlas una a una desde la pantalla. Las dos apuntaban al mismo histórico.
+
+---
+
+### 🟢 P-49 · Quedan ramas muertas de `pending` en las pantallas de facturación
+
+`pending` no es un estado válido de `invoices.status` y nunca lo fue. La pantalla de edición lo
+ofrecía en un desplegable —corregido— pero siguen existiendo ramas que lo esperan:
+
+```
+BillingDashboard.vue:131   case 'pending':   → color ámbar
+InvoiceDetail.vue:146      case 'pending':   → color ámbar
+InvoicesList.vue:248       case 'pending':   → color ámbar
+InvoicesList.vue:434       filter(['pending', 'overdue', 'issued'])
+InvoicesList.vue:751       v-if=['pending', 'overdue', 'issued']
+```
+
+Ninguna hace daño: son `case` que no se alcanzan y filtros cuyo primer elemento nunca coincide.
+**No se limpiaron en el PR de anulación** para no mezclar una limpieza cosmética con un cambio
+de política de borrado.
+
+**Riesgo real de dejarlas:** sugieren que `pending` existe. El desplegable de edición salió
+precisamente de ahí, y estuvo mandando un valor que PostgreSQL rechaza.
+
+| | |
+|---|---|
+| **Impacto** | Ninguno hoy; induce a error a quien lea el código |
+| **Esfuerzo** | Trivial |
+
+---
+
+### 🟠 P-52 · `ticket_close_override` no lo tiene nadie: el cierre especial es inalcanzable
+
+Mismo defecto que dejó la reapertura sin botón, y **no se corrigió en el mismo PR a propósito**.
+
+El PR #4 activó el endpoint `POST /support/{id}/close-exception` y su permiso, pero ninguna
+migración repartió `ticket_close_override`. Medido en la base: los cinco roles `admin` tienen 17
+de los 20 permisos `ticket_*`; faltan `ticket_reopen` —repartido por el correctivo de
+2026-09-21—, `ticket_manage_catalogs` (sin endpoint, **D-13**) y éste.
+
+**Por qué no se repartió junto con la reapertura.** Son cosas distintas:
+
+| | Reabrir | Cierre especial |
+|---|---|---|
+| Qué es | Operación **ordinaria** del flujo: «Reabierto» es uno de los nueve estados auxiliares del § 7 y la modalidad STR del Anexo B | **Potestad de excepción**: autoriza cerrar incumpliendo las reglas del § 15 |
+| Sin él | El flujo del documento no se puede recorrer entero | El flujo funciona; sólo no se puede saltar una regla |
+| Quién decide | Se reparte: es parte del producto | Lo **configura el ISP**: el § 18 lo sitúa en el Supervisor |
+
+Repartirlo por migración a todos los administradores sería decidir por el cliente quién puede
+saltarse las reglas obligatorias de cierre.
+
+**Consecuencia mientras tanto:** un ticket al que le falte la causa confirmada —el caso que la
+regla 1 del § 15 contempla como «excepción autorizada y justificada»— **no se puede cerrar por
+ninguna vía** hasta que alguien marque el permiso en Configuración → Roles.
+
+**Qué hacer:** que CNO designe el rol que ejerce de Supervisor y se le marque
+`ticket_close_override`. Si designan al Administrador, basta una migración idéntica a la de la
+reapertura; si designan otro rol, es configuración y no código.
+
+| | |
+|---|---|
+| **Impacto** | Medio. Bloquea un camino que el requerimiento contempla expresamente |
+| **Esfuerzo** | Trivial (una casilla) o una migración de cuatro líneas |
+| **Riesgo de no hacerlo** | Que alguien cierre «como sea» por otra puerta, o que el ticket se quede abierto para siempre |
+
+---
+
+### 🟠 P-50 · Cinco de las diez reglas de cierre del § 15 no son exigibles todavía
+
+> **Actualizado el 2026-09-25 (PR F2).** La **regla 5** —«exigir prueba final o justificación
+> de por qué no fue posible»— **ya es exigible**: el ticket captura mediciones estructuradas
+> con fase, y sin una de fase `final` el cierre pide razón de lista cerrada más justificación.
+> Se aplica también al proponer. Quedan cinco.
+
+El workflow formal exige ahora **cuatro** de las diez reglas obligatorias de cierre de la
+Solicitud Maestra —causa confirmada, acción, resultado y prueba final o justificación— y una
+quinta se cumple por construcción. Las otras cinco **no se comprueban** porque el ticket no
+captura los datos que harían falta:
+
+| Regla § 15 | Qué falta |
+|---|---|
+| 5 · «prueba final o justificación de por qué no fue posible» | Campo de pruebas finales, con su razón de no-medición. El § 12 del documento lo pide aparte («cuando no sea posible obtener la medición final, el usuario deberá seleccionar una razón y escribir la justificación») |
+| 6 · «infraestructura afectada o clasificación red interna / no aplica» | `sectorial_id` existe pero no admite «no aplica» ni «red interna del cliente»: es una FK a un elemento físico |
+| 7 · «validación del cliente separada de la restauración técnica» | No hay campo de validación del cliente |
+| 8 · «"Otro" siempre debe requerir explicación» | Haría falta marcar en el catálogo qué códigos son «Otro» y exigir texto libre al elegirlos |
+| 9 · «solución temporal, pendiente de tercero y no resuelto → seguimiento o autorización» | **Resuelta a medias**: cerrar con solución temporal obliga a pasar por el cierre especial, que ES la autorización. Falta el seguimiento para «pendiente de tercero» |
+
+**Por qué no se hizo en el PR #4.** Son campos de captura nuevos —esquema, formulario, API y
+catálogos— y mezclarlos con el cambio del ciclo de vida habría hecho imposible revisar ninguna
+de las dos cosas. Los de las reglas 5 y 7 son además el alcance natural del **PR #5
+(intervenciones)**, que ya contempla «pruebas finales» y «validación».
+
+**Consecuencia mientras tanto:** **F1-10 queda parcial**, no cumplido. Un cierre puede pasar sin
+prueba final registrada y sin constancia de que el cliente validó.
+
+| | |
+|---|---|
+| **Impacto** | Medio. El expediente cierra con menos evidencia de la que el requerimiento pide |
+| **Esfuerzo** | Alto: esquema + UI + catálogos |
+| **Riesgo de no hacerlo** | Declarar cumplida una matriz de aceptación que no lo está |
+
+---
+
+### 🟢 P-51 · La matriz de transiciones no es configurable por el cliente
+
+`TicketWorkflow` declara las transiciones en PHP. Es deliberado —ver la bitácora § 68— porque
+una tabla sin pantalla de administración aparenta ser configurable sin serlo, y **D-13** (quién
+administra los catálogos) sigue delegada sin resolver.
+
+Pero deja una consecuencia escrita: **cambiar una transición exige desplegar.** Si un ISP quiere
+permitir, por ejemplo, saltar de «En clasificación» directo a «En intervención», hoy hace falta
+un PR.
+
+**Cuándo convendría moverla a base de datos:** cuando exista la pantalla de administración de
+catálogos (D-13) y cuando un segundo ISP pida un flujo distinto del de CNO. Antes, no: sería
+construir configuración para un solo caso.
+
+| | |
+|---|---|
+| **Impacto** | Bajo hoy; sube con el segundo tenant que quiera otro flujo |
+| **Esfuerzo** | Medio (tabla versionada + pantalla) |
+
+---
+
+### 🟡 P-48 · Los eventos `charge_created` nunca guardaron el número de factura
+
+**Encontrado al implementar el PR C**, comprobando qué columna lleva el número de la factura
+para poder nombrarla al rechazar un archivado.
+
+`SupportTicketController::generateCharge()` registra el evento así:
+
+```php
+metadata: array_filter([
+    'invoice_id'     => $invoice->id ?? null,
+    'invoice_number' => $invoice->invoice_number ?? null,   // ← siempre null
+], fn ($v) => $v !== null),
+```
+
+**`invoices` no tiene una columna `invoice_number`.** Se llama `number`, y `Invoice` no declara
+ningún accessor con el otro nombre. El `?? null` convierte el error en silencio y el
+`array_filter` quita la clave, así que el evento se guarda sin número y nadie se entera: el
+historial dice que se creó un cargo y da el `invoice_id`, que sirve, pero no el número que el
+operador ve en pantalla.
+
+**No se ha corregido aquí a propósito.** Tocar `generateCharge()` es cambiar el módulo de cargos
+dentro de un PR de archivado, y el dato que falta no rompe nada: `invoice_id` permite llegar a
+la factura. El código nuevo del PR C sí usa `number`, que es el correcto.
+
+**Arreglo:** cambiar `invoice_number` por `number` en esa metadata. Los eventos ya escritos no
+se pueden corregir —el historial es append-only por diseño— y no hace falta: la factura sigue
+alcanzable por su id.
+
+| | |
+|---|---|
+| **Impacto** | Bajo. Pérdida de legibilidad en el historial, sin pérdida de trazabilidad |
+| **Esfuerzo** | Trivial |
+| **Riesgo de no hacerlo** | Quien lea el historial tiene que abrir la factura para saber cuál es |
+
+---
+
+### 🟢 P-47 · `edit_discount` se llama como algo que ya no es lo que hace — KAN-104
+
+Es el permiso que autoriza **guardar la cartera de una orden de instalación**: valor,
+adicionales, descuento, forma de pago y abono recibido, lo que emite o recalcula la factura de
+instalación. Y es lo **único** que gobierna en todo el sistema — no hay ninguna otra ruta ni
+pantalla que lo consulte.
+
+Su etiqueta decía «Editar Descuento», lo que llevó a que nadie encontrara la casilla cuando un
+técnico necesitaba ver el valor de la instalación (§ 64 de la bitácora). El 2026-09-11 se
+corrigió **la etiqueta** —ahora «Editar Descuento y Cartera de Instalación»— y se separó la
+lectura en `view_installation_cost`. La **clave** sigue siendo `edit_discount`.
+
+**Por qué no se renombró la clave:** vive dentro del JSON de `role.permissions` de todos los
+roles de todos los tenants. Cambiarla exige recorrer la tabla entera reescribiendo arrays, y
+cualquier fila que quede sin migrar deja a un rol sin el permiso, sin error visible:
+simplemente desaparece un bloque de la pantalla. El beneficio es cosmético y el riesgo no.
+
+**Qué hacer:** nada urgente. Si algún día se renombra, hacerlo junto con otras claves en una
+sola pasada, con conteo previo y posterior de filas afectadas, y aceptando ambas claves durante
+un ciclo de despliegue.
+
+### 📋 P-48 · El equipo regalado en una visita sin cobro no aparece como gasto, salvo que el ISP haya encendido el interruptor
+
+La marca `no_charge` (2026-09-22) resuelve el cobro: la visita no factura. Lo que **no**
+resuelve es el otro lado del asiento — cuánto le costó ese mantenimiento a la empresa.
+
+El gasto del equipo se registra al **entrar** al inventario, y sólo si el ISP activó
+`inventory_entry_creates_expense` (§ 62 de la bitácora), que hoy **viene apagado en todos**.
+Para un ISP que no lo tenga encendido y que además no registre a mano la factura del
+proveedor, una visita de garantía no aparece en ningún informe de gastos: el equipo se fue de
+la bodega y la contabilidad no se enteró.
+
+**Por qué no se arregló aquí.** Crear el gasto al entregar el equipo duplicaría el de la
+compra para todos los que sí tienen el interruptor encendido, y un balance que miente por
+exceso de gastos es tan malo como el que miente por defecto. Elegir entre las dos fechas —
+compra o entrega— es una decisión contable del ISP, no de un PR de producto.
+
+**Lo que hay mientras tanto:** el detalle de la orden muestra el **costo interno** de la
+visita (suma de `installation_equipment.unit_price`), pero es por orden y no hay informe
+agregado: nadie puede responder «cuánto me costaron los mantenimientos gratis de este mes»
+sin abrirlas una por una.
+
+**Recomendación.** Un informe de visitas sin cobro con su costo interno acumulado, por
+periodo y por técnico. Es la pregunta que el ISP va a hacer en cuanto empiece a usar la
+marca, y los datos ya están todos en la base.
+
+### ✅ P-49 · Los equipos del ticket (KAN-92) — RESUELTO el 2026-09-23
+
+Se implementó completo en `feat/ticket-equipment` (§ 74 de `BITACORA_TECNICA.md`): tabla
+`ticket_equipment` con `direction`, cuatro métodos nuevos en `InventoryLedger`, endpoints,
+**pantalla** en el detalle del ticket y documentación en los siete manuales.
+
+**La rama `feat/kan92-equipos-en-ticket` se abandona.** Traía el backend del 2026-09-12 y se
+solapaba casi entero con lo nuevo; se recogió de ella el caso que le faltaba a la
+implementación nueva —**retirar dando de baja** el equipo que volvió quemado— y se descartó su
+`retrieveFromCustomer()`, que borraba las líneas de `installation_equipment` del equipo para
+sortear el `unique(device_id)`: eso destruye el registro de una visita que sí ocurrió. El unique
+se relajó en su lugar (ver la trampa #52 del manual de desarrollador).
+
+**Lo que sí queda pendiente de aquella nota:** la hoja de equipos del ticket **no muestra** la
+marca `support_ticket.no_charge` ni el costo interno acumulado de la visita. El bloque de Cargos
+sí la muestra, unos centímetros más abajo, pero el técnico que cambia un router en garantía la
+necesita donde está trabajando. Se une a P-48: el informe de visitas sin cobro con su costo
+interno sigue sin existir, y ahora tendría que sumar las dos tablas
+(`installation_equipment` + `ticket_equipment` con `direction = 'out'`).
+
+### 📋 P-57 · El material gastado en un ticket no se puede devolver, sólo deshacer
+
+En `ticket_equipment` el retiro (`direction = 'in'`) admite **sólo equipos con serial**. Un
+consumible no vuelve —cuatro RJ45 ponchados no se recuperan—, lo cual es correcto para el caso
+real, pero deja sin camino el error de captura descubierto tarde: si alguien cargó 40 metros de
+cable en vez de 4 y ya pasaron días, la única salida es la papelera de esa línea, que devuelve
+**toda** la cantidad a quien la aportó. No hay forma de corregir a la baja.
+
+No es urgente —la papelera + volver a cargar la cifra correcta resuelve el caso— pero cuando
+aparezca el primer inventario descuadrado por esto, la respuesta es una corrección de cantidad
+sobre la línea, no un retiro de material.
+
+### 📋 P-50 · El `$` sigue sin escaparse en el COMANDO, sólo en la contraseña
+
+El arreglo del 2026-09-22 neutraliza `\`, `$` y `"` en la contraseña, pero el comando que
+viaja en el mismo `ssh-exec` sigue pasando sólo por `addslashes()`, que escapa `\` y `"` y
+**no toca el `$`**. Dentro de una cadena de RouterOS el `$` interpola una variable.
+
+Por dónde puede entrar: el comentario de la cola y del secret lleva el **nombre del cliente**,
+que se translitera a ASCII (`Str::ascii`) — y `$` es ASCII, así que sobrevive. Un cliente
+apellidado, literalmente, «Ca$h» produciría un comando con una variable inexistente en medio.
+
+No se corrigió aquí a propósito: `addslashes()` está en el camino de TODOS los comandos, y
+cambiarlo sin una prueba contra un RouterOS real es cambiarle el escapado a nueve managers a
+ciegas. La contraseña se pudo arreglar sola porque es un literal, no un fragmento de guion.
+
+**Recomendación.** Escapar `$` en `coreSshExecCommand()` para el comando también, con una
+prueba que fije el comando emitido byte a byte, y verificarlo contra el CORE de pruebas antes
+de desplegar.
+
+### 🟠 P-51 · `POST /api/billing/payments` acepta el `tenant_id` que le manda el navegador
+
+Detectado el 2026-09-22 trabajando en el aviso de reconexión pendiente (§ 72 de la bitácora).
+`BillingController::registerPayment()` hace `$data = $request->all()` y `BillingService` lee
+`$data['tenant_id']` tal cual para crear el `Payment`. El valor lo pone el **frontend** desde la
+sesión guardada en el navegador (`RegisterPayment.vue` y `CustomerBilling.vue` lo envían en el
+cuerpo), no el servidor desde el token.
+
+`created_by` sí se sella desde la sesión y se documenta como «nunca desde el cuerpo»; el
+`tenant_id` del mismo endpoint no tiene esa protección. `Payment` usa `BelongsToTenant`, pero su
+gancho de creación sólo rellena el campo **cuando viene vacío**: un valor explícito gana.
+
+**Por qué no se corrigió en este PR.** El campo es hoy parte del contrato que los dos formularios
+envían, y cambiarlo sin tocar el frontend a la vez es arriesgar el registro de pagos, que es el
+camino de dinero más usado del sistema. Es un hallazgo independiente del trabajo de reconexión y
+merece su propio cambio y sus propias pruebas.
+
+**Recomendación.** Sellar `tenant_id` desde `$request->user()->tenant_id` en el controlador,
+ignorando lo que traiga el cuerpo (igual que `created_by`), dejar de enviarlo desde las dos
+pantallas, y fijarlo con una prueba que intente cobrar contra otra sede y espere un rechazo.
+
+### 🟢 P-52 · «Reconexión ya en curso» se reporta como `pendiente_error_mikrotik`
+
+Del mismo trabajo (§ 72). Cuando dos reconexiones del mismo servicio coinciden, la segunda no se
+lanza —el candado hace su trabajo— y el desenlace se informa como `pendiente_error_mikrotik`,
+que es el código más cercano del vocabulario pero no es literalmente cierto: no se llegó a hablar
+con el equipo.
+
+Se prefirió eso a inventar un noveno estado porque **la acción que necesita el operador es
+idéntica** (verificar y reintentar) y porque el aviso nunca miente en lo que importa: dice que la
+reconexión quedó pendiente, no que se hizo.
+
+**Recomendación.** Si en operación aparece con frecuencia suficiente para molestar, añadir
+`pendiente_en_curso` a `ReconnectionOutcome` con su mensaje propio («hay una reconexión en curso,
+espera unos segundos y vuelve a mirar») y ningún botón de reintento.
+
+### 🟢 P-53 · «No enviar notificaciones de factura» no se puede marcar al CREAR el cliente
+
+Detectado el 2026-09-23 auditando la preferencia (§ 73 de la bitácora).
+
+El backend acepta `notify_invoice` en el alta: está validado en `StoreCustomerRequest` y el
+controlador lo persiste con `?? true`. Lo que no existe es el control en el formulario —
+`CustomerAdd.vue` sólo monta «No facturar a este cliente»; la casilla de notificaciones vive
+únicamente en `CustomerEdit.vue`. El manual de usuario la documentaba bajo «5.2 Crear un
+cliente», que es justo donde el operador iba a buscarla sin encontrarla.
+
+**Por qué no se añadió al arreglar el § 73.** Que cada alta nazca con el aviso encendido es el
+comportamiento registrado (ver P-RADIUS-3, que lo menciona como estado actual conocido), no un
+descuido. Añadir el control al alta es una decisión de producto —cambia lo que un operador puede
+configurar en el onboarding—, no la corrección de un defecto, y aquel PR estaba acotado al
+camino de envío. Se corrigió el manual para que diga dónde está la casilla de verdad.
+
+**Recomendación.** Si el ISP da de alta clientes que ya piden silencio desde el primer día,
+montar el mismo toggle en `CustomerAdd.vue` (el campo ya viaja en el `POST /api/customers`, así
+que es sólo interfaz) y revertir la aclaración del manual. Mientras tanto, el camino es
+guardar y editar.
+
+### 📋 P-54 · La reconexión al pagar sigue siendo síncrona, y el recaudo no tiene idempotencia
+
+El preflight (§ 72) quita el 504 del caso que lo disparó —el router sin configurar— y la guarda
+del servicio compartido (§ 74) lo quita de las otras cinco puertas. Pero el camino feliz no
+cambió de forma: con un router **bien** configurado, registrar un pago sigue abriendo **dos
+sesiones SSH encadenadas** dentro de la petición HTTP, y eso son decenas de segundos.
+
+Basta con que ese equipo esté lento, saturado o con el túnel inestable para que vuelva el mismo
+504. Causa distinta, daño idéntico.
+
+**Por qué no se resolvió.** El código explica por qué se hizo síncrono: que el cajero vea el
+desenlace sin depender de que haya un worker de cola vivo. Volverlo asíncrono sin más le quita
+esa respuesta, y hacerlo bien obliga a decidir cómo se la devuelve — sondeo desde la pantalla, o
+aviso posterior. Es una decisión de producto.
+
+**Recomendación.** Acotar el intento con un presupuesto de tiempo (~15-20 s): si el router
+responde, el cajero ve el resultado como hoy; si no, el pago responde igual y la reconexión la
+termina el failover que ya existe (`suspension_action_logs` + `billing:reconcile-suspensions`).
+`executeSsh()` ya acepta un tiempo de espera por comando.
+
+**Y la red de seguridad que falta pase lo que pase:** el recaudo no tiene idempotencia. Dos
+pagos idénticos del mismo cliente, por el mismo monto y con el mismo comprobante, entran sin una
+sola advertencia. Es lo que convierte cualquier corte de la petición en dinero mal contado — y
+es exactamente lo que le pasó a este ISP antes de los dos arreglos.
+
+### 📋 P-61 · El catálogo de formas de pago admite nombres repetidos
+
+`payment_methods` no tiene índice único por `(tenant_id, nombre)`. El alta y la edición lo
+validan en PHP, pero el auto-sembrado de `PaymentMethodController::index()` no tiene candado:
+dos primeras visitas simultáneas siembran el catálogo por duplicado. Desde KAN-109 esto tiene
+consecuencia visible: un pago registrado **por texto** cuyo nombre coincide con dos formas de
+pago no se enlaza a ninguna (sería adivinar), y queda como «histórico».
+
+**Recomendación.** Reportar primero los duplicados reales por tenant, fusionarlos a mano (con
+decisión del ISP sobre a cuál apuntan sus pagos) y después crear un índice único sobre
+`(tenant_id, lower(name))` en PostgreSQL. El sembrado debería ir en `firstOrCreate` dentro de
+un lock.
+
+### ✅ P-62 · `POST /billing/payments` tomaba el `tenant_id` del cuerpo — **resuelta 2026-09-29**
+
+`BillingController::registerPayment()` pasa `$request->all()` al servicio y
+`BillingService::registerPayment()` escribe `'tenant_id' => $data['tenant_id']`. El front lo
+manda con el tenant de la sesión, pero nada lo impone: un usuario con `view_billing` puede
+enviar otro `tenant_id` y el pago se crea en ese tenant (el hook de `BelongsToTenant` sólo
+completa el campo cuando viene vacío). `customer_id` se valida con un `exists` sin tenant.
+
+Detectado revisando KAN-109; **no se corrigió en esa rama** porque cambia el contrato de un
+flujo de dinero y merece su propia prueba de aislamiento. KAN-109 sí evita que la forma de
+pago cruce tenants: se valida contra el tenant de la sesión y se resuelve contra el del pago,
+y si no coinciden responde 422 (`PaymentMethodLinkTest`).
+
+**Resuelta en KAN-110** (bitácora § 81). El `tenant_id` se sobrescribe desde la sesión después
+de leer el cuerpo —no se valida: sobrescribirlo hace que la pregunta de qué hacer ante un
+valor distinto no exista— y una diferencia con la sesión queda en el log con ruta, usuario e
+IP. `customer_id` pasa a validarse con `Rule::exists('users','id')->where('tenant_id', …)`, y
+`BillingService::registerPayment` exige además que el cliente sea del tenant, por si mañana
+aparece un segundo llamador.
+
+No se rechaza la petición con 422 porque `RegisterPayment.vue` **sí** envía `tenant_id`, tomado
+de la sesión: rechazar rompería el contrato por un campo que el propio sistema manda.
+
+**Dos hallazgos del mismo barrido quedaron fuera a propósito:** P-65 (la misma falla en
+`POST /billing/invoices`) y P-66 (`CustomerProfile` sin scope en los endpoints de saldo).
+
+### 📋 P-63 · Los pagos con nombres renombrados antes de KAN-109 quedan como «histórico»
+
+La migración de KAN-109 sólo enlaza pagos cuyo texto coincide con una forma de pago
+**vigente**. Los que se registraron con un nombre que después se renombró —el caso concreto
+de Chaguaní que originó la tarjeta— no tienen coincidencia y quedan con su texto y sin
+enlace: no se perdió nada, pero siguen fuera del filtro por forma de pago. Tampoco se enlaza
+`cash`, el valor por defecto de la API vieja.
+
+No hay rastro de qué nombre anterior corresponde a qué forma de pago actual (los renombrados
+del catálogo no se auditaban), así que decidirlo es del ISP. Hoy se corrige pago a pago
+desde el modal de edición, que queda auditado.
+
+**Recomendación.** Correr `php artisan payments:link-methods` (sólo lectura) contra
+producción para dimensionar el caso por tenant. Si son muchos, un `--map="Nombre viejo=ID"`
+explícito, con `--apply`, reporte previo y auditoría por pago; y un filtro por «métodos
+históricos» en Recaudos para poder encontrarlos. Además, auditar los renombrados del
+catálogo desde ya.
+
+### 📋 P-64 · Quedan dos lugares donde la forma de pago sigue siendo texto
+
+- `customer_installations.payment_method` es texto libre. El pago que genera ya se enlaza al
+  catálogo (KAN-109), pero la orden en sí conserva el nombre: si el catálogo se renombra, la
+  orden muestra el nombre viejo (se conserva como opción en el select, así que no se pierde).
+- Ordenar Recaudos por **Método** ordena por el texto con que se registró cada pago, no por
+  el nombre vigente del catálogo.
+
+Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 
 ### 🟡 P-46 · Tras un despliegue, el navegador sigue mostrando la aplicación vieja
 
@@ -2101,10 +2857,10 @@ un arreglo desplegado y un arreglo que el usuario ve son dos cosas distintas.
 > **Dos avisos antes de usar esta tabla como índice.**
 >
 > **Hay identificadores repetidos.** Existen dos `P-9`, dos `P-10`, dos `P-11`, dos `P-13`,
-> dos `P-14`, dos `P-21` y dos `P-23`, cada par sobre temas distintos. **No se renumeraron a
-> propósito**: hay seguimiento externo que ya cita estos códigos y cambiarlos rompería esas
-> referencias. Se distinguen aquí con un calificativo en cursiva —*(router)*, *(finanzas)*,
-> *(S3)*— y buscando por el título, nunca sólo por el código.
+> dos `P-14`, dos `P-21`, dos `P-23` y dos `P-45`, cada par sobre temas distintos. **No se
+> renumeraron a propósito**: hay seguimiento externo que ya cita estos códigos y cambiarlos
+> rompería esas referencias. Se distinguen aquí con un calificativo en cursiva —*(router)*,
+> *(finanzas)*, *(S3)*, *(inventario)*— y buscando por el título, nunca sólo por el código.
 >
 > **Puesta al día el 2026-09-09.** La tabla llegaba sólo hasta P-21 y omitía la mitad del
 > registro, incluidas las dos entradas más graves. Ahora cubre todo el § 7.
@@ -2138,50 +2894,52 @@ un arreglo desplegado y un arreglo que el usuario ve son dos cosas distintas.
 | **B-4** | Nombres de tabla mezclados | Confusión | 🟢 Baja | ✅ Documentado |
 | **B-5** | Documentación desincronizada | Decisiones sobre información falsa | 🟢 Baja | ✅ Resuelto |
 | **B-6** | Restos de Livewire/Volt | Código y 19 tests muertos | 🟢 Baja | ✅ Eliminados + test real |
-| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | ✅ Resuelto 2026-08-31 (`delete_customers`, solo admin) |
 | **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | 📋 Pendiente (frontend) |
+| **P-1** | Falta `delete_clients` | Borrado de cliente demasiado laxo | 🟡 Media | 📋 Pendiente |
+| **P-2** | Contraseñas de router en la respuesta JSON | Exposición innecesaria | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-45, incluye `wg_private_key`) |
 | **P-3** | Placeholder de otro tipo de documento se blanquea sin avisar | Tickets de soporte confusos ("no aparece mi tabla") | 🟢 Baja | ✅ Resuelto 2026-08-06 (`kind: wrong_type`) |
 | **P-4** | Modo avanzado sin editor visual ni protección contra typos | Mismo síntoma que P-3, más fácil de gatillar | 🟢 Baja | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics` + `HtmlDocumentEditor`) |
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
-| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
-| **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
+| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 🟡 Aviso en vista previa hecho (KAN-60) · la causa sigue (P-15) |
+| **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 🟡 Auditoría lista (KAN-62) · falta decidir: purgar o marcar en la interfaz |
 | **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
-| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | ✅ Resuelto 2026-10-05 (seeder upsert, KAN-75; las migraciones con huella ya publicaban) |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
-| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | 📋 Arreglado en sitio · helper `fakePdf()` pendiente |
+| **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | ✅ Resuelto 2026-10-05 (`fakePdf()`, KAN-65) |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |
 | **P-16** | Borrar un cliente deja archivos en S3, config en el router y filas huérfanas | El cliente borrado **sigue navegando**; contratos y fotos quedan en el bucket para siempre | 🔴 Alta | ✅ Resuelto 2026-08-06 (`CustomerDeletionService`) |
 | **P-17** | La hoja de instalación no captura el puerto NAP ni el modo fibra | En fibra, el puerto de la caja se digita a mano en el alta y la OLT se deduce subiendo por `parent_id` | 🟢 Baja | 📋 Pendiente |
 | **P-18** | Las plantillas guardadas antes del 2026-08-06 perdieron sus reglas `body`/`html` | El sanitizer las descartaba en silencio y sólo se guarda el HTML ya saneado: el original no existe | 🟡 Media | 📋 Pendiente (hay que repegar el HTML; sin migración posible) |
-| **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | 📋 Pendiente |
+| **P-19** | Inventario con custodia: tres cabos sueltos (cambio de `is_serialized` sin validar, saldos huérfanos sin pantalla, importación por rango de `id`) | Existencias que dejan de poder contarse; saldos invisibles | 🟡 Media | ✅ Resuelto 2026-09-10 |
 | **P-20** | La allowlist de IPs de las llaves de API es falsificable por cabecera | Con una llave filtrada, `X-Forwarded-For` salta la restricción por IP | 🟡 Media | 📋 Documentado · el token sigue siendo el secreto primario |
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 | **P-0** | Devolver saldo al borrar una factura no des-consume el `earned` de origen | El error siempre favorece al cliente, nunca al ISP | 🟢 Baja | 📋 Deuda aceptada |
 | **P-00** | 91 clientes con dinero recibido que no respalda ninguna factura ni saldo | **$5.709.350 sin respaldo en producción** (corte 2026-08-13) | 🔴 Crítica | 📋 Pendiente · caso por caso, nunca en bloque |
-| **P-9** *(finanzas)* | Deuda restante de la auditoría de Finanzas | Búsqueda sin índice; 3 componentes muertos; fuga de blobs en 13 sitios | 🟢 Baja | 📋 Pendiente |
+| **P-9** *(finanzas)* | Deuda restante de la auditoría de Finanzas | Búsqueda sin índice; 3 componentes muertos; fuga de blobs en 13 sitios | 🟢 Baja | 🟡 Punto 3 hecho (KAN-52) · faltan índice de búsqueda y componentes muertos |
 | **P-10** *(arrastre)* | La factura de excepción no cobra el arrastre pendiente | Plata que se deja de cobrar sin que nadie se entere | 🟡 Media | 📋 Decidir al primer caso real |
 | **P-11** *(generate-tenant)* | `billing:generate-tenant` es una segunda ruta de facturación | Todo lo nuevo hay que replicarlo a mano; el error no da señal | 🟡 Media | 📋 Pendiente · borrarlo o delegar |
 | **P-22** | Del vocabulario del ticket sólo faltan los códigos de subcausa | Las subcausas no son seleccionables | 🟡 Media | 🟡 Parcial · sembrado 2026-08-21; falta **D-06** |
 | **P-21** *(catálogos)* | Un tenant puede pisar un código de catálogo global | El integrador no sabría si `sin_senal` es global o del ISP | 🟡 Media | 📋 Pendiente · se activa con la pantalla de administración |
 | **P-23** *(R3)* | Falta la R3 de `support_ticket` | — | — | ✅ Resuelto 2026-08-15 · entrada contradictoria |
 | **P-24** | La pantalla de catálogos tendrá que vaciar la caché | Editar y releer en la misma petición devuelve el valor viejo | 🟢 Baja | 📋 Nota anticipada |
-| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 📋 Pendiente |
-| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 📋 Pendiente |
+| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 🟡 Capas ya no reencuadran (KAN-78) · falta acotar los `bounds` al filtro |
+| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 🟡 En el generador (KAN-56) · la flota la recibe al re-aplicar |
 | **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
 | **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
-| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
-| **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | 📋 Documentado |
+| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | ✅ Resuelto 2026-10-05 (`billing:reconcile-reconnections`, KAN-53) |
+| **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | ✅ Resuelto 2026-09-21 (401 JSON bajo `api/*`) |
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
-| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
+| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | ✅ Resuelto 2026-10-05 (latido real, KAN-68) |
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
-| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 📋 Pendiente |
+| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 🟡 Aviso al superadmin hecho (KAN-38) · falta definir la variable en producción |
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
-| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | 📋 Pendiente |
+| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | ✅ Resuelto 2026-10-05 (`your_ip`, KAN-39) · la allowlist editable sigue por decidir |
 | **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |
-| **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
+| **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | ✅ Resuelto 2026-10-05 (RESTRICT en PostgreSQL, KAN-55) · migración sin aplicar en producción |
 | **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |
 | **P-PROC-1** | El planificador corre de fondo dentro del `worker` | Si muere, el contenedor sigue «sano» y se para el ciclo de negocio | 🟠 Alta | 🟡 Mitigado por el latido; falta separar el componente |
 | **P-DEPLOY-1** | `migrate --force` corría al arrancar el contenedor | Tumbó el despliegue del 2026-09-10 con un error que no menciona la base de datos; el rollback revierte también las variables corregidas | 🔴 Crítica | 🟡 Resuelto en la plantilla (job `PRE_DEPLOY`); **falta aplicar** |
@@ -2189,15 +2947,66 @@ un arreglo desplegado y un arreglo que el usuario ve son dos cosas distintas.
 | **P-ENV-1** | Desarrollo y producción comparten la misma base | Credenciales de producción en cada portátil; origen de la cadena | 🔴 Crítica | 📋 Pendiente · staging con base propia |
 | **P-RLS-1** | La frontera entre tenants es 100 % de aplicación | Si una consulta olvida el filtro, Postgres obedece | 🔴 Crítica | 📋 Pendiente · RLS con `FORCE` y rol sin `BYPASSRLS` |
 | **P-RLS-2** | `Billing` sin global scope hasta verificar el backfill | Activarlo antes de tiempo **pararía la facturación** | 🟡 Media | 📋 Pendiente · comprobar que no queden NULL |
-| **P-KEYS-1** | Riesgo residual del auto-servicio de llaves | Sin aviso de vencimiento, la integración se cae de golpe | 🟡 Media | 📋 Pendiente · `api-keys:expiring` |
+| **P-KEYS-1** | Riesgo residual del auto-servicio de llaves | Sin aviso de vencimiento, la integración se cae de golpe | 🟡 Media | 🟡 `api-keys:expiring` hecho (KAN-43) · falta el aviso de llaves sin uso |
 | **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
 | **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
-| **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | 📋 `DB_URL` desactivado en local · **falta la salvaguarda de consola** |
-| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
-| **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | 📋 Pendiente · corrección de una línea, pero afecta a toda la API |
+| **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-102) |
+| **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
+| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | ✅ Resuelto 2026-10-05 (KAN-96) · queda el logo de tenant en `public` |
+| **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
+| **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
+| **P-50** | Cinco de las diez reglas de cierre del § 15 no son exigibles: faltan infraestructura «no aplica», validación del cliente separada de la restauración técnica y el seguimiento de solución temporal / pendiente de tercero | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 🟡 **Parcial**: la regla 5 (prueba final o justificación) quedó cubierta por el **PR F2** el 2026-09-25 |
+| **P-51** | La matriz de transiciones vive en PHP, no en base de datos | Cambiar una transición exige desplegar. Deliberado mientras D-13 siga sin resolver | 🟢 Baja | 📋 Aceptada a conciencia (2026-09-19) |
+| **P-54** | La reconexión al pagar abre dos sesiones SSH dentro de la petición, y el recaudo no avisa de pagos repetidos | Con un router lento vuelve el 504 del mostrador, y sin idempotencia eso es dinero cobrado dos veces | 🟠 Alta | 📋 Pendiente · acotar el intento + avisar del pago duplicado |
+| **P-55** | El `unique(device_id)` de `installation_equipment` («un equipo, una casa») quedaria con un agujero al registrar equipos instalados desde un ticket | Un mismo equipo fisico podria figurar instalado en una casa y entregado en otra sin que nada lo impida | 🟠 Media | ✅ **Resuelto 2026-09-24** (§ 78): el unique se relajo a indice normal y el invariante paso a `inventory_device.status` + `customer_id`, que es UNA fila por aparato, comprobado en las CUATRO rutas que pueden dejar un equipo en un cliente |
+| **P-56** | `SupportEdit.vue` sigue eligiendo tecnico filtrando la lista por NOMBRE de rol (`'técnico' \|\| 'tecnico'`) | Un tenant que llame «Campo» a su rol tecnico se queda sin candidatos, y la pantalla no explica por que | 🟡 Baja | 📋 Pendiente · el PR F1 ya no depende de esa heuristica: valida contra el tenant en el backend |
+| **P-58** | Borrar un equipo del inventario deja sin serial su linea historica de `installation_equipment` (`device_id` es `SET NULL`) | La hoja de aquella instalacion conserva marca y modelo pero pierde el serial; el kardex si lo conserva congelado. En `ticket_equipment` esto SI se frena, y la asimetria es consciente | 🟡 Baja | 📋 Pendiente · decidir si el guard de borrado se extiende a `installation_equipment` o si el serial se congela en la linea, como ya hace el kardex |
+| **P-59** | Los estados de `customer_installations` se teclean como cadena suelta, y la columna es un `enum` en castellano (`pendiente`/`completada`/`cancelada`) mientras `payments.status` es en ingles (`completed`) | SQLite no hace cumplir el enum y PostgreSQL si: un valor mal escrito pasa la suite en local y solo revienta en el job de Postgres. Ya ocurrio al adaptar el PR F3 | 🟡 Baja | 📋 Pendiente · constantes o enum respaldado en `CustomerInstallation` y usarlas en codigo y pruebas. Ver trampa #63 |
+| **P-61** | `payment_methods` admite nombres repetidos por tenant (sin índice único; el auto-sembrado no tiene candado) | Un pago registrado por texto con un nombre repetido no se enlaza a ninguna forma de pago y queda como «histórico» | 🟡 Media | 📋 Pendiente · reportar y fusionar duplicados, luego índice único |
+| **P-62** | `POST /billing/payments` tomaba `tenant_id` del cuerpo y validaba `customer_id` sin tenant | Un usuario con `view_billing` podia crear un pago en otro tenant | 🔴 Alta | ✅ **Resuelta 2026-09-29 (KAN-110, § 81)**: el tenant se sella desde la sesion y `customer_id` se valida acotado; guardia adicional en `BillingService` |
+| **P-63** | Pagos registrados con un nombre que se renombró antes de KAN-109 (y los `cash` de la API) quedan sin enlace | Siguen fuera del filtro por forma de pago; su texto se conserva | 🟡 Media | 📋 Pendiente · dimensionar con `payments:link-methods`; el mapeo es decisión del ISP |
+| **P-64** | `customer_installations.payment_method` sigue siendo texto, y el orden por Método usa el texto de registro | Cosmético: la orden muestra el nombre viejo tras un renombrado | 🟢 Baja | 📋 Pendiente |
+| **P-65** | `POST /billing/invoices` (`BillingController::store`) repite el patron de P-62: `tenant_id` requerido desde el cuerpo, `customer_id` con `exists:users,id` sin acotar, y `Invoice::create($data)` con el tenant recibido | Un usuario con permiso de facturacion puede crear una factura en otro operador, a nombre de un cliente ajeno | 🔴 Alta | 📋 Pendiente · detectado en KAN-110 y **deliberadamente fuera de ese PR** para no mezclar dos riesgos; merece tarjeta propia |
+| **P-66** | `updateCreditBalance` y `getCustomerBalance` resuelven `CustomerProfile::where('user_id', …)` y `CustomerProfile` no lleva scope de tenant | El saldo a favor de un cliente de otro operador podria leerse o ajustarse conociendo su `user_id` | 🟠 Media | 📋 Pendiente · detectado en el barrido de KAN-110; falta confirmar si alguna otra capa lo acota |
+| **P-67** | El inventario aceptaba bodegas y personas de OTRO tenant como custodio: retiro desde el ticket a bodega o técnico ajeno, destino de Entregas a una persona ajena, y alta/edición de equipo con modelo, proveedor, bodega o persona ajenos (`exists:tabla,id` sin tenant) | El equipo del cliente podía acabar con `branch_id`/`user_id` de otra empresa: fuera del inventario propio y dentro del ajeno | 🔴 Alta | ✅ **Resuelta 2026-09-29 (§ 82)**: `InventoryLedger::assertCustodioDelTenant()` en toda escritura con custodio interno, y `Rule::exists(...)->where('tenant_id')` en el alta de equipos |
+| **P-68** | `SupportTicketController` valida `user_id` y `staff_id` con `exists:users,id` sin tenant (alta y edición), igual que `ExpenseController` con `user_id` | Un ticket puede quedar con cliente o técnico de otra empresa. En inventario ya no mueve nada (P-67 lo frena en el ledger), pero el ticket sí queda mal referenciado | 🟠 Media | 📋 Pendiente · barrido fuera del alcance de P-67 |
+| **P-69** | Borrar una orden de instalación arrastra en cascada sus líneas de `installation_equipment` sin devolver nada, y cancelarla no las toca | Los equipos siguen figurando instalados en el cliente, el material consumido desaparece del saldo sin contrapartida, y la hoja pierde su prueba; el kardex conserva los movimientos con `installation_id` en null | 🔴 Alta | 🟡 **Bloqueo preventivo hecho 2026-09-30 (§ 83)**: no se borra una orden con líneas, firma o factura (`409`), no se cancela con líneas o firma (`422`), y el modelo lanza en `deleting`. **Pendiente la conciliación (entrega B)** y el camino del borrado de cliente (P-71) |
+| **P-70** | Una línea del ticket o de la instalación se puede cobrar varias veces: «Cobrar equipo…» sólo copia la etiqueta y el precio, sin enlazar la línea con el cargo | Doble cobro del mismo equipo o material si nadie lo nota | 🟡 Media | 📋 Pendiente · desde § 83 la pantalla no ofrece dos veces la misma línea **dentro del mismo formulario**, pero entre cargos distintos (o tras recargar) sigue sin enlace. No está resuelto |
+| **P-71** | `CustomerDeletionService::deleteRecords()` borra las órdenes del cliente con `CustomerInstallation::where(...)->delete()`: el borrado masivo no dispara el `deleting` del modelo y la FK CASCADE se lleva `installation_equipment` | Borrar un cliente pierde las líneas de sus instalaciones; los equipos siguen figurando instalados a su nombre | 🟠 Media | 📋 Pendiente · detectado en § 83; no se tocó porque es el flujo de borrado de clientes y sus pruebas no corren en el equipo local (openssl/fileinfo bloqueados) |
+| **P-72** | `resources/js/components/customer/CustomerInstallations.vue` no lo importa ninguna página ni ruta, aunque el manual describe una pestaña «Instalaciones» en la ficha del cliente | Lo que se cambie ahí no lo ve nadie; el manual promete una pantalla que no está | 🟢 Baja | 📋 Pendiente · se le añadió el selector del plan igual (§ 83); falta decidir si se monta en `CustomerEdit.vue` o se retira |
+| **P-73** | El campo «Cable utilizado (metros)» de la hoja técnica es un número libre, independiente del consumo de cable registrado en «Equipos y materiales usados» | La hoja puede decir 30 m y el inventario haber descontado 20 m, sin aviso | 🟢 Baja | 📋 Pendiente · se dejó igual para no cambiar la hoja firmada en la entrega A |
+| **P-74** | En una orden de **prospecto** (sin `customer_id`), registrar una unidad con serial la deja `installed` con `customer_id` en null y conserva el `user_id` del técnico; el kardex apunta a un cliente nulo | La unidad deja de estar disponible pero no figura en casa de nadie: no aparece para retirar en un ticket ni en el inventario del técnico | 🟡 Media | 📋 Pendiente · documentado aparte en § 84 y **no corregido** en esa rama; decidir si se exige convertir el prospecto antes de registrar equipos o si la unidad se reasigna al convertir |
+| **P-75** | Detalles de interfaz previos vistos al verificar § 84: la cabecera del detalle de instalación desborda a 390 px de ancho; la fila «Retirar equipo del cliente» del ticket se sale de su tarjeta en escritorio; y al agregar material en el ticket el aviso dice «Equipo cargado al ticket…» | Cosmético | 🟢 Baja | 📋 Pendiente · no son de § 84 y no se tocaron |
+| **P-76** | `CustomersSheetImport` crea los usuarios con `role_id = 3` fijo, mientras el alta del panel usa `Role::idByName('Cliente', $tenant)` | Si el rol «Cliente» no es el id 3 (otro despliegue, o un tenant con rol propio), la importación falla por clave foránea o asigna el rol equivocado | 🟢 Baja | 📋 Pendiente · detectado en § 85 al probar la importación |
+| **P-77** | `customer_profile.status` (`is_enabled`) y `service_status` pueden quedar desalineados en datos anteriores a `service_status`. (La primera versión de esta entrada culpaba al auto-corte: no aplica, sólo toma clientes con `status = true`.) | Un integrador AAA tiene que exigir las dos señales para no dar acceso de más; el reconciliador barre por `status = false` y re-corta en la RB sin que cambie `service_status` | 🟡 Media | ✅ **Resuelta 2026-10-01 (§ 87)**: `customers:audit-access-flags` en `public` dio **0** fichas desalineadas en los tres casos; no hubo datos que corregir. El auto-corte ya no revive bajas (§ 86) y el feed avisa cuando `is_enabled` cambia solo (§ 85). La auditoría queda para repetirla (KAN-117) |
+| **P-78** | La unicidad de IP por router se valida sólo en la aplicación; no hay índice (el usuario PPPoE sí lo tiene) | Dos guardados concurrentes, o un escritor que no pase por la validación, pueden duplicar una IP en el mismo router | 🟡 Media | 🟡 **Migración lista (§ 86)**: índice parcial `customer_profile_ip_user_router_unique`. **Pendiente** correr en `public` la consulta de duplicados antes de `migrate:both`: si los hay, la migración aborta listándolos (KAN-118) |
+| **P-79** | Cambiar a un cliente de router no limpia su configuración en el equipo anterior (cola, secret, lease, entrada en `ISPWATCH_SUSPENDIDOS`); y `CustomerDeletionService::purgeRouter()` no mira `usesRadius()` | El cliente puede seguir navegando por el equipo viejo y la IP queda ocupada allí; borrar un cliente de un router RADIUS intenta SSH y espera el timeout | 🟡 Media | ✅ **Resuelta 2026-09-30 (§ 86)**: `CustomerRouterMoveObserver` + `PurgeCustomerFromPreviousRouterJob` (en cola, resultado en Auditoría); el borrado salta los routers RADIUS (KAN-119) |
+| **P-80** | La mensualidad no era atómica ni exclusiva: corrida, reintento, alta (y ahora reparación) comprobaban «¿ya existe?» sin bloqueo y escribían por separado | Dos ejecuciones a la vez emitían dos mensualidades y aplicaban el saldo a favor dos veces; un fallo a mitad dejaba una factura a medio armar | 🔴 Alta | ✅ **Resuelta 2026-10-01 (§ 88)**: transacción + bloqueo de `customer_profile` + segunda comprobación dentro del bloqueo (`MonthlyInvoiceAlreadyExists`) |
+| **P-81** | Una mensualidad **anulada** cuenta como «ya tiene» y la corrida no la repone; `voidInvoice()` devuelve sus pagos como saldo a favor | El cliente queda sin factura vigente y con el pago como saldo, el mismo síntoma del incidente § 88. Hoy es deliberado (anular = sin efecto), pero nada avisa de que el mes quedó sin cobrar | 🟠 Media | 📋 Pendiente · decidir si anular una mensualidad debe ofrecer «reemitir». `billing:missing-invoices` ya la reporta como `invoice_voided` |
+| **P-82** | `billing:generate-tenant` compara `period_start` exacto y no toma el bloqueo de P-80 | No veía una primera factura prorrateada (arranca a mitad de mes) y duplicaba; también si corría junto a la corrida horaria | 🟠 Media | ✅ **Resuelta 2026-10-01 (§ 88)**: escribe a través de `withMonthlyInvoiceLock()`, sin cambiar su cálculo. Probado: antes emitía 2 mensualidades al prorrateado |
+| **P-84** | `billing:generate-tenant` tiene reglas propias: descuenta el saldo a favor **sin movimiento en `customer_credits`**, ignora «No facturar», el estado del servicio y la política de primera factura, y vence a 5 días fijos | Una corrida suya deja saldo a favor consumido sin rastro (descuadre en `billing:audit-books`) y factura a quien no debía | 🟠 Media | 📋 Pendiente · fuera del incidente § 88; **no usarlo para repararlo**. Ver P-11 / KAN-49 |
+| **P-85** | Anular una mensualidad deja sus ítems de servicios adicionales contando como «ya cobrados» en ese mes (`additionalServiceAlreadyBilled` no filtra por estado) | Si se reemite el mes a mano, los adicionales no se vuelven a cobrar | 🟡 Baja | 📋 Pendiente · decidir junto con P-81 |
+| **P-86** | La unicidad «una mensualidad por cliente y mes» cubre los caminos automáticos y la reparación, **no** la factura manual: `POST /billing/invoices` nace `monthly` por defecto y el cargo adicional admite el tipo `monthly`, sin bloqueo ni comprobación. Además `POST /billing/run-monthly` corre `generateMonthlyInvoices()` para **todos** los tenants | Un operador puede crear una segunda mensualidad a mano, y la corrida manual de un tenant factura a los demás | 🟠 Media | 📋 Pendiente · la factura manual es una decisión del operador y cambiarla toca reglas de facturación; el endpoint global va aparte |
+| **P-83** | `billing:missing-invoices` no cubre la factura de sólo adicionales (cliente sin plan o con plan de cortesía) | Esos clientes salen como `no_active_service` / `courtesy_plan` «revisar a mano» | 🟢 Baja | 📋 Pendiente · cubrirlo si algún caso real lo pide |
+| **P-87** | `withoutOverlapping()` sin argumento deja el candado 24 h en `cache_locks`, y el `worker` que aloja al planificador se recicla cada hora: una corrida que muere a mitad deja la tarea sin correr hasta el día siguiente, en silencio | La facturación de octubre de Chaguaní salió un día tarde (677 facturas) y la de septiembre de Tocaima, dos. `traffic:collect` estaba bloqueada 16 h al diagnosticarlo | 🔴 Alta | ✅ **Resuelta 2026-10-02 (§ 89)**: cada candado vence antes del siguiente tick de su tarea (55/55/25/4 min). `ScheduledTaskLockExpiryTest` lo exige a toda tarea nueva |
+| **P-88** | La compuerta horaria de `generateMonthlyInvoices()` (y la del auto-corte) compara con la hora configurada **de hoy** también en los días posteriores al de creación | Si la corrida del día de creación se pierde entera, la recuperación no llega en la próxima hora sino a la hora configurada del día siguiente | 🟡 Media | 📋 Pendiente · con P-87 resuelta, una corrida muerta se recupera en el siguiente tick del mismo día. Cambiarlo altera cuándo salen las facturas y los cortes, así que queda como decisión aparte |
+| **P-89** | `billing:verify-monthly` (06:00) y `billing:verify-cuts` (07:00) combinaban la hora de creación o de corte con la fecha de **hoy** | Todo router que factura o corta después de esa hora salía `pending` todos los días: los dos detectores **no podían alertar de ningún router de producción** | 🔴 Alta | ✅ **Resuelta 2026-10-02 (§ 89)**: la hora se aplica sobre el día de creación o de corte |
+| **P-90** | El latido (`system:heartbeat`, `/health`) prueba que el planificador vive, no que cada tarea corra: una tarea saltada por su candado no deja señal | Lo que se para sin el planificador parado sólo lo ven los `verify-*` del día siguiente | 🟡 Media | 📋 Pendiente · candidato: guardar la última ejecución terminada de las tareas críticas y que `/health` la compare con su frecuencia |
+| **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
+| **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
+| **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
+| **P-47** | `edit_discount` autoriza guardar la cartera de una instalación y es lo **único** que gobierna; su etiqueta decía «Editar Descuento» | Nadie encontraba la casilla que muestra el valor de la instalación, y el rol Técnico no tenía ninguna que marcar | 🟢 Baja | 🟡 Etiqueta corregida y lectura separada en `view_installation_cost` (KAN-104); **la clave sigue mal nombrada** |
 | **P-42** | Borrar un cliente destruía en cascada las notas y adjuntos de todos sus tickets | El expediente sobrevivía vaciado por dentro | 🔴 Alta | ✅ **Resuelto 2026-08-29**: ambas FK a `SET NULL` + `author_name` congelado |
 | **P-43** | Borrar un cliente destruía sus facturas y pagos (`customer_id` con `ON DELETE CASCADE`) | Se perdía el histórico de facturación, incluidos los cargos de ticket; posible incumplimiento de retención fiscal | 🔴 Alta | ✅ **Resuelta** (2026-09-09): cinco FK a `SET NULL` + titular congelado en `invoices` y `payments` |
+| **P-44** *(inventario)* | `serial`/`mac` se comparan distinto según entren por el formulario o por la carga masiva | El mismo equipo entra dos veces escrito distinto, y esas filas bloquean después una carga masiva entera | 🟡 Media | ✅ Resuelto 2026-09-21 · migrado en ambos esquemas · 0 duplicados en producción |
+| **P-46** | Tras un despliegue, el navegador sigue mostrando la aplicación vieja | Le pasa a cualquier usuario después de cualquier despliegue, y nadie le va a decir que pulse Ctrl+F5 | 🟡 Media | ✅ Resuelto 2026-09-21 (`no-store` + aviso de versión nueva) |
+| **P-48** | El equipo entregado en una visita sin cobro no genera gasto si el ISP no encendió `inventory_entry_creates_expense` | El mantenimiento gratis no aparece en ningún informe de gastos, y no hay costo interno agregado | 🟡 Media | 📋 Pendiente · decisión contable del ISP + informe de visitas sin cobro |
+| **P-49** | La pantalla de equipos del ticket (KAN-92, sin mergear) no muestra la marca «sin cobro» | El técnico que cambia un router en garantía no vería «no le cobres» donde está trabajando | 🟢 Baja | 📋 Pendiente · costura entre dos ramas, al mergear KAN-92 |
+| **P-50** | `addslashes()` no escapa el `$` del comando que corre en el router | Un nombre de cliente con `$` mete una variable inexistente en medio del comando | 🟢 Baja | 📋 Pendiente · toca el escapado de los nueve managers, exige prueba contra RouterOS real |
+| **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
+| **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
+| **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |
 
 ---
 
@@ -2247,7 +3056,7 @@ Y las cinco del inventario con custodia (2026-08-06), que van juntas y en este o
 | `..._130100_add_custody_to_inventory_device_table` | `status` + `customer_id` + índices | Hace backfill: lo asignado pasa a `assigned` |
 | `..._130200_create_inventory_balances_table` | Saldos de consumibles | — |
 | `..._130300_create_inventory_movements_table` | Kardex append-only | — |
-| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` **único** |
+| `..._130400_create_installation_equipment_table` | Equipos por instalación | `device_id` único **hasta el 2026-09-23** (lo relaja `..._000003`, ver § 74) |
 
 ### 4. Sincronizar permisos tras cada despliegue
 

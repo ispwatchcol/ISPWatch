@@ -35,6 +35,33 @@ trait DetectsSshExecFailures
     }
 
     /**
+     * True when the CORE opened the SSH session but the client router REJECTED
+     * the credentials.
+     *
+     * Reported by RouterOS as:
+     *
+     *     failure: authentication failure (/system/ssh-exec; line 1)
+     *
+     * This is a third case, and it used to fall in the wrong bucket: it is not
+     * a connection failure (the TCP session was established, so the regex above
+     * does not match it) and it is not a command failure either — NOTHING ran on
+     * the client. But the word "failure" matches the generic error vocabulary,
+     * so every manager reported it as «no se pudo crear la queue / el secret»,
+     * sending the operator to inspect a queue that was never attempted.
+     *
+     * Kept deliberately tight. RouterOS says «not enough permissions» when a
+     * user is logged in but may not run the command — that is a genuine command
+     * failure and must NOT land here.
+     */
+    protected function isSshExecAuthFailure(string $output): bool
+    {
+        return (bool) preg_match(
+            '/authentication failure|permission denied|invalid user|login failed|bad password/i',
+            $output
+        );
+    }
+
+    /**
      * True when the CORE reached the client and the command itself failed.
      *
      * `exit-code` alone is NOT enough: verified against a live CCR2116 (ROS
@@ -116,6 +143,38 @@ trait DetectsSshExecFailures
             . 'Comprueba también que el servicio SSH esté habilitado (/ip service) y que su `available from` '
             . 'permita la IP overlay del CORE. '
             . 'NO es un problema del plan/perfil, ni de las credenciales, ni de la API. '
+            . 'Detalle del router: ' . $output;
+    }
+
+    /**
+     * Operator-facing explanation for a rejected login on the client router.
+     *
+     * The ranking of causes is not decorative: the first two are
+     * indistinguishable from the panel, and the second one is the trap. The
+     * session is opened BY THE CORE, from its overlay address — not by
+     * ISPWatch. A RouterOS user restricted with `address=` to the old overlay
+     * subnet (or to ISPWatch's own IP) rejects the *correct* password, and the
+     * operator swears the credentials are fine because they work from their own
+     * laptop.
+     */
+    protected function sshExecAuthFailureMessage(string $clientIp, string $output, ?int $clientSshPort = null): string
+    {
+        $port = ($clientSshPort && $clientSshPort > 0) ? $clientSshPort : 22;
+
+        return 'El CORE llegó al router ' . $clientIp . ':' . $port . ' pero el router RECHAZÓ el usuario y la '
+            . 'contraseña, así que NO se ejecutó nada: el cambio ni siquiera se intentó. '
+            . 'NO es la queue, ni el plan, ni el perfil, ni el túnel — el túnel funcionó, justamente por eso el '
+            . 'CORE alcanzó el puerto SSH. Qué revisar, en este orden: '
+            . '(1) el usuario y la contraseña de ESE router guardados en ISPWatch (Routers → Editar), por si los '
+            . 'cambiaron en el equipo y no aquí. '
+            . '(2) Que el usuario de RouterOS no esté limitado por dirección (`/user print detail` en el router): '
+            . 'quien marca es el CORE desde su IP overlay, no ISPWatch, así que un `address=` con la IP vieja '
+            . 'rechaza la clave correcta — y desde tu equipo esa misma clave sí entra. '
+            . '(3) Que esta IP siga siendo la de ESTE router (`/ppp active print` en el CORE): si el pool se la dio '
+            . 'a otro equipo al reconectar, te estás autenticando contra el router equivocado. '
+            . '(4) Contraseñas con `\`, `$` o comillas: viajan dentro de una línea de comando de RouterOS. '
+            . 'NO reintentes en bucle: tras varios fallos RouterOS bloquea la IP de origen —la del CORE— y el '
+            . 'síntoma cambiará a «no conecta», que es otro problema distinto. '
             . 'Detalle del router: ' . $output;
     }
 

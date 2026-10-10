@@ -5,6 +5,8 @@ use App\Models\InventoryBranch;
 use App\Models\InventoryDevice;
 use App\Models\InventoryProvider;
 use App\Models\InventoryStock;
+use App\Support\InventoryIdentifier;
+use App\Services\Inventory\InventoryExpenseRecorder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\ToCollection;
@@ -29,6 +31,13 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
     protected $tenantId;
     public int $imported = 0;
     public array $errors = [];
+    /**
+     * Avisos que NO son fallos de importación: el equipo entró bien, pero algo
+     * de alrededor no se pudo hacer — hoy, el gasto automático de un modelo sin
+     * precio de catálogo. Van aparte de $errors a propósito: si contaran como
+     * error, una carga perfecta de 200 equipos se reportaría como fallida.
+     */
+    public array $warnings = [];
 
     /** "brand|model" (lowercased) => stock_id */
     protected array $stockCache = [];
@@ -77,10 +86,10 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
         foreach ($devices as $device) {
             if (!empty($device->serial)) {
-                $this->existingSerials[mb_strtolower(trim($device->serial))] = true;
+                $this->existingSerials[InventoryIdentifier::comparable($device->serial)] = true;
             }
             if (!empty($device->mac)) {
-                $this->existingMacs[mb_strtolower(trim($device->mac))] = true;
+                $this->existingMacs[InventoryIdentifier::comparable($device->mac)] = true;
             }
         }
     }
@@ -114,7 +123,7 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
             // Serial uniqueness (tenant + in-file).
             if ($serial !== null) {
-                $serialKey = mb_strtolower($serial);
+                $serialKey = InventoryIdentifier::comparable($serial);
                 if (isset($this->existingSerials[$serialKey])) {
                     $this->errors[] = $this->err($rowNumber, 'serial',
                         "El serial {$serial} ya está registrado en el inventario.");
@@ -124,7 +133,7 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
             // MAC uniqueness (tenant + in-file).
             if ($mac !== null) {
-                $macKey = mb_strtolower($mac);
+                $macKey = InventoryIdentifier::comparable($mac);
                 if (isset($this->existingMacs[$macKey])) {
                     $this->errors[] = $this->err($rowNumber, 'mac',
                         "La MAC {$mac} ya está registrada en el inventario.");
@@ -151,10 +160,10 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
             // Reserve serial/mac so a later duplicate in the SAME file is caught.
             if ($serial !== null) {
-                $this->existingSerials[mb_strtolower($serial)] = true;
+                $this->existingSerials[InventoryIdentifier::comparable($serial)] = true;
             }
             if ($mac !== null) {
-                $this->existingMacs[mb_strtolower($mac)] = true;
+                $this->existingMacs[InventoryIdentifier::comparable($mac)] = true;
             }
 
             $pending[] = [
@@ -233,6 +242,38 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
                 'created_at'    => $now,
             ])->all()
         );
+
+        $this->recordExpenses($devices->pluck('id'));
+    }
+
+    /**
+     * Gasto automático de los equipos recién cargados, si la empresa lo activó.
+     *
+     * Esto existe porque la carga masiva **no pasa por InventoryLedger**: escribe
+     * los movimientos directo con `DB::table()->insert()`. Si el gasto sólo se
+     * enganchara en el ledger, importar 200 equipos no generaría ni un gasto y el
+     * balance no cuadraría sin que nadie se entere — el modo de fallo silencioso
+     * que el ticket señalaba como la trampa (KAN-91).
+     *
+     * Se releen los movimientos por `device_id` porque el insert masivo no
+     * devuelve ids, y se pasan TODOS juntos al recorder: consultar por fila es
+     * exactamente lo que tumbó el gateway con 200 filas en su momento.
+     */
+    protected function recordExpenses($deviceIds): void
+    {
+        if ($deviceIds->isEmpty()) {
+            return;
+        }
+
+        $movimientos = DB::table('inventory_movements')
+            ->where('tenant_id', $this->tenantId)
+            ->where('type', 'entrada')
+            ->whereIn('device_id', $deviceIds)
+            ->get(['id', 'tenant_id', 'stock_id', 'type', 'quantity', 'created_by', 'created_at']);
+
+        foreach (app(InventoryExpenseRecorder::class)->forMovements($movimientos) as $aviso) {
+            $this->warnings[] = $aviso;
+        }
     }
 
     /** Find-or-create a stock (brand+model) entry; caches by brand|model. */

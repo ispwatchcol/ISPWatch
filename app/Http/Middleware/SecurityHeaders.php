@@ -141,8 +141,43 @@ class SecurityHeaders
                     "frame-ancestors 'self';"
                 );
             }
+
+            $this->preventStaleDocument($request, $response);
         }
 
         return $response;
+    }
+
+    /**
+     * El documento HTML no se cachea nunca (KAN-101 · P-46).
+     *
+     * Los chunks de Vite llevan hash de contenido, así que NUNCA se sirven
+     * rancios: un nombre de archivo nuevo es un archivo nuevo. El HTML que los
+     * referencia, en cambio, tiene una URL estable, y un navegador que lo tenga
+     * cacheado sigue pidiendo los nombres de chunk viejos —es decir, sigue
+     * ejecutando la aplicación anterior— aunque el servidor ya sirva la nueva.
+     *
+     * Pasó de verdad el 2026-09-10: con el arreglo desplegado y verificado
+     * desde fuera, el cliente seguía viendo el formulario roto hasta que limpió
+     * la caché a mano, y se perdió tiempo buscando en el código un bug que ya
+     * no existía.
+     *
+     * La caché agresiva de `/build/assets` queda intacta —es donde está toda la
+     * ganancia— porque esos archivos no pasan por PHP: los sirve el servidor
+     * web directamente desde `public/`.
+     */
+    private function preventStaleDocument(Request $request, Response $response): void
+    {
+        $contentType = (string) $response->headers->get('Content-Type');
+
+        if (! str_contains(strtolower($contentType), 'text/html')) {
+            return;
+        }
+
+        // Se sobrescribe sin mirar lo que había: Symfony siempre deja puesto un
+        // Cache-Control por defecto («no-cache, private»), que NO impide que el
+        // navegador reutilice el documento tras una validación fallida.
+        $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        $response->headers->set('Pragma', 'no-cache');
     }
 }

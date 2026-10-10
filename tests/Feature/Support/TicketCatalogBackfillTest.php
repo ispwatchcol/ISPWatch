@@ -275,8 +275,14 @@ class TicketCatalogBackfillTest extends TestCase
     {
         // Es lo que convierte el backfill en un join sin mapeo manual: si el
         // catálogo trajera un código distinto, habría tickets huérfanos.
+        //
+        // AJUSTADO CON EL WORKFLOW. `ticket_status` dejó de ser exactamente los
+        // cuatro enums: la Solicitud Maestra añadió nueve estados de flujo y
+        // nueve auxiliares. Lo que este test sigue protegiendo —y es lo que
+        // importa— es que **los cuatro originales siguen ahí**: son los que los
+        // tickets ya existentes tienen por clave foránea, y los que el contrato
+        // del integrador sigue nombrando.
         $esperado = [
-            'ticket_status'   => ['open', 'in_progress', 'resolved', 'closed'],
             'ticket_priority' => ['low', 'medium', 'high', 'urgent'],
             'ticket_category' => ['technical', 'billing', 'services', 'general'],
         ];
@@ -284,6 +290,19 @@ class TicketCatalogBackfillTest extends TestCase
         foreach ($esperado as $tabla => $codigos) {
             $this->assertEqualsCanonicalizing($codigos, DB::table($tabla)->pluck('code')->all());
         }
+
+        $estados = DB::table('ticket_status')->pluck('code')->all();
+
+        foreach (['open', 'in_progress', 'resolved', 'closed'] as $original) {
+            $this->assertContains($original, $estados, "El enum `{$original}` no puede desaparecer del catálogo.");
+        }
+
+        // Y que los cuatro sigan marcados como `legacy`, que es lo que les da
+        // la equivalencia con la que el integrador los sigue viendo.
+        $this->assertSame(
+            4,
+            DB::table('ticket_status')->where('flow_category', 'legacy')->count(),
+        );
     }
 
     /**
@@ -312,18 +331,39 @@ class TicketCatalogBackfillTest extends TestCase
     #[Test]
     public function hay_exactamente_un_estado_inicial_y_dos_terminales(): void
     {
+        // El inicial se movió a `radicado` con el workflow: es donde la
+        // Solicitud Maestra abre el ciclo de vida. Sigue habiendo UNO solo,
+        // que es lo que el resto del código asume al abrir un ticket.
         $inicial = DB::table('ticket_status')->where('is_initial', true)->pluck('code');
-        $this->assertSame(['open'], $inicial->all());
+        $this->assertSame(['radicado'], $inicial->all());
 
         $terminales = DB::table('ticket_status')->where('is_terminal', true)->pluck('code');
-        $this->assertEqualsCanonicalizing(['resolved', 'closed'], $terminales->all());
+        $this->assertEqualsCanonicalizing(
+            ['resolved', 'closed', 'cerrado', 'duplicado'],
+            $terminales->all(),
+            'Terminal = no se sigue trabajando. Los dos viejos, el CERRADO del flujo y DUPLICADO.',
+        );
     }
 
     #[Test]
     public function el_sellado_de_fechas_esta_declarado_en_el_catalogo(): void
     {
-        $this->assertSame(['resolved'], DB::table('ticket_status')->where('stamps_resolved_at', true)->pluck('code')->all());
-        $this->assertSame(['closed'], DB::table('ticket_status')->where('stamps_closed_at', true)->pluck('code')->all());
+        // El catálogo —y no una cadena de `if` en el controlador— decide qué
+        // estado sella qué fecha. Con el workflow se suman los dos del flujo.
+        $this->assertEqualsCanonicalizing(
+            ['resolved', 'servicio_restablecido'],
+            DB::table('ticket_status')->where('stamps_resolved_at', true)->pluck('code')->all(),
+        );
+        $this->assertEqualsCanonicalizing(
+            ['closed', 'cerrado'],
+            DB::table('ticket_status')->where('stamps_closed_at', true)->pluck('code')->all(),
+        );
+
+        // `servicio_restablecido` NO es terminal: el documento dedica un
+        // recuadro a que restablecido no es igual a cerrado.
+        $this->assertFalse(
+            (bool) DB::table('ticket_status')->where('code', 'servicio_restablecido')->value('is_terminal'),
+        );
     }
 
     #[Test]

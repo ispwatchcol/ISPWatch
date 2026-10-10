@@ -18,6 +18,11 @@ namespace App\Services\MikroTik\Concerns;
  *     routeros-script-escape rules: the inner command must use flat `"` and let
  *     the single addslashes() here add the one escape level the CORE's parser
  *     consumes.
+ *
+ *  3. Only `"` was escaped in the password. RouterOS also treats `\` as an
+ *     escape and `$` as a variable reference inside a quoted string, so a
+ *     password carrying either reached the client mangled and came back as
+ *     `authentication failure` — reading exactly like a wrong credential.
  */
 trait BuildsCoreSshExec
 {
@@ -32,7 +37,16 @@ trait BuildsCoreSshExec
         string $clientCommand,
         ?int $clientSshPort = null
     ): string {
-        $safePass = str_replace('"', '\\"', $clientPass);
+        // Tres caracteres hay que neutralizar, no uno. La contraseña viaja
+        // DENTRO de una cadena entrecomillada de RouterOS, y allí `\` escapa,
+        // `$` interpola una variable y `"` cierra la cadena. Escapar sólo las
+        // comillas dejaba que una clave con `\` o con `$` llegara deformada al
+        // router, que respondía `authentication failure` — indistinguible de
+        // una credencial equivocada, y por eso costaba tanto de diagnosticar.
+        //
+        // Un solo `strtr()` y no tres `str_replace()` encadenados: el segundo
+        // reemplazo volvería a escapar las barras que introdujo el primero.
+        $safePass = strtr($clientPass, ['\\' => '\\\\', '"' => '\\"', '$' => '\\$']);
 
         return '/system ssh-exec address=' . $clientIp
             . $this->sshExecPortArg($clientSshPort)

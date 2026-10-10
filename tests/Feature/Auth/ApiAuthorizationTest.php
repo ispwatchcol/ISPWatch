@@ -128,7 +128,35 @@ class ApiAuthorizationTest extends TestCase
             'crear sectorial'      => ['post',   '/api/sectorials',  'view_sectorials'],
             'listar inventario'    => ['get',    '/api/inventory',   'view_inventory'],
             'crear equipo'         => ['post',   '/api/inventory',   'view_inventory'],
-            'listar tickets'       => ['get',    '/api/support',     'view_support'],
+            // Permiso propio desde KAN-99: `view_inventory` es de lectura y
+            // abría los cuatro `destroy` del grupo. El borrado de equipos no
+            // entra aquí: usa vinculación implícita y daría 404 antes del
+            // permiso — se cubre en InventoryDeletionPermissionTest.
+            'crear sucursal'       => ['post',   '/api/inventory-branches', 'view_inventory'],
+            // PR B · Capacidad propia desde 2026-09-11. `view_support` sigue
+            // existiendo, pero gobierna instalaciones, sectoriales e
+            // inventario, no la operación del ticket.
+            'listar tickets'       => ['get',    '/api/support',     'ticket_view'],
+            // PR C · Archivado. El listado va con semántica OR —`ticket_archive`
+            // o `ticket_restore`— y aquí se comprueba con el primero.
+            'listar archivados'    => ['get',    '/api/support/archived', ['ticket_view', 'ticket_archive']],
+            // Anular una factura: permiso propio, no `view_billing` (que abre
+            // el grupo) ni `delete_invoice`. Borrar y anular dejaron de
+            // compartir puerta.
+            'anular factura'       => ['post',   '/api/billing/invoices/1/void', ['view_billing', 'invoice_void']],
+            // Workflow formal · qué puede hacerse con un ticket. Sólo pide
+            // `ticket_view`: saber qué acciones existen no es poder ejecutarlas.
+            'acciones del ticket'  => ['get',    '/api/support/1/transitions', 'ticket_view'],
+            //
+            // Las CINCO operaciones del ciclo de vida —transicionar, proponer
+            // cierre, cerrar, cierre especial y reabrir— no caben en este
+            // proveedor: viven en el grupo `staff_profile`, que autoriza por
+            // CÓDIGO DE ROL (`admin`/`staff`) y no por capacidad, y el usuario
+            // que fabrica `userWithPermissions()` tiene el código `custom`.
+            //
+            // Es la deuda P-45, no un hueco de cobertura: cada una tiene su
+            // caso positivo y negativo en `TicketWorkflowTest`, con roles
+            // reales. Cuando P-45 se resuelva, estas cinco entran aquí.
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],
@@ -152,7 +180,7 @@ class ApiAuthorizationTest extends TestCase
 
     #[Test]
     #[DataProvider('protectedEndpoints')]
-    public function un_usuario_sin_permisos_recibe_403(string $method, string $uri, string $permission): void
+    public function un_usuario_sin_permisos_recibe_403(string $method, string $uri, string|array $permission): void
     {
         $user = $this->userWithPermissions([]);
 
@@ -163,9 +191,14 @@ class ApiAuthorizationTest extends TestCase
 
     #[Test]
     #[DataProvider('protectedEndpoints')]
-    public function el_permiso_correspondiente_abre_el_endpoint(string $method, string $uri, string $permission): void
+    public function el_permiso_correspondiente_abre_el_endpoint(string $method, string $uri, string|array $permission): void
     {
-        $user = $this->userWithPermissions([$permission]);
+        // Un array cuando hacen falta VARIOS a la vez: una ruta puede estar
+        // dentro de un grupo con su propio `permission:` y llevar además el
+        // suyo. Es el caso de `/api/support/archived`, que exige `ticket_view`
+        // por el grupo y `ticket_archive` por la ruta.
+        $permisos = (array) $permission;
+        $user = $this->userWithPermissions($permisos);
 
         $response = $this->actingAs($user)->{$method}($uri, []);
 
@@ -175,7 +208,7 @@ class ApiAuthorizationTest extends TestCase
         $this->assertNotSame(
             403,
             $response->getStatusCode(),
-            "El permiso '{$permission}' debería abrir {$method} {$uri}."
+            "Los permisos '" . implode("', '", $permisos) . "' deberían abrir {$method} {$uri}."
         );
     }
 

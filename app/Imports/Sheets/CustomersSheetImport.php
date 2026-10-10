@@ -2,6 +2,7 @@
 namespace App\Imports\Sheets;
 
 use App\Models\CustomerProfile;
+use App\Models\PartnerEvent;
 use App\Models\Plan;
 use App\Models\Router;
 use App\Models\Sectorial;
@@ -394,6 +395,8 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 foreach (array_chunk($serviceRows, self::CHUNK) as $chunk) {
                     UserService::insert($chunk);
                 }
+
+                $this->publishServiceCreated(array_values($idByEmail));
             });
 
             $this->imported += count($pending);
@@ -406,6 +409,44 @@ class CustomersSheetImport implements ToCollection, WithHeadingRow, WithTitle
                 'error' => 'No se pudo guardar el lote de clientes: ' . $e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * SERVICE_CREATED de las altas del lote (KAN-111).
+     *
+     * `UserService::insert()` no pasa por Eloquent, así que PartnerEventObserver
+     * no se entera: sin esto, un integrador que sigue el feed no veía a los
+     * clientes importados hasta su siguiente barrido completo. Mismo `changes`
+     * que emite el observer, para que el consumidor no distinga el origen.
+     *
+     * Va dentro de la transacción del lote: si el lote falla, sus eventos
+     * también. Una consulta por bloque de ids, nunca por fila.
+     *
+     * @param int[] $userIds
+     */
+    private function publishServiceCreated(array $userIds): void
+    {
+        $events = [];
+
+        foreach (array_chunk($userIds, 500) as $ids) {
+            $services = UserService::whereIn('user_id', $ids)
+                ->get(['id', 'user_id', 'service_plan_id', 'status']);
+
+            foreach ($services as $service) {
+                $events[] = [
+                    'tenant_id'   => (int) $this->tenantId,
+                    'event_type'  => PartnerEvent::SERVICE_CREATED,
+                    'customer_id' => (int) $service->user_id,
+                    'service_id'  => (int) $service->id,
+                    'changes'     => [
+                        'plan_id' => $service->service_plan_id !== null ? (int) $service->service_plan_id : null,
+                        'status'  => $service->status,
+                    ],
+                ];
+            }
+        }
+
+        PartnerEvent::recordMany($events);
     }
 
     /**

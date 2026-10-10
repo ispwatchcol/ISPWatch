@@ -293,6 +293,11 @@ Devuelve el usuario autenticado con sus **permisos actualizados desde la base de
 El frontend lo usa para refrescar permisos sin cerrar sesión (necesario tras cambiar un rol).
 Misma estructura de `data` que el login.
 
+`data.api_key_operator_issue` (desde KAN-38) es `null` salvo para un usuario
+`is_superadmin` cuando `API_KEYS_OPERATOR_TENANT_ID` apunta a un tenant inexistente o no está
+configurado. En ese caso trae el motivo legible y Configuración lo muestra como aviso. A los
+demás usuarios nunca se les envía la configuración de la plataforma.
+
 ### `GET /api/dashboard/stats`
 
 Estadísticas del tenant del usuario. Incluye: total de clientes, clientes activos,
@@ -623,17 +628,109 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `POST` | `/api/installations` | auth | Crea instalación **junto con** su prospecto |
 | `GET` | `/api/installations/technicians` | auth | Técnicos disponibles |
 | `GET` | `/api/installations/customers` | auth | Clientes elegibles |
+| `GET` | `/api/installations/planning-catalog` | `view_support` | Productos del tenant para **planificar** la orden, con disponibilidad agregada (2026-09-30) |
 | `GET` | `/api/installations/{installation}` | auth | Detalle |
 | `PUT` | `/api/installations/{installation}/prospect` | auth | Actualiza el prospecto asociado |
-| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento |
+| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
 | `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
 | `POST` | `/api/installations/{installation}/sign` | auth | Firma del cliente y del técnico |
 | `GET` | `/api/customers/{customer}/installations` | auth | Instalaciones del cliente |
 | `POST` | `/api/customers/{customer}/installations` | auth | Agenda instalación |
-| `PUT` | `/api/customers/installations/{installation}` | auth | Actualiza |
-| `DELETE` | `/api/customers/installations/{installation}` | auth | Elimina |
+| `PUT` | `/api/customers/installations/{installation}` | auth | Actualiza. **No cancela** una orden con consumo o firmada (`422` en `status`) |
+| `DELETE` | `/api/customers/installations/{installation}` | auth | Elimina. **`409`** si la orden tiene líneas usadas, hoja firmada o factura |
+
+> 📦 **Plan previsto (2026-09-30).** Los tres caminos de alta —`POST /api/installations`,
+> `POST /api/customers/{customer}/installations`, `POST /api/prospects/{prospect}/installations`—
+> y `PUT /api/customers/installations/{installation}` aceptan `planned_items` (máx. 50):
+>
+> ```json
+> { "planned_items": [
+>     { "stock_id": 101, "quantity": 30, "notes": "Poste a 25 m" },
+>     { "id": 7, "quantity": 2 }
+> ] }
+> ```
+>
+> - Una línea **nueva** va por `stock_id` (producto del tenant; uno ajeno → `422` en
+>   `planned_items.N.stock_id`). Una **existente** va por `id` y sólo cambia `quantity` y `notes`:
+>   conserva su `label` y `unit` congeladas. Un `id` de otra orden → `422`.
+> - La lista recibida **reemplaza** el plan: lo que no venga se quita. Sin la clave `planned_items`
+>   el plan no se toca; con `[]` se vacía.
+> - Un producto por serial se planifica en unidades enteras (`422` si no).
+> - En una orden **firmada**, cambiar el plan responde `422` en `planned_items`; reenviar el mismo
+>   plan sí vale.
+> - **No mueve inventario** y admite cantidades mayores que las disponibles: la respuesta trae
+>   `planning_warnings` (array de textos) con lo que supera la disponibilidad del tenant.
+>
+> Cada orden en las respuestas (detalle y listados) añade `planned_items` (`id`, `stock_id`,
+> `label`, `unit`, `is_serialized`, `quantity`, `notes`; **sin precios**), `equipment_items_count`
+> e `is_signed`. El texto libre `equipment` sigue existiendo.
+
+#### `GET /api/installations/planning-catalog`
+
+```json
+{ "can_view_details": false,
+  "products": [ { "id": 101, "label": "GENÉRICO CABLE UTP", "brand": "GENÉRICO", "model": "CABLE UTP",
+                  "unit": "m", "is_serialized": false, "available": 120 } ] }
+```
+
+`available` es la suma del tenant: equipos en bodega o en poder de alguien (no instalados ni de
+baja) o saldo positivo de consumibles. Con `view_inventory` (`can_view_details: true`) cada
+producto añade `price` y `holders` (`type`, `id`, `label`, `quantity`). Sólo lectura: no reserva.
+
+#### Bloqueos de borrado y cancelación
+
+`DELETE /api/customers/installations/{installation}` responde:
+
+```json
+{ "message": "No se puede eliminar esta orden: tiene 2 línea(s) de equipos o materiales descargadas del inventario; …",
+  "error": "installation_has_history",
+  "blocked_by": ["equipment", "signed", "invoice"] }
+```
+
+con `409` si la orden descargó inventario (`equipment`), tiene hoja firmada (`signed`: `signed_at`
+o un documento firmado) o factura (`invoice`). La comprobación es previa: la orden y sus firmas
+quedan intactas. Pasar a `status: cancelada` una orden con líneas usadas o firmada responde `422`
+en `status`. Ninguno de los dos mensajes sugiere deshacer las líneas: el consumo es real y su
+conciliación es posterior (entrega B).
+
+> 💰 **Los campos de cartera se filtran por permiso.** `installation_cost`,
+> `additional_charges`, `additional_items`, `discount`, `discount_reason`,
+> `payment_method`, `payment_received`, `payment_notes`, `payment_agreement`,
+> `customer_retention`, `special_attention` y `promotion_notes` **no viajan** en la
+> respuesta si el rol no puede verlos; se eliminan del JSON, no se envían en cero.
+> Afecta al detalle y a los dos listados (`/api/installations` y
+> `/api/customers/{customer}/installations`).
+>
+> Cada respuesta declara el reparto en dos banderas:
+>
+> | Campo | Qué significa | Quién lo pone en `true` |
+> |---|---|---|
+> | `can_view_billing` | Vienen los campos de cartera | `edit_discount` **o** `view_installation_cost` |
+> | `can_edit_billing` | `PUT .../billing` va a aceptar | sólo `edit_discount` |
+>
+> `can_view_billing` existe desde 2026-09-11. Un cliente que sólo conozca
+> `can_edit_billing` sigue funcionando: quien podía editar sigue pudiendo ver.
+
+> 🎁 **Orden sin cobro** (2026-09-21). `no_charge` (boolean) y `no_charge_reason`
+> (máx. 255) se aceptan al **crear** la orden por los tres caminos —`POST /api/installations`,
+> `POST /api/customers/{customer}/installations` y `POST /api/prospects/{prospect}/installations`—
+> y al actualizarla por `PUT /api/customers/installations/{installation}` o
+> `PUT /api/installations/{installation}/billing`.
+>
+> **NO se filtran por permiso**: viajan siempre, incluso al rol que no ve cartera. Son la
+> instrucción «no le cobres» para quien está en sitio, y no revelan ninguna cifra.
+>
+> | Situación | Respuesta |
+> |---|---|
+> | Guardar cartera con `no_charge` en true | **200** con `invoice: null` e `invoice_warning` explicando que no se generó factura |
+> | Guardar cartera con `no_charge` y alguna cifra (`installation_cost`, adicionales, `discount`, `payment_received`) | **422** con el error en `no_charge`. No se ponen en cero en silencio |
+> | Marcar `no_charge` en una orden que **ya tiene factura** | **422**: hay que anular la factura en Facturación primero |
+> | **Cambiar** la marca en una orden existente sin `edit_discount` | **403**. Ponerla al crear no exige ese permiso |
+>
+> Reenviar el mismo valor no cuenta como cambio (`''` y `null` se normalizan), así que el
+> formulario completo se puede guardar sin permisos de cartera mientras la marca no se mueva.
 
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
@@ -841,6 +938,21 @@ queman el enlace de forma permanente, incluso ante los dígitos correctos.
 > Nota de seguridad presente en el código: la variante `GET` de `test-secret-sync` exige
 > **el mismo permiso** que la `POST`; de lo contrario sería un bypass de autorización por método.
 
+### `POST`/`PUT /api/routers` — datos del equipo según el método de control
+
+`ip`, `user_rb`, `password_rb` y `firmware_version` dependen del método en que **queda** el
+router (tras normalizar los flags de modo):
+
+| Caso | Regla |
+|---|---|
+| Alta con `radius = true` | Opcionales (`nullable`). Si viene `ip`, tiene que ser una IP válida |
+| Alta con cualquier otro modo, o sin modo | Obligatorios, como siempre |
+| Edición de un router que queda en RADIUS | Se pueden omitir **y vaciar** (`null` o `""`) |
+| Edición que **saca** al router de RADIUS | Obligatorios en ese request los que el router no tenga guardados |
+| Cualquier otra edición | `sometimes|required`, como siempre |
+
+`name` y `status` siguen siendo obligatorios en todos los casos (KAN-102).
+
 ### `GET /api/routers` — campo calculado
 
 Cada fila incluye `active_customers_count`: clientes con `service_status` en
@@ -872,6 +984,13 @@ Cuerpo del `409`:
 
 `requires_force` solo aparece en el segundo caso. `?force=1` **nunca** habilita el borrado
 de un router con clientes vivos: ahí el rechazo es incondicional.
+
+### Credenciales del router en las respuestas
+
+Desde KAN-45, **ninguna** respuesta de `/api/routers*` (listado, detalle, alta, edición) ni
+de `POST /api/routers/{router}/verify-vpn` incluye `password_rb`, `vpn_password` ni
+`wg_private_key`. En su lugar, cada router trae `has_password_rb` (bool). En `PUT`, omitir
+`password_rb` conserva la guardada; enviarla la reemplaza.
 
 ### `POST /api/routers` — cuerpo (`StoreRouterRequest`)
 
@@ -920,7 +1039,8 @@ Cada acción crea una fila nueva en `router_outage_events` (nunca actualiza). Lo
 | `GET/POST` | `/api/sectorials` | Lista / crea elemento de red |
 | `GET/PUT/DELETE` | `/api/sectorials/{id}` | Detalle / actualiza / elimina |
 | `GET/POST` | `/api/sectorials/{sectorial}/photos` | Fotos |
-| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto |
+| `GET` | `/api/sectorials/{sectorial}/photos/{photo}` | Entrega la foto, autenticada (P-40): `view_sectorials` o `view_support`; sectorial de otro tenant o foto de otro sectorial → 404; en línea solo `image/jpeg/png/gif/webp`, el resto como descarga; `Cache-Control: private, no-store`. Es la `url` que devuelve el listado |
+| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto (borra el archivo de `s3` y del disco `public` heredado) |
 | `GET/POST` | `/api/sectorials/{sectorial}/notes` | Notas |
 | `PUT/DELETE` | `/api/sectorials/{sectorial}/notes/{note}` | Edita / elimina nota |
 | `GET` | `/api/sectorials/{sectorial}/history` | Bitácora de cambios |
@@ -979,9 +1099,10 @@ Todo el bloque exige **`view_billing`**; algunos endpoints añaden permisos.
 | `GET` | `/api/billing/invoices` | — | Lista con filtros |
 | `GET` | `/api/billing/invoices/{id}` | — | Detalle |
 | `POST` | `/api/billing/invoices` | — | Crea factura manual |
-| `PUT` | `/api/billing/invoices/{id}` | — | Actualiza |
+| `PUT` | `/api/billing/invoices/{id}` | — | Actualiza. **Ya no acepta `cancelled`**: anular tiene endpoint propio |
 | `POST` | `/api/billing/invoices/{id}/mark-unpaid` | — | Revierte pagos y restaura el saldo |
-| `DELETE` | `/api/billing/invoices/{id}` | **`delete_invoice`** | Elimina (deja lápida) |
+| `POST` | `/api/billing/invoices/{id}/void` | **`invoice_void`** | **Anula** la factura conservándolo todo |
+| `DELETE` | `/api/billing/invoices/{id}` | **`delete_invoice`** | Borra **sólo un borrador sin número y sin ticket**; cualquier otra da 422 |
 | `POST` | `/api/billing/invoices/{id}/items` | — | Añade ítem |
 | `GET` | `/api/billing/invoices/{id}/pdf` | — | Descarga el PDF |
 | `GET` | `/api/billing/invoices/export` | — | **CSV** de todas las facturas del filtro |
@@ -1019,6 +1140,59 @@ Tres decisiones que conviene no revertir sin pensarlo:
 
 `total_expenses` y `balance` llegan en **`null`** —no en `0`— cuando el usuario no tiene
 `view_expenses`, para que el panel oculte esas tarjetas en vez de mostrar un balance falso.
+
+### Anular una factura (2026-09-19)
+
+Una factura emitida **no se borra: se anula**. Anular conserva el número consecutivo, los
+importes, el titular congelado, los ítems, las fechas y el vínculo con el ticket; lo único que
+cambia es que deja de cobrarse.
+
+**`POST /api/billing/invoices/{id}/void`** · permiso **`invoice_void`**
+
+| Campo | Regla |
+|---|---|
+| `reason` | **obligatorio**, 10–500 caracteres. Queda en `audit_logs` con el actor |
+
+```json
+{
+  "message": "Factura 00000016 anulada. Se conserva el número, los importes y el histórico. 🧾",
+  "invoice": { "id": 16, "number": "00000016", "status": "void", "balance_due": "0.00",
+               "total": "50000.00", "ticket_id": 25,
+               "voided_at": "2026-09-19T14:02:11.000000Z", "void_reason": "Cobro duplicado.",
+               "voider": { "id": 7, "user_name": "Ana", "user_lastname": "Ríos" } },
+  "previous_status": "issued",
+  "correlation_id": "0a9c…"
+}
+```
+
+**422 · `invoice_already_void`** si ya estaba en `void` o `cancelled`.
+
+**Qué deja de responder una factura anulada.** Es de **sólo lectura**:
+`PUT /billing/invoices/{id}`, `POST .../items` y `POST .../mark-unpaid` devuelven **422** con
+`error: invoice_is_void`.
+
+**Qué pasa con el dinero.** Lo ya aplicado vuelve como **saldo a favor** del cliente y **el pago
+se conserva** — el recaudo ocurrió. Es la diferencia con `mark-unpaid`, que borra el pago si
+sólo financiaba esa factura.
+
+**Anular no deja lápida de regeneración.** Una mensual anulada sigue ocupando su periodo, así
+que la facturación automática no la vuelve a crear. Borrarla sí la necesitaba.
+
+### El borrado de facturas quedó acotado
+
+**`DELETE /api/billing/invoices/{id}`** responde **422** con `error: invoice_deletion_blocked`
+salvo que la factura sea un **borrador sin número y sin ticket**. En la práctica ninguna lo es:
+las siete rutas de creación asignan número y dejan la factura en `issued`.
+
+No es un 403 —quien lo intenta **tiene** `delete_invoice`—, es que la operación no procede. El
+mensaje nombra el motivo y dirige a la anulación. Se comprueba en el servidor, no sólo
+ocultando el botón.
+
+**`PUT /api/billing/invoices/{id}` ya no acepta `status: cancelled`.** Anular era un caso
+particular de «editar el estado» detrás de `view_billing`, un permiso de **lectura**: bastaba
+para sacar una factura de las cuentas sin motivo, sin confirmación y sin auditoría. Los estados
+que acepta ahora son `issued`, `paid`, `partial` y `overdue` — `pending`, que la pantalla de
+edición ofrecía, nunca fue válido y PostgreSQL lo rechazaba con un 23514.
 
 **`GET /api/billing/invoices`** — listado paginado (20 por página por defecto,
 orden `issue_date` descendente con desempate por `id`). Todos los parámetros son
@@ -1106,7 +1280,7 @@ trampa 28 en `MANUAL_DESARROLLADOR.md` antes de cambiar cualquiera de los tres.
 
 | Campo | Reglas |
 |---|---|
-| `customer_id` | **requerido**, existe en `users` |
+| `customer_id` | **requerido**, y debe ser un cliente **del tenant de la sesión** (si no, 422) |
 | `tenant_id` | **requerido** |
 | `issue_date`, `due_date`, `period_start`, `period_end` | **requeridos**, fecha |
 | `total` | numérico ≥ 0 |
@@ -1169,7 +1343,8 @@ combinan con `AND`:
 | `customer` | texto | Nombre, apellido, **nombre completo**, cédula, usuario o correo |
 | `customer_id` | entero | Un cliente exacto |
 | `reference` | texto | Referencia (coincidencia parcial) |
-| `method` | texto | Forma de pago exacta |
+| `payment_method_id` | entero | Forma de pago del catálogo. **Es el filtro que usa la pantalla** (KAN-109): incluye los pagos registrados antes de renombrarla. Un id de otro tenant no devuelve nada |
+| `method` | texto | Texto exacto con que se registró el pago. Se conserva por compatibilidad; tras un renombrado deja fuera los pagos con el nombre anterior |
 | `registered_by` | texto | Quién lo registró. `sistema` \| `system` \| `automatico` = pagos sin `created_by` |
 | `invoice` | texto | Número de alguna factura cubierta por el recaudo (`allocations.invoice.number`) |
 | `date_from`, `date_to` | fecha | Rango de `payment_date`, inclusive |
@@ -1203,10 +1378,38 @@ del **filtro completo** (no de la página):
 | `customer_id` | **requerido**, existe en `users` |
 | `amount` | **requerido**, numérico ≥ 0.01 |
 | `payment_date` | **requerido**, fecha |
-| `method` | **requerido** |
+| `payment_method_id` | entero, debe ser una forma de pago **del tenant de la sesión** (si no, 422) |
+| `method` | texto ≤ 255. **Requerido sólo si no viene `payment_method_id`** |
 | `reference`, `notes` | opcionales |
 
 `created_by` se sella desde la sesión, **nunca** desde el cuerpo.
+
+**`tenant_id` también se sella desde la sesión (KAN-110, 2026-09-29).** Si el cuerpo trae un
+`tenant_id`, se **ignora**: el pago se crea siempre en el operador de quien lo registra. No se
+rechaza la petición, porque la pantalla de registro envía ese campo de forma legítima —lo toma
+de la propia sesión, así que siempre coincide— y un 422 rompería el contrato. Cuando el valor
+recibido difiere del de la sesión se escribe una advertencia en el log con la ruta, el usuario
+y la IP.
+
+Antes de este cambio el `tenant_id` del cuerpo llegaba tal cual hasta `Payment::create()`, y
+combinado con un `customer_id` sin acotar permitía **registrar un pago entero en otro
+operador**. El mensaje de rechazo del cliente ajeno es «El cliente no pertenece a este
+operador.» en `errors.customer_id`.
+
+**Forma de pago (KAN-109, 2026-09-26).** Con `payment_method_id`, el servidor guarda el id y
+copia en `method` el nombre vigente del catálogo como constancia. Con sólo `method` (clientes
+anteriores), el pago se enlaza si el texto coincide con **una única** forma de pago del tenant
+(ignorando mayúsculas y espacios en los extremos); si no, se guarda el texto sin enlace, como
+antes. `cash` no se traduce a «Efectivo»: se guarda tal cual. La respuesta incluye
+`payment_method_id`.
+
+**`PUT /api/billing/payments/{id}`** — `amount`, `payment_date`, `reference`, `notes`,
+`payment_method_id` y `method`, todos opcionales. La forma de pago **sólo cambia si se pide
+otra**: `payment_method_id` nulo/vacío, `method` vacío, el mismo id que ya tiene o el mismo
+texto que ya tiene no modifican nada — ni siquiera reescriben el nombre de un pago cuya forma
+de pago se renombró. Un id de otro tenant responde **422**. La respuesta incluye
+`allocations` y `payment_method` (`id`, `name`, `is_active`, o `null` si el pago no está
+enlazado).
 
 **Efectos secundarios importantes:**
 1. El pago se **asigna automáticamente** a las facturas pendientes (más antigua primero).
@@ -1215,21 +1418,34 @@ del **filtro completo** (no de la página):
    queda en `paid` con `balance_due = 0` y el faltante se registra en
    `invoice_carryovers` (`status = pending`) para cobrarse en la **siguiente factura
    mensual**. Ver "Arrastre de saldo" más abajo.
-4. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **lo reconecta
-   automáticamente en el router**. Se levanta cualquier corte vigente (de facturación o
-   manual); las bajas definitivas (`retirado`, `cancelado`) **no** se tocan. Como el punto 3
-   deja la factura sin saldo vencido, **un abono parcial también reconecta**.
+4. Si el cliente queda al día, `BillingService::reactivateIfCleared()` **intenta reconectarlo
+   en el router**. Se levanta cualquier corte vigente (de facturación o manual); las bajas
+   definitivas (`retirado`, `cancelado`) **no** se tocan. Como el punto 3 deja la factura sin
+   saldo vencido, **un abono parcial también dispara la reconexión**.
 
-**201** con el pago, sus `allocations` y la clave suelta **`reactivation`**:
+> **Pago confirmado ≠ reconexión confirmada.** El pago es una operación financiera y se aplica
+> siempre; la reconexión depende de un equipo que puede no existir, no estar asignado, no tener
+> credenciales o no responder. **Un fallo de router NUNCA revierte el pago ni cambia el código
+> de respuesta**: sigue siendo `201` y el problema viaja dentro del cuerpo. Devolver `500`
+> haría creer al cajero que el pago no entró.
+
+**201** con el pago, sus `allocations`, un `correlation_id` y la clave suelta **`reactivation`**:
 
 ```json
 {
   "id": 1911, "amount": "60000.00", "allocations": [ ... ],
+  "correlation_id": "4bcb0818-7db6-4bc7-9719-39460507c284",
   "reactivation": {
-    "was_suspended": true,    // estaba cortado al llegar el pago
-    "reactivated":   true,    // se levantó el corte
-    "router_ok":     false,   // el router NO confirmó el desbloqueo
-    "message":       "El cliente quedó activo en el sistema, pero el router NO confirmó..."
+    "was_suspended": true,     // estaba cortado al llegar el pago
+    "reactivated":   true,     // se levantó el corte EN LA BD
+    "router_ok":     false,    // el EQUIPO no confirmó la reconexión
+    "outcome":       "pendiente_router_no_asignado",
+    "label":         "Sin router asignado",
+    "pending":       true,     // ← la señal que decide si se alerta
+    "message":       "El pago quedó registrado, pero la reactivación automática NO se pudo ejecutar: el cliente no tiene un router asignado en su ficha de servicio.",
+    "action":        "Asigna un router al cliente en su ficha de servicio y luego reintenta la reconexión, o reconéctalo manualmente en el equipo.",
+    "log_id":        4412,     // fila de suspension_action_logs; null si no hay nada pendiente
+    "can_retry":     false     // ¿este usuario puede reintentar? (execute_mass_actions)
   }
 }
 ```
@@ -1238,16 +1454,58 @@ del **filtro completo** (no de la página):
 JSON (`Payment::$reactivation` es una propiedad PHP declarada, no un atributo Eloquent —
 si entrara al array de atributos, el primer `save()` posterior intentaría escribirla).
 
-Los tres desenlaces que el front distingue:
+**`outcome` es el campo autoritativo.** Vocabulario cerrado
+(`App\Support\ReconnectionOutcome`); no leas el `message`, que es texto de cara al operador y
+puede reescribirse:
 
-| `was_suspended` | `reactivated` | `router_ok` | Significado |
-|---|---|---|---|
-| `false` | — | — | No estaba cortado; nada que hacer |
-| `true` | `true` | `true` | Reconectado y confirmado por el router |
-| `true` | `true` | `false` | Activo en BD, **el router no confirmó** → revisar `UNSUSPEND/failed` |
-| `true` | `false` | `false` | Sigue cortado: le quedan facturas vencidas (`message` dice cuántas) |
+| `outcome` | `pending` | Significado |
+|---|---|---|
+| `reactivado_automaticamente` | `false` | El equipo confirmó. **Único caso que puede pintarse como éxito.** |
+| `ya_reactivado` | `false` | Ya estaba reconectado; no se tocó el equipo (idempotencia) |
+| `no_aplica` | `false` | No estaba cortado, o sigue debiendo (`message` dice cuántas vencidas) |
+| `pendiente_router_no_asignado` | `true` | El cliente no tiene router en su ficha |
+| `pendiente_sin_router_configurado` | `true` | La ficha apunta a un equipo que no existe en esta sede |
+| `pendiente_router_no_disponible` | `true` | Router `inactive`/`maintenance`, con `falla_general`, o sin dirección a la que discar |
+| `pendiente_configuracion_incompleta` | `true` | Faltan credenciales del equipo o IP del cliente |
+| `pendiente_error_mikrotik` | `true` | Se intentó y falló la comunicación |
 
-**500** con `{"message":"No se pudo registrar el pago: ..."}` ante fallo del servicio.
+Ojo con los dos booleanos heredados, que responden preguntas distintas: `reactivated` es
+«se levantó el corte en la BD» y `router_ok` es «el equipo confirmó». **Pueden diverger**, y
+cuando divergen el cliente pagó y sigue sin servicio. `router_ok` equivale a
+`outcome === "reactivado_automaticamente"`.
+
+La respuesta **nunca** incluye IP, usuario, contraseña ni el error crudo del MikroTik; el
+detalle técnico se queda en el log del servidor.
+
+**500** con `{"message":"No se pudo registrar el pago: ...", "correlation_id": "..."}` ante
+fallo del servicio (el pago no se registró).
+
+**`POST /api/billing/customers/{customerId}/retry-reconnection`** — permiso
+**`execute_mass_actions`**
+
+Reintenta la reconexión de UN cliente. Existe aparte del reintento por log
+(`/billing/suspension-logs/{id}/retry`) porque el caso «sin router asignado» no tiene fila con
+equipo que reintentar: el operador arregla la ficha y reintenta **por cliente**.
+
+`register_payments` no alcanza: cobrar y escribir en un RouterBoard son atribuciones distintas.
+El cliente se resuelve dentro del tenant de la sesión; uno de otra sede responde `404`.
+
+**200**
+
+```json
+{
+  "outcome": "reactivado_automaticamente",
+  "label":   "Reactivado automáticamente",
+  "pending": false,
+  "message": "El cliente estaba suspendido y el servicio quedó reactivado automáticamente.",
+  "action":  "",
+  "reconnected": true,
+  "correlation_id": "25766d17-5b89-4a35-a13a-cc3d10bbe2fa"
+}
+```
+
+**409** `{"message":"Ya hay una reconexión en curso para este cliente. Espera a que termine."}`
+— candado por cliente contra reintentos duplicados. **403** sin permiso. **404** fuera del tenant.
 
 **`GET /api/billing/customers/{customerId}/balance`**
 
@@ -1261,10 +1519,33 @@ Los tres desenlaces que el front distingue:
     "is_suspended":   true,        // está cortado (BD o router)
     "service_status": "suspendido",
     "since":          "2026-07-22 21:03:25",  // null si no hay log de corte
-    "source":         "db"         // "db" | "router": qué señal lo delató
+    "source":         "db",        // "db" | "router": qué señal lo delató
+    "reconnection":   null         // reconexión pendiente; null = nada abierto
   }
 }
 ```
+
+**`suspension.reconnection`** sostiene la alerta persistente de la ficha del cliente: el aviso
+del momento del cobro se lo lleva el cajero al cerrar la pantalla, pero el cliente sigue sin
+servicio. Es `null` mientras no haya nada pendiente — el caso normal, que debe dejar la pantalla
+limpia. Cuando lo hay:
+
+```json
+"reconnection": {
+  "outcome":  "pendiente_router_no_asignado",
+  "label":    "Sin router asignado",
+  "pending":  true,
+  "message":  "El pago quedó registrado, pero la reactivación automática NO se pudo ejecutar: ...",
+  "action":   "Asigna un router al cliente en su ficha de servicio y luego reintenta ...",
+  "log_id":   4412,
+  "since":    "2026-09-22 23:19:14",
+  "attempts": 1
+}
+```
+
+Es **independiente de `is_suspended`**: un cliente puede figurar ACTIVO en el sistema y tener la
+reconexión pendiente en el equipo — de hecho es exactamente el caso que hay que ver. Se apaga
+solo cuando el problema se resuelve. Sin IP, credenciales ni el error crudo del equipo.
 
 `carryover_balance` **no** se suma a `net_balance`: hoy el cliente no lo debe y no
 cuenta para la mora ni para el corte. Es informativo para el cajero.
@@ -1296,8 +1577,10 @@ siguiente factura cobrable.
 | `POST` | `/api/billing/run-monthly` | Dispara la generación mensual manualmente |
 | `POST` | `/api/billing/run-overdue` | Procesa morosos |
 | `POST` | `/api/billing/run-auto-cut` | Dispara el corte automático |
-| `GET` | `/api/billing/configs` | Configuraciones de facturación (tabla `billing`) |
-| `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración |
+| `GET` | `/api/billing/configs` | Configuraciones de facturación **del tenant de la sesión** (KAN-121) |
+| `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración del propio tenant; si es de otro, responde 404 |
+
+> **Aislamiento (KAN-121).** `Billing` no tiene scope global. El controlador acepta dos casos: `tenant_id` igual al de la sesión, o `tenant_id` NULL en filas antiguas ligadas a un router del propio tenant. Antes de este cambio, el listado devolvía las configuraciones de todos los ISP y el `PUT` permitía modificar la de otro.
 | `POST` | `/api/billing/additional-charges` | Cargo adicional sin ticket |
 
 **`PUT /api/billing/configs/{id}`** — todos los campos son opcionales; sólo se actualiza lo
@@ -1320,11 +1603,54 @@ activo del catálogo (`equipos`, `tv`…); por defecto `additional`.
 | `GET/POST` | `/api/billing/payment-methods` | Lista / crea forma de pago |
 | `PUT/DELETE` | `/api/billing/payment-methods/{id}` | Actualiza / elimina |
 
+> **Renombrar ya no afecta a los pagos** (KAN-109): se referencian por id. Borrar una forma de
+> pago deja sus pagos sin enlace (`payment_method_id = null`) y con el texto con que se
+> registraron; para retirarla conservando el enlace, desactívala (`is_active: false`).
+
 > **`send-reminder` responde 404 si la factura ya no tiene titular** — el cliente se dio de
 > baja y la factura se conserva por su valor contable (P-43). No hay a quién enviarle nada.
 > El bloque que devuelve ese 404 existía desde antes, pero leía el perfil del cliente **antes**
 > de comprobar el nulo: con `customer_id` nulo devolvía **500**. Se corrigió el 2026-09-09, a
 > la vez que se volvía alcanzable.
+
+**Las dos rutas NO tratan igual las preferencias del cliente**, y la diferencia es deliberada:
+
+| Ruta | ¿Respeta `notify_invoice` / `exclude_from_billing`? | Por qué |
+|---|---|---|
+| `send-reminder` (individual) | **No** | Un agente abre UNA factura y decide sobre ESE caso: es una acción humana puntual, no el envío automático que la preferencia silencia |
+| `bulk-reminders` (masivo) | **Sí** | El operador marca casillas en el listado, o «seleccionar todo». No hay decisión por cliente, así que manda la preferencia |
+
+**`POST /api/billing/invoices/bulk-reminders`** — cuerpo: `{"invoice_ids": [1, 2, 3]}`.
+
+Las preferencias se consultan **justo antes de cada envío**, sobre el estado actual del
+cliente: entre que el operador marcó la casilla y pulsó el botón, alguien pudo silenciarlo.
+
+**200**
+
+```json
+{
+  "success": true,
+  "message": "Recordatorios enviados: 1 exitosos, 1 omitidos por preferencia del cliente, 0 fallidos",
+  "summary": { "total": 2, "success": 1, "skipped": 1, "failed": 0 },
+  "results": {
+    "41": { "success": true,  "notification_type": "email", "results": { "email": { "success": true } } },
+    "42": {
+      "success": false,
+      "skipped": true,
+      "reason":  "notify_invoice_disabled",
+      "message": "Omitido: el cliente pidió no recibir notificaciones de factura."
+    }
+  }
+}
+```
+
+`reason` es `notify_invoice_disabled` o `excluded_from_billing`. Un omitido **no** cuenta como
+`failed`: no es una avería que haya que investigar, es la preferencia del cliente aplicada. Por
+eso `success` es `true` cuando nada falló, aunque el lote entero se haya omitido.
+
+Una factura omitida **no** actualiza `last_reminder_sent`: no se envió nada, y marcarla
+consumiría el ciclo de recordatorio de ese periodo. El omitido se registra en el log del
+servidor con el id de la factura y el motivo, **sin** correo ni teléfono.
 
 ### Tipos de factura (catálogo)
 
@@ -1559,14 +1885,20 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
-| `GET/POST` | `/api/inventory` | auth | Equipos (con serial y MAC) |
-| `GET/PUT/DELETE` | `/api/inventory/{id}` | auth | Detalle / actualiza / elimina |
-| `GET/POST` | `/api/inventory-stock` | auth | Modelos / stock |
-| `PUT/DELETE` | `/api/inventory-stock/{id}` | auth | |
-| `GET/POST` | `/api/inventory-providers` | auth | Proveedores |
-| `PUT/DELETE` | `/api/inventory-providers/{id}` | auth | |
-| `GET/POST` | `/api/inventory-branches` | auth | Sucursales |
-| `PUT/DELETE` | `/api/inventory-branches/{id}` | auth | |
+| `GET` | `/api/inventory` | `view_inventory` ∪ `view_support` | Equipos (con serial y MAC) |
+| `POST` | `/api/inventory` | `view_inventory` | Alta de equipo |
+| `GET` | `/api/inventory/{id}` | `view_inventory` ∪ `view_support` | Detalle |
+| `PUT/PATCH` | `/api/inventory/{id}` | `view_inventory` | Actualiza |
+| `DELETE` | `/api/inventory/{id}` | **`delete_inventory`** | Elimina el equipo |
+| `GET` | `/api/inventory-stock` | `view_inventory` ∪ `view_support` | Modelos / stock |
+| `POST`, `PUT` | `/api/inventory-stock[/{id}]` | `view_inventory` | |
+| `DELETE` | `/api/inventory-stock/{id}` | **`delete_inventory`** | |
+| `GET` | `/api/inventory-providers` | `view_inventory` ∪ `view_support` | Proveedores |
+| `POST`, `PUT` | `/api/inventory-providers[/{id}]` | `view_inventory` | |
+| `DELETE` | `/api/inventory-providers/{id}` | **`delete_inventory`** | |
+| `GET` | `/api/inventory-branches` | `view_inventory` ∪ `view_support` | Sucursales |
+| `POST`, `PUT` | `/api/inventory-branches[/{id}]` | `view_inventory` | |
+| `DELETE` | `/api/inventory-branches/{id}` | **`delete_inventory`** | |
 
 Todos con alcance de tenant vía `BelongsToTenant`. Sustituyeron al acceso directo a Supabase.
 `tenant_id` **no es asignable en masa**: se establece desde el usuario autenticado.
@@ -1578,6 +1910,13 @@ máx. 255 y **únicos dentro del tenant**, no en toda la base. Desde 2026-09-10 
 en uso" sobre un equipo que el cliente no tenía ni podía ver. Es el mismo criterio que ya usaba
 la carga masiva (`InventoryImport`). Los mensajes de choque van en español y nombran el campo:
 `"Ya tienes otro equipo registrado con este serial."`.
+
+> **Los cuatro `DELETE` exigen `delete_inventory` desde 2026-09-11 (KAN-99).** Antes bastaba
+> `view_inventory` —un permiso de lectura— para borrar equipos, stock, proveedores y sucursales.
+> `view_inventory` conserva ver, crear, editar, entregar y dar de baja: lo único que se le retira
+> es el borrado. El permiso nuevo se concede sólo a roles con `code = 'admin'`, y una migración
+> de relleno lo aplica a los ya existentes. Un integrador con `view_inventory` que antes borraba
+> ahora recibe **403**. Ver § 63 de `BITACORA_TECNICA.md`.
 
 **`DELETE /api/inventory/{id}` puede responder 422.** Un equipo `installed`, o que figure en una
 línea de `installation_equipment`, no se borra: la FK es `SET NULL`, así que el borrado no
@@ -1591,6 +1930,29 @@ no como número: antes era `nullable|integer` sobre una columna `int4` y cualqui
 colombiano la desbordaba con un 500. Un valor de más de 30 caracteres ahora responde **422**
 con el error en `numero`, no un 500.
 
+> **Gasto automático al ingresar inventario (opcional, apagado por defecto).** Si la empresa
+> activa `tenant.inventory_entry_creates_expense`, toda ENTRADA —alta de un equipo, entrada de
+> material sin origen y carga masiva— crea un `expense` por `stock.price × cantidad`, enlazado al
+> movimiento en `expenses.inventory_movement_id`. Esa columna es **única**: es lo que hace que
+> reintentar una entrada no cobre dos veces.
+>
+> El interruptor se cambia por `PUT|PATCH /api/tenant/config`, que pide `manage_tenant` **y
+> además `view_expenses`** para estos dos campos: encenderlo hace que el inventario mueva el
+> balance financiero, y esa decisión es de quien responde por el balance. El resto de la
+> configuración sigue pidiendo sólo `manage_tenant`.
+>
+> Si el modelo no tiene precio de catálogo **no se crea gasto** y se devuelve un aviso — ni un
+> gasto en 0 (que se lee como "salió gratis") ni silencio (que descuadra el balance sin que nadie
+> se entere). En la carga masiva esos avisos llegan en `warnings`, que **no** afecta a `success`:
+> el equipo entró bien, lo que faltó fue el gasto.
+
+> **Cambiar `is_serialized` con existencias devuelve 422.** Ese campo decide de dónde salen las
+> cantidades: de las filas de `inventory_device` (una por aparato) o de los saldos por custodio en
+> `inventory_balances`. Cambiarlo deja de mirar lo registrado bajo la forma anterior — no lo borra,
+> lo vuelve invisible, que en contabilidad es peor. `PUT /api/inventory-stock/{id}` lo rechaza con
+> un error en `is_serialized` que dice cuántas existencias estorban y cómo dejarlas en cero. La
+> pantalla ya lo desactivaba, pero una interfaz no es una restricción.
+
 ### 15.1 Custodia, entregas y kardex
 
 | Método | Ruta | Permiso | Descripción |
@@ -1598,11 +1960,12 @@ con el error en `numero`, no un 500.
 | `GET` | `/api/inventory/holdings?holder_type=&holder_id=` | `view_inventory` | Qué tiene encima una sucursal o una persona: equipos con serial + saldos de material |
 | `POST` | `/api/inventory/transfers` | `view_inventory` | Entrega/traspaso. Sin `source_type` en un material, el movimiento se registra como **entrada** desde el proveedor |
 | `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
+| `GET` | `/api/inventory/orphan-balances` | `view_inventory` | Material cuyo custodio fue eliminado: saldos con `quantity > 0` cuya sucursal o usuario ya no existe |
 | `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto) |
 
-> **Orden de rutas:** las tres rutas literales (`/movements`, `/holdings`, `/transfers`) se
-> registran **antes** de `/api/inventory/{inventory}`; al revés, el parámetro las capturaría y
-> `movements` llegaría como si fuera un id.
+> **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/transfers`,
+> `/orphan-balances`) se registran **antes** de `/api/inventory/{inventory}`; al revés, el
+> parámetro las capturaría y `movements` llegaría como si fuera un id.
 
 > **Nombre del parámetro:** el comodín `{inventory}` y el argumento del controlador
 > (`InventoryDevice $inventory`) tienen que llamarse **igual**. El nombre no se ve en la URL, pero
@@ -1628,6 +1991,46 @@ Cuerpo de `POST /api/inventory/transfers`:
 Filtrar el kardex por custodio devuelve **las dos direcciones**: lo que entró y lo que salió de
 esa persona o bodega. Es lo que hace que "todo lo de Juan" signifique algo.
 
+#### El origen de un traspaso puede ya no existir
+
+Borrar una sucursal o un usuario **no** borra sus saldos: hacer desaparecer existencias en
+silencio sería peor que dejarlas sin dueño. `GET /api/inventory/orphan-balances` es donde se ven,
+y devuelve además un `holder_label` legible (*"Sucursal eliminada (#7)"*), porque el nombre del
+custodio ya no está en ningún lado.
+
+Listarlos no bastaba: `POST /api/inventory/transfers` validaba que el custodio de **origen**
+existiera, así que un saldo huérfano quedaba visible y atrapado. Ahora el origen se acepta si hay
+una fila de saldo real suya con ese material, exista o no el custodio.
+
+> No es un agujero. Sólo se puede sacar de un origen que **de verdad tiene** ese saldo: no se
+> puede inventar un `source_id` para crear existencias de la nada. El **destino** sí sigue
+> teniendo que existir — mandar material a un custodio inventado lo haría desaparecer otra vez.
+
+#### Bodegas y personas siempre del mismo tenant (P-67)
+
+Toda bodega o persona con id que actúe como custodio tiene que pertenecer al tenant de la
+sesión. Si no, **422**, sin mover nada:
+
+| Endpoint | Campo | Cuándo |
+|---|---|---|
+| `POST /api/inventory/transfers` | `to_id` | Destino (bodega o persona) de otra empresa |
+| `POST /api/support/{id}/equipment` | `destination` | Retiro (`direction: in`) hacia bodega o persona de otra empresa. La baja (`scrap`) no tiene custodio y no se comprueba |
+| `POST /api/support/{id}/equipment` | `source` | Consumo de material desde bodega o persona de otra empresa (antes respondía `quantity`) |
+| `POST /api/installations/{id}/equipment` | `source` | Ídem, en la hoja de instalación |
+| `POST /api/inventory` y `PUT/PATCH /api/inventory/{id}` | `stock_id`, `provider_id`, `branch_id`, `user_id` | Referencia a un registro de otra empresa |
+
+La bodega «sin sucursal» (`source_id` ausente o null) sigue siendo un destino válido para
+**equipos**. Una persona sin id no lo es, y el ledger sólo acepta como custodio interno los tipos
+`branch` y `user`: cualquier otro se rechaza aunque llegue sin pasar por la validación del request.
+
+#### Una sola carga de inventario por empresa a la vez
+
+`POST /api/import/inventory` responde **409** si ya hay una importación en curso para el mismo
+tenant. No es una limitación de capacidad: dos cargas simultáneas de la misma empresa se corrompen
+entre sí de dos formas independientes —los seriales ya usados se precargan en memoria al empezar,
+y el kardex reconoce las filas nuevas por rango de `id`— y el candado cierra las dos. Ver
+[MEJORAS_RECOMENDADAS.md](MEJORAS_RECOMENDADAS.md) § P-19.
+
 ### 15.2 Equipos de una orden de instalación
 
 | Método | Ruta | Permiso | Descripción |
@@ -1635,11 +2038,22 @@ esa persona o bodega. Es lo que hace que "todo lo de Juan" signifique algo.
 | `GET` | `/api/installations/{id}/equipment` | `view_support,view_clients` | Líneas ya descargadas en la orden |
 | `GET` | `/api/installations/{id}/equipment/available` | `view_support` | Qué puede tomar **este** usuario en **esta** orden |
 | `POST` | `/api/installations/{id}/equipment` | `view_support` | Descarga un equipo (`device_id`) o un material (`stock_id` + `quantity` + `source_*`) |
-| `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Devuelve la existencia a quien la aportó |
+| `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Quita una línea **capturada por error** y devuelve la existencia a quien la aportó. No es la devolución de material gastado |
 
-`available` responde `{ sources, devices, materials }`, ya filtrado por custodia: lo del propio
-usuario, lo del técnico asignado a la orden, y las bodegas sólo si tiene `view_inventory`. Cada
-equipo trae `source_type`/`source_id`/`source_label` para que la UI agrupe por custodio.
+`available` responde `{ sources, devices, materials, materials_status, locked }`, ya filtrado por
+custodia: lo del propio usuario, lo del técnico asignado a la orden, y las bodegas sólo si tiene
+`view_inventory`. Cada equipo trae `source_type`/`source_id`/`source_label` para que la UI agrupe
+por custodio.
+
+| Campo (2026-09-30) | Qué dice |
+|---|---|
+| `materials_status.code` | `ok`, `no_consumable_products` (no hay productos «por cantidad»), `no_stock` (ninguno tiene saldo) o `not_accessible` (hay saldo, pero en custodios de los que este usuario no puede tomar) |
+| `materials_status.message` | Explicación para mostrar. Nunca dice dónde está ni cuánto hay |
+| `materials_status.inaccessible_products` | Cuántos productos tienen saldo inaccesible |
+| `locked` | `{ is_locked, reason, message }`; `reason` es `signed`, `cancelled` o `null` |
+
+`POST` y `DELETE` responden `422` (error en `installation`) si la orden está **firmada**; `POST`
+también si está **cancelada**.
 
 Todas las escrituras pasan por `InventoryLedger`, así que **no existe forma de mover existencias
 sin dejar la línea de kardex**: el saldo y el historial se escriben en la misma transacción.
@@ -1653,18 +2067,107 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 
 | Método | Ruta | Requisito | Descripción |
 |---|---|---|---|
-| `GET/POST` | `/api/support` | auth | Lista / crea ticket |
-| `GET/PUT/DELETE` | `/api/support/{id}` | auth | Detalle / actualiza / elimina |
-| `GET` | `/api/support/statistics` | `staff_profile` | Estadísticas |
-| `POST` | `/api/support/{id}/message` | `staff_profile` | Añade mensaje |
-| `PUT` | `/api/support/messages/{id}` | `staff_profile` | Edita mensaje |
-| `DELETE` | `/api/support/messages/{id}` | `staff_profile` | Elimina mensaje |
-| `PATCH` | `/api/support/{id}/status` | `staff_profile` | Cambia el estado |
+| `GET` | `/api/support` | `ticket_view` | Lista |
+| `POST` | `/api/support` | `ticket_create` | Crea ticket |
+| `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
+| `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado** |
+| `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
+| `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Estadísticas |
+| `POST` | `/api/support/{id}/message` | `staff_profile` + `ticket_note` | Añade mensaje |
+| `PUT` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Edita mensaje |
+| `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
+| `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | **Transición**: valida estado origen contra la matriz |
+| `GET` | `/api/support/{ticket}/transitions` | `ticket_view` | Qué puede hacer AHORA quien pide |
+| `POST` | `/api/support/{id}/propose-closure` | `staff_profile` + `ticket_transition` | **Propone** el cierre. NO cierra |
+| `POST` | `/api/support/{id}/close` | `staff_profile` + `ticket_close` | **Cierra**, con los requisitos del §15 |
+| `POST` | `/api/support/{id}/close-exception` | `staff_profile` + `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
+| `POST` | `/api/support/{id}/reopen` | `staff_profile` + `ticket_reopen` | **Reabre** un ticket cerrado |
 | `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
 | `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
-| `GET` | `/api/support/{ticket}/attachments/{attachment}` | `view_support` | Vista previa del adjunto (`inline`) |
-| `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `view_support` | Descarga del adjunto (`attachment`) |
-| `GET` | `/api/support/{ticket}/history` | `view_support` | **Historial inalterable** del ticket, paginado y descendente |
+| `GET` | `/api/support/{id}/equipment` | `ticket_equipment` | Equipos movidos en la visita, **incluidas las líneas revertidas** (ver §16.1) |
+| `GET` | `/api/support/{id}/equipment/available` | `ticket_equipment` | Qué se puede entregar o retirar |
+| `POST` | `/api/support/{id}/equipment` | `ticket_equipment` | Entrega o **retira** un equipo del cliente |
+| `DELETE` | `/api/support/{id}/equipment/{item}` | `ticket_equipment` | **Revierte** la línea (no la borra). Exige `reason` en el cuerpo |
+
+> **Un solo permiso, y a propósito.** `CheckPermission` tiene semántica **OR**:
+> `permission:view_support,ticket_edit` deja pasar a quien tenga cualquiera de los dos, y
+> `view_support` lo tiene todo el módulo de soporte. Gobernar así una escritura significaba que
+> un permiso de **lectura** autorizaba descontar existencias y cambiar la custodia de un bien.
+> Las cuatro rutas exigen `ticket_equipment` a secas, en lectura y en escritura.
+>
+> `ticket_equipment` se reparte por backfill a todo rol que ya tenga `ticket_intervene`
+> (`2026_09_24_000001`). No es lo mismo que `ticket_intervene` —relatar la visita y sacar un
+> aparato de la bodega son capacidades distintas— pero sí es, hoy, el mismo conjunto de gente.
+
+**`DELETE` no borra: revierte.** El cuerpo es obligatorio:
+
+```json
+{ "reason": "El router que se dejo fue el de la caja de al lado." }
+```
+
+`reason` va de 10 a 500 caracteres. Sin él responde `422`. El inventario vuelve a su sitio —la
+entrega al custodio que la aportó, el retiro a casa del cliente— y la línea **se queda en la
+hoja**, marcada. Revertir dos veces la misma línea responde `422`.
+
+Cada fila de la respuesta añade cuatro campos:
+
+| Campo | Qué dice |
+|---|---|
+| `is_reversed` | `true` si el movimiento se deshizo. La línea **sigue apareciendo** |
+| `reversed_at` | Cuándo, ISO-8601 |
+| `reversed_by_name` | Quién, congelado al revertir |
+| `reversal_reason` | Por qué |
+
+Las revertidas **no suman** al total de la visita ni aparecen como cobrables.
+
+**Ticket cerrado (2026-09-30).** En un estado terminal (`cerrado`, `duplicado` y los legacy
+`closed`/`resolved`), `POST` y `DELETE` responden `422` con `error: ticket_already_closed` (y el
+mensaje también en `errors.ticket`): no se entrega, consume, retira ni revierte. Hay que reabrir
+el ticket (`POST /api/support/{id}/reopen`, con `ticket_reopen` y motivo). `GET .../available`
+añade `materials_status` (mismo contrato que en la instalación, con «esta visita») y
+`locked: { is_locked, reason, message }` (`reason` es `closed`, `archived` o `null`). **El cobro no se bloquea**:
+`POST /api/support/{id}/charge` sigue con sus reglas de siempre (`staff_profile`, `no_charge`).
+
+**Historial.** Cada movimiento deja un evento propio en `support_ticket_history`:
+`equipment_delivered`, `equipment_returned`, `equipment_scrapped` y `equipment_reversed` —este
+último con `of_event` y `reason` en `metadata`.
+
+**El contrato de socios no cambia.** `/v1/partner` no expone equipos, ni seriales, ni la hoja de
+la visita.
+| `GET` | `/api/support/{ticket}/attachments/{attachment}` | `ticket_view_evidence` | Vista previa del adjunto (`inline`) |
+| `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
+| `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |
+| `GET` | `/api/support/archived` | `ticket_archive` **o** `ticket_restore` | **Expedientes archivados**, paginado y filtrable |
+| `POST` | `/api/support/{ticket}/archive` | `ticket_archive` | **Archiva** el expediente (reversible y auditado) |
+| `POST` | `/api/support/{ticket}/restore` | `ticket_restore` | **Restaura** un expediente archivado |
+
+> **Permisos separados desde 2026-09-11 (PR B).** `view_support` ya no autoriza la operación
+> del ticket: cada acción tiene su capacidad `ticket_*`. `view_support` sigue existiendo y
+> sigue gobernando instalaciones, sectoriales e inventario.
+>
+> **`PUT /api/support/{id}` autoriza POR CAMPO.** La ruta exige `ticket_view`; cada campo que
+> **cambie** exige el suyo:
+>
+> | Campo | Permiso |
+> |---|---|
+> | `subject`, `description`, `sectorial_id` | `ticket_edit` |
+> | `staff_id` | `ticket_assign` |
+> | `priority` | `ticket_set_priority` |
+> | `category` | `ticket_set_category` |
+> | `symptom`, `suspected_cause`, `solution`, `result` | `ticket_diagnose` |
+> | `confirmed_cause` | `ticket_confirm_cause` |
+> | `status` | `ticket_transition` (+ `ticket_close` si el destino es `closed`) |
+> | adjuntos | `ticket_attach` |
+>
+> Un campo que llega con el mismo valor que ya tiene **no** exige permiso: la pantalla de
+> edición reenvía el formulario entero en cada guardado.
+>
+> El rechazo es **403** y dice cuál falta:
+>
+> ```json
+> { "message": "No tienes permiso para realizar esa acción sobre el ticket.",
+>   "required_permission": "ticket_confirm_cause" }
+> ```
 
 Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `priority` ∈ {`low`,`medium`,`high`,`urgent`};
@@ -1674,6 +2177,349 @@ Dominios: `status` ∈ {`open`,`in_progress`,`resolved`,`closed`};
 `suspected_cause`, `confirmed_cause`, `solution` y `result` como **código** del Anexo A;
 `null` borra el campo. El detalle y el listado devuelven `diagnosis` con `code` y `label` por
 campo, o `null` si no hay diagnóstico.
+
+**Sin cobro al cliente** (2026-09-21). `POST /api/support` y `PUT /api/support/{id}` aceptan
+`no_charge` (boolean) y `no_charge_reason` (máx. 255); el detalle y el listado los devuelven
+siempre.
+
+| Situación | Respuesta |
+|---|---|
+| `POST /api/support/{id}/charge` con el ticket marcado | **422**, error en `no_charge`. El ticket no admite cargos |
+| Cambiar `no_charge` sin `ticket_edit` | **403** con `required_permission: ticket_edit` |
+| Cambiar `no_charge` con permiso | 200, y evento `no_charge_changed` en el historial (`old_value`/`new_value` legibles, motivo en `metadata.reason`) |
+
+Marcarlo al **crear** el ticket no exige permiso aparte: va dentro de `ticket_create`.
+
+### Pruebas técnicas del ticket (PR F2 · 2026-09-25)
+
+Fuente: Solicitud Maestra § 12 (mediciones), § 13 (comparación inicial/final) y § 15.5 (regla
+de cierre). Todas bajo `auth:sanctum` + `deny_api_clients` + `permission:ticket_view`; las de
+escritura exigen además **`ticket_intervene`**.
+
+| Método | Ruta | Permiso | Qué hace |
+|---|---|---|---|
+| `GET` | `/api/support/{ticket}/measurements` | `ticket_view` | Mediciones, comparación y estado de la regla 5 |
+| `POST` | `/api/support/{ticket}/measurements` | `+ ticket_intervene` | Registra una medición |
+| `PUT` | `/api/support/{ticket}/measurements/{id}` | `+ ticket_intervene` | Corrige una, mientras el ticket siga abierto |
+
+**No existe `DELETE`** (devuelve 405). Una medición es la constancia de lo que se leyó, y el
+§ 15.5 la convierte en requisito de cierre: poder esconderla equivaldría a poder saltarse el
+requisito sin que constara.
+
+**Mismo permiso que las intervenciones**, sin uno nuevo: el § 18 le da al Técnico de campo
+«visita, evidencias, materiales, equipos, **pruebas finales**» en una sola frase, así que
+partirlo en dos permisos separaría una capacidad que el documento describe como una.
+
+#### Cuerpo del alta
+
+```json
+{
+  "test_type": "RSSI",
+  "value": "-76",
+  "unit": "dBm",
+  "measured_at": "2026-09-25T08:00:00",
+  "source": "CPE",
+  "phase": "inicial",
+  "intervention_id": 12
+}
+```
+
+Las seis del § 12 son obligatorias salvo `unit` («conectado» no tiene unidad).
+`intervention_id` es opcional y debe pertenecer al mismo ticket — si no, **422**
+`intervention_not_in_ticket`, y en la base lo impide además una clave foránea compuesta.
+
+`phase` sólo admite `inicial`, `seguimiento` o `final`. `test_type` es **texto libre**: el
+§ 12 enumera las mediciones en prosa sin asignarles código (criterio **D-06**).
+
+#### Respuesta de la lectura
+
+```json
+{
+  "data": [ /* mediciones, con su intervención */ ],
+  "comparison": [
+    { "test_type": "RSSI", "initial": "-76 dBm", "follow_up": null,
+      "final": "-64 dBm", "complete": true }
+  ],
+  "final_test": {
+    "present": true,
+    "waiver": null
+  }
+}
+```
+
+`comparison` arma el «antes y después» del § 13 en el servidor, no en el navegador, para que
+la regla de emparejamiento sea una sola y esté probada. Toma la **última** medición de cada
+fase por tipo: si se volvió a medir, la buena es la de después.
+
+#### La regla 5 del § 15 en propuesta y cierre
+
+> «Exigir prueba final o justificación de por qué no fue posible.»
+
+Es la única regla del § 15 con una **O**. Se aplica en `POST /support/{id}/propose-closure` y
+en `POST /support/{id}/close`, y aparece en `closure_requirements.missing` del endpoint
+`GET /support/{id}/transitions` para que la pantalla lo diga **antes** de abrir el modal.
+
+Se cumple de dos maneras:
+
+1. Existe al menos una medición con `phase = final`.
+2. O se envían, en el mismo POST del cierre:
+
+```json
+{
+  "reason": "…",
+  "final_test_waiver_reason": "cliente_no_permitio",
+  "final_test_waiver_note": "El abonado se retiró antes de terminar."
+}
+```
+
+`final_test_waiver_reason` es de **lista cerrada** —el § 13 dice «seleccionar»— y la nota es
+obligatoria en cuanto llega una razón (`required_with`), con 10 a 500 caracteres. Media
+justificación no explica nada.
+
+Los cinco códigos admitidos se publican en `GET /api/catalogs/ticket`:
+
+| Código | Etiqueta | Origen en el documento |
+|---|---|---|
+| `cliente_no_permitio` | El cliente no permitió continuar | A.4 R14 · A.2 NF |
+| `no_fue_posible_contactar` | No fue posible contactar al cliente | A.4 R15 · § 7 · A.2 NF |
+| `equipo_sin_energia` | Equipo apagado o sin energía | A.1 S09 |
+| `pendiente_tercero` | Pendiente de un tercero | § 7 · A.4 R11 |
+| `otro` | Otro (explicar en la justificación) | § 15.8 |
+
+El **cierre excepcional** (`/close-exception`) sigue pudiendo saltársela como cualquier otro
+requisito, y entonces «Medición final o justificación…» aparece en
+`metadata.requisitos_incumplidos` del evento.
+
+#### Ampliación de `GET /api/catalogs/ticket`
+
+**Aditiva**: las claves anteriores no cambian de forma. Se añaden
+
+- `measurement_phases` — las tres fases con etiqueta.
+- `final_test_waiver_reasons` — la lista **cerrada** de arriba.
+- `measurement_suggestions` — sugerencias de `test_type` agrupadas por tecnología
+  (Común / Radio / FTTH), transcritas del § 12. **No son códigos.**
+
+#### Eventos que deja en el historial
+
+`measurement_recorded` (con el tipo en `field` y el valor legible en `new_value`) ·
+`measurement_updated` (con valor anterior y nuevo) · `final_test_waived` (con la razón en
+`new_value` y la justificación en `metadata.note`).
+
+#### Lo que no cambia
+
+Un ticket **cerrado** no admite mediciones nuevas ni correcciones (**422**
+`ticket_already_closed`); el camino es reabrirlo, que ya existe y deja evento. Un ticket
+**archivado** responde **404**.
+
+**`/v1/partner` no cambia.** Las mediciones, como el diagnóstico, las intervenciones, las
+notas y los adjuntos, viven sólo en la API del panel (decisión **D-07**), con test de que no
+se filtran.
+
+### Intervenciones técnicas del ticket (PR F1 · 2026-09-23)
+
+Fuente: Solicitud Maestra § 14. Todas bajo `auth:sanctum` + `deny_api_clients` +
+`permission:ticket_view`; las de escritura exigen además **`ticket_intervene`**.
+
+| Método | Ruta | Permiso | Qué hace |
+|---|---|---|---|
+| `GET` | `/api/support/{ticket}/interventions` | `ticket_view` | Lista las visitas con su evidencia enlazada |
+| `POST` | `/api/support/{ticket}/interventions` | `+ ticket_intervene` | Registra una intervención |
+| `PUT` | `/api/support/{ticket}/interventions/{id}` | `+ ticket_intervene` | Edita una **en curso** |
+| `POST` | `/api/support/{ticket}/interventions/{id}/reopen` | `+ ticket_intervene` | Reabre una finalizada, con motivo |
+| `POST` | `/api/support/{ticket}/interventions/{id}/evidence` | `+ ticket_intervene` | Enlaza un adjunto ya subido a la visita |
+
+**No existe `DELETE`.** Una intervención no se borra: si está mal se reabre con motivo y se
+corrige, y la corrección queda en el historial (§ 15.10). La ruta devuelve **405**.
+
+#### Cuerpo del alta
+
+```json
+{
+  "kind": "presencial",
+  "technician_id": 34,
+  "assistant_id": 41,
+  "started_at": "2026-09-23T08:00:00",
+  "finished_at": null,
+  "finding": "Cable deteriorado entre PoE y CPE.",
+  "action_taken": "Cambio de cable y realineación.",
+  "outcome": "Servicio restablecido en sitio.",
+  "next_step": "Vigilar 24 horas."
+}
+```
+
+`kind`, `technician_id` y `started_at` son obligatorios. `kind` sólo admite `remoto` o
+`presencial`. En la edición todos son opcionales.
+
+`technician_id` y `assistant_id` se validan **contra el tenant de quien pide**, no contra
+`users` entero: un id de otro ISP devuelve 422. El número de la intervención (`sequence`) lo
+calcula el servidor, correlativo por ticket.
+
+#### Respuestas de error
+
+| Situación | Código | Cuerpo |
+|---|---|---|
+| Ticket archivado | **404** | Está fuera de la operación; hay que restaurarlo primero |
+| Ticket o intervención de otro ISP | **404** | No se confirma que exista |
+| Editar una finalizada | **422** | `error: intervention_finished` |
+| Reabrir una en curso | **422** | `error: intervention_not_finished` |
+| Reabrir sin motivo o con menos de 10 caracteres | **422** | `errors.reason` |
+| Sin `ticket_intervene` | **403** | — |
+
+#### Enlazar evidencia
+
+```json
+{ "attachment_id": 12, "evidence_type": "foto_sitio", "description": "Cable dañado antes del cambio." }
+```
+
+**No sube nada**: el archivo entra por el camino de siempre (`PUT /api/support/{id}` con
+`attachments[]`), que ya lo deja en el bucket privado. Aquí sólo se dice de qué visita salió.
+El adjunto debe pertenecer al mismo ticket — si no, **404**, y en PostgreSQL además lo impide
+una clave foránea compuesta.
+
+#### Lo que la respuesta NO trae
+
+`file_path` dejó de serializarse en los adjuntos. Es la ruta interna del bucket; el archivo se
+pide por `url` (vista previa, `inline`) o `download_url` (descarga, `attachment`), que pasan
+por el endpoint autenticado.
+
+**`/v1/partner` no cambia.** Las intervenciones, como el diagnóstico, las notas y los
+adjuntos, viven sólo en la API del panel. Exponerlas al integrador es la decisión **D-07**,
+todavía sin tomar, y hay un test que impide que se filtren por descuido.
+
+#### Eventos que deja en el historial
+
+`intervention_started` · `intervention_finished` · `intervention_edited` ·
+`intervention_reopened` (con `field: finished_at`, el sello anterior en `old_value` y el motivo
+en `metadata.reason`).
+
+### Workflow formal del ticket (2026-09-19)
+
+Fuente: Solicitud Maestra §7 (ciclo de vida), §15 (reglas de cierre) y §18 (roles). CNO
+confirmó estados y transiciones por chat el 11/09/2026.
+
+**El estado salió del `PUT`.** `PUT /api/support/{id}` **ignora** `status` si llega — se ignora
+en vez de dar 422 porque la pantalla de edición reenvía el formulario entero. Mover el estado es
+una transición, y valida de dónde viene el ticket.
+
+**`PATCH /api/support/{id}/status`** — transición ordinaria.
+
+| Campo | Regla |
+|---|---|
+| `status` | **obligatorio**, código vigente del catálogo |
+| `reason` | opcional, máx. 500. Si llega, queda como evento `transition_note` |
+
+| Error | Cuándo |
+|---|---|
+| `ticket_transition_not_allowed` (422) | La matriz no admite ese salto. La respuesta trae `allowed` con los destinos válidos |
+| `ticket_same_status` (422) | El ticket ya está ahí. **No genera evento** |
+| `ticket_close_requires_endpoint` (422) | El destino es `cerrado`: usa el endpoint de cierre |
+
+**`GET /api/support/{ticket}/transitions`** — lo que la interfaz lee para no mantener su propia
+copia de la matriz:
+
+```json
+{ "status": "servicio_restablecido", "is_archived": false,
+  "transitions": [ { "code": "en_observacion", "label": "En observación" } ],
+  "actions": { "propose_closure": true, "close": true, "close_exception": true, "reopen": false },
+  "closure_requirements": { "missing": [], "complete": true } }
+```
+
+**`POST /api/support/{id}/propose-closure`** — §18 se la da al Técnico de campo. **No cierra**:
+deja el ticket en `en_observacion`, el estado que el documento coloca justo antes de CERRADO.
+Exige `reason` (10–500) y que el expediente tenga **acción y resultado** (reglas 2 y 3 del §15);
+**no** exige causa confirmada, que es potestad del Supervisor. Evento `closure_proposed`.
+
+**`POST /api/support/{id}/close`** — exige las tres reglas del §15 que el modelo puede sostener:
+`confirmed_cause`, `solution` y `result`. `reason` es opcional. Sólo desde un estado en que el
+servicio ya volvió. Sella `closed_at` **sin tocar** `resolved_at`. Evento `ticket_closed`.
+
+| Error | Cuándo |
+|---|---|
+| `ticket_closure_requirements_missing` (422) | Falta alguno. La respuesta trae `missing` y `details` |
+| `ticket_cannot_close_from_status` (422) | El servicio todavía no está restablecido |
+| `ticket_already_closed` (422) | Ya es terminal |
+
+**`POST /api/support/{id}/close-exception`** — §15.1 («salvo excepción autorizada y
+justificada») y §18 («cierre especial»). `reason` **obligatorio** (10–500). Registra en
+`metadata.requisitos_incumplidos` **qué faltó**, y deja evento propio `ticket_closed_exception`
+— no un `ticket_closed`. Si no falta nada responde **422 `ticket_no_exception_needed`**: usarlo
+sin que falte un requisito ensuciaría la auditoría.
+
+**`POST /api/support/{id}/reopen`** — `reason` obligatorio (10–500). Deja el ticket en
+`reabierto` (§7 lo lista como auxiliar). **No borra `closed_at`**: §19.5 pide que los timestamps
+se conserven sin sobrescritura. Evento `ticket_reopened` con `from`, `to` y el `closed_at`
+anterior en `metadata`.
+
+Se reabre desde los cuatro estados terminales —`cerrado`, `duplicado` y los legacy `closed` y
+`resolved`—, declarados en `TicketWorkflow::REAPERTURA`. Desde cualquier otro responde **422
+`ticket_not_closed`**, y lo mismo si ya está reabierto.
+
+**No se puede reabrir por la transición genérica.** `PATCH .../status` con destino `reabierto`
+responde **422 `ticket_reopen_requires_endpoint`**, aunque quien lo pida tenga `ticket_reopen`:
+la puerta es el endpoint, porque es el único que exige el motivo. Por eso la pareja
+`cerrado → reabierto` vive en `REAPERTURA` y **no** en la matriz general — si estuviera ahí,
+cualquiera con `ticket_transition` reabriría sin permiso y sin motivo.
+
+**`GET /api/support/{ticket}/transitions` dice POR QUÉ no se puede reabrir**, no sólo si se
+puede. Campos añadidos:
+
+| Campo | Valores |
+|---|---|
+| `is_terminal` | El estado actual no admite transiciones ordinarias |
+| `status_label` | Etiqueta del estado, para no recalcularla en el cliente |
+| `reopen_blocked_by` | `archived` · `not_closed` · `permission` · `null` si sí se puede |
+| `reopen_permission` | El permiso que haría falta (`ticket_reopen`) |
+
+Existe porque sin ello la interfaz no podía distinguir «me falta un permiso» de «la pantalla
+está rota»: es exactamente lo que ocurrió cuando `ticket_reopen` no se había repartido.
+
+**Un ticket archivado está fuera del workflow.** Las cinco operaciones devuelven **404**: hay que
+restaurarlo primero (PR C).
+
+**El contrato de socios no cambia.** `/v1/partner/tickets` sigue devolviendo `open`,
+`in_progress`, `resolved` y `closed` — la equivalencia la declara `ticket_status.legacy_code` —
+y el filtro `?status=open` sigue trayendo también los `radicado` y `en_clasificacion`.
+
+**Archivado** (PR C · 2026-09-13). Sustituye definitivamente al borrado de tickets, que sigue
+respondiendo 403. Concedido por migración sólo a los roles con `code = 'admin'`.
+
+`POST /api/support/{ticket}/archive`
+
+| Campo | Regla | Cuándo |
+|---|---|---|
+| `reason` | **obligatorio**, 10–500 caracteres | siempre |
+| `confirm_ticket_id` | **obligatorio**, debe ser igual al id del ticket | siempre — es la doble confirmación, y se valida en el servidor |
+| `reason_code` | `duplicate` \| `registration_error` | **obligatorio** si el ticket está `open` o `in_progress` |
+| `acknowledge_active` | debe ser verdadero | **obligatorio** si el ticket está `open` o `in_progress` |
+
+Rechaza con **422** y `error: ticket_has_active_charge` si el ticket tiene una factura en
+`draft`, `issued`, `paid`, `partial` u `overdue` — es decir, cualquier cargo sin anular. Con
+`void` o `cancelled` sí archiva.
+
+Rechaza con **422** y `error: ticket_confirmation_mismatch` si el número escrito no coincide.
+Archivar un ticket ya archivado es **404**, no una operación idempotente.
+
+`POST /api/support/{ticket}/restore` exige sólo `reason` (10–500). Restaurar un ticket que no
+está archivado es **404**.
+
+Los dos registran un evento append-only en el historial: `ticket_archived` y `ticket_restored`,
+con el motivo en `metadata` y el actor resuelto del servidor.
+
+**El ticket archivado en el JSON.** El contrato **no** expone `deleted_at`. Expone:
+
+```json
+{ "id": 25, "is_archived": true, "archived_at": "2026-09-13T14:02:11.000000Z",
+  "archived_reason": "Duplicado del ticket #24.",
+  "archiver": { "id": 7, "user_name": "Ana", "user_lastname": "Ríos" } }
+```
+
+**Qué deja de responder un archivado.** `PUT /api/support/{id}`, `POST .../message` y
+`PATCH .../status` devuelven **404**: está fuera de la operación. Siguen respondiendo el
+detalle, el historial, los cargos y los adjuntos, **sólo** para quien tiene `ticket_archive` o
+`ticket_restore`; para todos los demás también son 404, no 403, para no revelar que existe.
+
+**No sale por `/v1/partner`.** El contrato del integrador excluye los archivados siempre, con
+un `whereNull` explícito además del scope, y hay un test que lo fija.
 
 **Historial** (PR #3). `GET /api/support/{ticket}/history` devuelve la paginación estándar de
 Laravel con los eventos más recientes primero. Acepta `per_page` (máx. 100).
@@ -1709,6 +2555,80 @@ Laravel con los eventos más recientes primero. Acepta `per_page` (máx. 100).
 
 > **Nada de esto está en `/v1/partner`.** Catálogos, diagnóstico e historial viven sólo en la
 > API del panel; exponerlos al integrador es una decisión abierta (D-07).
+
+---
+
+### 16.1 Equipos de una visita de soporte (2026-09-23)
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `GET` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_view` | Líneas movidas en el ticket (entregas y retiros) |
+| `GET` | `/api/support/{id}/equipment/available` | `view_support` **o** `ticket_view` | Qué puede mover **este** usuario en **este** ticket |
+| `POST` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_edit` | Entrega un equipo o material, o **retira** uno del cliente |
+| `DELETE` | `/api/support/{id}/equipment/{item}` | `view_support` **o** `ticket_edit` | Deshace la línea y deja el inventario como estaba |
+
+> **Estas cuatro rutas NO exigen `staff_profile`**, a diferencia del resto de `/api/support/*`.
+> Ese middleware sólo deja pasar los códigos de rol `admin` y `staff`, y quien carga el equipo en
+> la visita es el **técnico de campo**. Metidas en ese grupo, la sección existiría para todos
+> menos para quien tiene que usarla — que es el mismo motivo por el que las de instalación
+> tampoco están dentro. Los permisos son los **ya existentes**: uno nuevo nace apagado en todos
+> los roles ya sembrados y dejaría a los administradores actuales sin la sección hasta que
+> alguien corriera un backfill (ver §69 de `BITACORA_TECNICA.md`).
+
+**El ticket mueve inventario en dos sentidos**, que es lo que lo distingue de la orden de
+instalación. `direction` lo decide:
+
+| `direction` | Campos | Qué hace |
+|---|---|---|
+| `out` (por defecto) | `device_id` | Entrega un equipo con serial: queda `installed` a nombre del cliente del ticket |
+| `out` | `stock_id`, `quantity`, `source_type`, `source_id` | Gasta material del custodio indicado |
+| `in` | `device_id`, `source_type`, `source_id` | **Retira** del cliente un equipo que ya tenía y lo devuelve al inventario |
+| `in` | `device_id`, `source_type: 'scrap'` | **Retira y da de baja**: el equipo volvió inservible y no vuelve a circular |
+
+En `direction: 'in'`, `source_type`/`source_id` es **el destino** —a dónde va el equipo—, no el
+origen. `source_type: 'branch'` admite `source_id: null` («bodega sin sucursal»);
+`source_type: 'user'` lo exige; `source_type: 'scrap'` no lleva id.
+
+> **`scrap` no es un custodio, es la baja.** El equipo pasa a `status = retired`, sin
+> `customer_id` ni `user_id`, y el kardex escribe `baja` en vez de `devolucion`. Se distingue
+> del retiro normal porque **un aparato muerto devuelto a bodega cuenta como disponible**, y
+> alguien lo va a prometer en la siguiente instalación. Como origen de una entrega responde
+> **422**: de la chatarra no sale nada. Deshacer la línea revierte también la baja y el equipo
+> vuelve a figurar en casa del cliente.
+
+`available` responde `{ sources, devices, materials, installed, return_targets }`, ya filtrado
+por custodia: lo del propio usuario, lo del **técnico asignado al ticket** (`staff_id`) y las
+bodegas sólo si tiene `view_inventory`. `installed` es lo que el cliente tiene encima hoy —la
+lista de lo retirable— y sale de `inventory_device`, no de las hojas de instalación: lo que
+importa es dónde está el equipo ahora, no por qué papel llegó ahí, así que también aparece un
+aparato que entró por carga masiva. `return_targets` son los destinos válidos de un retiro:
+`sources` **más** la baja, que va aparte porque de ella no se puede tomar nada.
+
+Respuestas de error que conviene esperar (todas **422**, con el motivo en `errors`):
+
+| Caso | Clave |
+|---|---|
+| El equipo ya está instalado en otro cliente | `device_id` |
+| Se intenta retirar un equipo instalado en **otro** cliente | `device_id` |
+| Se intenta retirar algo que no está instalado en nadie | `device_id` |
+| El equipo lo tiene otro técnico en custodia | `source` |
+| Se devuelve a bodega sin `view_inventory` | `destination` |
+| El ticket está **archivado** o no tiene cliente | `ticket` |
+
+Un ticket archivado **sí** se puede consultar (`GET` responde 200): los equipos que se movieron
+son parte del expediente. Lo que no admite es escritura.
+
+Cada alta y cada baja deja además un evento en el historial del ticket
+(`equipment_added` / `equipment_removed`, con `metadata.direction`, `metadata.label` y
+`metadata.scrapped`) y una
+línea de kardex con `inventory_movements.support_ticket_id` apuntando al ticket. Todas las
+escrituras pasan por `InventoryLedger`: **no existe forma de mover existencias sin dejar el
+rastro**, porque el saldo y el historial se escriben en la misma transacción.
+
+**Cargar un equipo NO lo cobra.** La respuesta trae `item.unit_price` con el precio congelado del
+catálogo para que la interfaz lo precargue en el formulario de cargo, pero facturar sigue siendo
+`POST /api/support/{id}/charge`, con su propia decisión y su propio bloqueo por `no_charge`. Las
+líneas `in` llegan con `unit_price: null`: un retiro no se cobra.
 
 ---
 
@@ -1872,6 +2792,7 @@ el frontend sólo lo lee si el header existe.
 | `kind` | Qué pasó |
 |---|---|
 | `needs_advanced_mode` | El borrador es un documento completo pero se va a renderizar en **modo seguro**: el shell fijo lo desarma y el PDF no se parecerá al editor |
+| `long_table_cell` | Una celda `<td>`/`<th>` tiene más de `TemplateDiagnostics::LONG_TABLE_CELL_CHARS` (2.500) caracteres de texto visible. dompdf no parte celdas entre páginas y **recorta en silencio** lo que no cabe (P-8). `token` es el inicio del texto de la celda, no un marcador. Se reportan como máximo 2, la más larga primero |
 | `malformed_placeholder` | Llaves desparejadas (`{{token}`) o basura dentro (`{{ token&nbsp;}}`): no se reconoce, así que **se imprime literal** en vez de blanquearse |
 | `foreign_marker` | Marcador de otro sistema **sin llaves** (`NUMERO_CONTRATO_TAG`): aquí es texto y se imprime tal cual |
 | `foreign_placeholder` | `{{token}}` con el nombre de otro sistema; hay equivalente conocido (`config/document_placeholder_aliases.php`) |
@@ -1983,17 +2904,42 @@ que usa el campo "A nombre de quién" de un gasto.
 |---|---|---|
 | `POST` | `/api/settings/cache/clear` | `view_settings` |
 | `GET` | `/api/system/version` | — (cualquier usuario autenticado) |
+| `GET` | `/api/system/status` | — (cualquier usuario autenticado) |
+
+`/api/system/status` (KAN-68) alimenta el recuadro «Estado del Sistema». Lee el latido del
+planificador con **la misma clave y el mismo umbral** que `/health`
+(`config/health.php`, 300 s por defecto):
+
+```json
+{ "scheduler": { "status": "ok", "last_run_seconds_ago": 42, "max_silence_seconds": 300 } }
+```
+
+`status` puede ser:
+
+- `ok`: latió dentro del umbral;
+- `stale`: pasó el umbral;
+- `never`: no ha latido desde el despliegue;
+- `not_expected`: entorno con `HEALTH_SCHEDULER_EXPECTED=false`.
+
+No expone nada más.
 
 `/api/system/version` devuelve la versión del despliegue que atiende:
 
 ```json
-{ "version": "1.0.0", "released_at": "2026-08-19" }
+{ "version": "1.1.1", "released_at": "2026-08-21", "build": "9f2a41c0d8b3" }
 ```
 
 **Sin permiso a propósito.** Es lo primero que pregunta soporte —«¿qué versión te
 aparece?»— y exigir `view_settings` se lo negaría justamente a quien está llamando
 a pedir ayuda. Sale del servidor y no del bundle del navegador, que puede venir
 cacheado de un despliegue anterior. Fuente única: `config/version.php`.
+
+**`build`** (2026-09-21, KAN-101) es la huella del manifiesto de Vite: los primeros
+12 caracteres del SHA-1 de `public/build/manifest.json`. Identifica el **bundle**
+que sirve este despliegue, no la versión publicada — `version` sólo se mueve al
+publicar y la mayoría de los despliegues corrigen algo sin tocarlo. El frontend
+guarda el primer `build` que ve al cargar y avisa al usuario cuando cambia. Vale
+`null` en desarrollo, donde no hay manifiesto porque manda el dev server de Vite.
 
 ---
 
@@ -2031,10 +2977,12 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_client_traffic` | `routers/{router}/traffic` (por OR con `manage_routers`) |
 | `view_plans` | Escritura de planes y sincronización al router; lectura por OR |
 | `view_sectorials` | Escritura de sectoriales, fotos y notas; lectura por OR |
-| `view_inventory` | Escritura de inventario, stock, proveedores y sucursales; **entregas, kardex, holdings y bajas**; lectura por OR con `view_support`. También es lo que habilita tomar equipos de una **bodega** al llenar una hoja de instalación |
+| `view_inventory` | Alta y edición de inventario, stock, proveedores y sucursales; **entregas, kardex, holdings y bajas**; lectura por OR con `view_support`. También es lo que habilita tomar equipos de una **bodega** al llenar una hoja de instalación. **Ya no autoriza borrar** |
+| `delete_inventory` | `DELETE` de equipos, stock, proveedores y sucursales. Permiso propio desde KAN-99 porque `view_inventory` —de lectura— los abría los cuatro. Se concede sólo a roles con `code = 'admin'` |
 | `view_support` | Tickets (CRUD), instalaciones, prospectos, **equipos de la orden**; lectura de fotos/notas/historial de sectorial |
 | `delete_installations` | `DELETE /api/customers/installations/{installation}` (por OR con `view_support`) |
-| `edit_discount` | `installations/{installation}/billing` |
+| `edit_discount` | `installations/{installation}/billing`. Es además lo que **abre en modo editable** el bloque de cartera de la orden |
+| `view_installation_cost` | Ninguna ruta propia: es un permiso de **lectura de campos**. Hace que el detalle y los listados de instalación devuelvan los campos de cartera, en modo consulta. **No autoriza a guardarlos** |
 | `view_billing` | Todo `/api/billing/*` (facturas, pagos, configs, recordatorios, formas de pago, **tipos de factura**) |
 | `delete_invoice` | `DELETE /api/billing/invoices/{id}` |
 | `execute_mass_actions` | `/api/billing/action-logs*`, `/api/billing/suspension-logs*`, `/api/import/*` |
@@ -2107,9 +3055,9 @@ red de cada punto.
 |---|---|---|---|
 | `GET` | `/api/v1/partner/ping` | — | — |
 | `GET` | `/api/v1/partner/openapi.yaml` | — | — (devuelve el contrato OpenAPI, ver § 22.8-bis) |
-| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `document`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/customers` | `read:customers` | `service_status`, `router_id`, `document`, `updated_since`, `page` **o** `after_id`, `per_page` |
 | `GET` | `/api/v1/partner/customers/{id}` | `read:customers` | — |
-| `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `status`, `service_status`, `updated_since`, `page`, `per_page` |
+| `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `router_id`, `status`, `service_status`, `updated_since`, `page` **o** `after_id`, `per_page` |
 | `GET` | `/api/v1/partner/services/{id}` | `read:services` | — |
 | `GET` | `/api/v1/partner/events` | `read:events` | `since`, `limit` (máx. 500), `event_type`, `customer_id` |
 | `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
@@ -2123,8 +3071,34 @@ red de cada punto.
 `from`/`to` filtran por fecha de emisión (facturas), de pago (pagos), de creación
 (tickets) o programada (instalaciones). `per_page` tiene tope de **100**.
 
+`/payments` incluye `payment_method_id` y `payment_method_name` desde 2026-09-26 (KAN-109):
+la forma de pago del catálogo y su nombre **vigente**, o `null` en pagos no enlazados. Son
+campos **añadidos**: `method` sigue siendo el texto con que se registró el pago y no cambia
+aunque el ISP renombre la forma de pago.
+
+`/installations` incluye `no_charge` (boolean) desde 2026-09-21. Es un campo **añadido**,
+no un cambio de contrato: sin él, una visita de garantía viaja como una orden de $0 y el
+integrador no puede distinguirla de una a la que todavía no le han puesto precio.
+
 El filtro `document` es de **coincidencia exacta**, no parcial: una búsqueda por
 prefijo convertiría esa ruta en un enumerador de la base de clientes del ISP.
+
+#### Barrido completo: `after_id` (desde 2026-09-30, KAN-115)
+
+`/customers` y `/services` aceptan `after_id` como alternativa a `page`: devuelven
+las filas con id estrictamente mayor, en orden ascendente, y `meta` pasa a ser
+`{per_page, after_id, next_after_id, has_more}`. Mezclar `after_id` con `page`
+responde `422`.
+
+Es el modo para **recorrer una colección completa**. Con `page` (OFFSET), si se
+elimina una fila anterior a la página actual durante el recorrido, todo se corre
+un lugar y una fila que no cambió se salta sin ningún error — y como no cambió,
+tampoco la recupera el feed. Con `id > after_id` un borrado anterior no mueve nada
+de lo que falta por leer. `page` sigue funcionando igual para quien ya lo usa.
+
+`updated_since` **no** sirve como incremental para decidir acceso: en `/customers`
+compara `users.updated_at`, que no se mueve al cortar o reactivar, y en `/services`
+`user_services.updated_at`, que no se mueve cuando cambia `service_status`.
 
 #### Feed de cambios (`/events`)
 
@@ -2141,24 +3115,67 @@ El consumidor guarda `next_since` y lo manda en la llamada siguiente. Si no hay
 eventos nuevos, `next_since` devuelve el mismo valor recibido — nunca cero, o el
 integrador reprocesaría todo desde el principio en cada ciclo vacío.
 
+**El cursor es `partner_events.seq`, no `id` (desde 2026-09-30, KAN-112).** El
+`id` se toma al insertar, dentro de la transacción del cambio, y las transacciones
+confirman en cualquier orden: un cursor sobre `id` podía saltarse para siempre un
+evento que confirmaba después de otro con id mayor (la importación masiva de
+actualización corre en una sola transacción de minutos). `seq` lo asigna
+`PartnerEventSequencer` después del commit y en serie; hacia afuera se llama
+`event_id` y es también `revision`. Los eventos anteriores al cambio quedaron con
+`seq = id`, así que ningún cursor ni revisión guardados cambió de sentido. Ver
+[ARQUITECTURA.md](ARQUITECTURA.md) y la bitácora.
+
 Tipos de evento (contrato público; se agregan valores, no se renombran):
-`SERVICE_CREATED`, `SERVICE_ACTIVATED`, `SERVICE_SUSPENDED`, `SERVICE_REACTIVATED`,
-`PLAN_CHANGED`, `SERVICE_CANCELLED`, `CUSTOMER_UPDATED`.
+
+| Tipo | Cuándo | `changes` |
+|---|---|---|
+| `SERVICE_CREATED` | Alta de un servicio: panel **y carga masiva** (esta última, desde KAN-111) | `{plan_id, status}` |
+| `SERVICE_ACTIVATED` | `service_status` → `activo`/`gratis` desde algo que no era `suspendido` | `{service_status: {from, to}}` |
+| `SERVICE_SUSPENDED` | `service_status` → `suspendido` | `{service_status: {from, to}}` |
+| `SERVICE_REACTIVATED` | `suspendido` → `activo`/`gratis` | `{service_status: {from, to}}` |
+| `SERVICE_CANCELLED` | → `retirado` o `cancelado` | `{service_status: {from, to}}` |
+| `PLAN_CHANGED` | Cambio de plan (puede llegar dos veces, ver `PartnerEventObserver`) | `{plan_id: {from, to}}` |
+| `CUSTOMER_UPDATED` | Identidad (`name`, `last_name`, `cedula`, `address`, `city`, `state`, `is_company`), o `is_enabled` cuando cambia sin `service_status` | `{fields: [...]}` |
+| `ROUTER_CHANGED` | Cambio de `router_id`, o se activó/desactivó RADIUS en su router (`from` = `to`) — KAN-114 | `{router_id: {from, to}, managed_by_external_aaa: {from, to}}` |
+| `NETWORK_CHANGED` | Cambio de IP o de usuario PPPoE — KAN-114 | `{fields: ["ip", "pppoe_username"]}`, **sin valores** |
+| `CUSTOMER_DELETED` | Baja **física** (`CustomerDeletionService`) — KAN-113 | `{service_ids, router_id, managed_by_external_aaa}` |
 
 El evento es **delgado**: dice qué cambió y de quién, no transporta el recurso. El
 consumidor re-consulta `/customers/{id}` o `/services/{id}` para el estado
 definitivo. Así el feed no puede quedar desactualizado y un evento duplicado —que
 puede ocurrir, ver `PartnerEventObserver`— sólo cuesta una petición.
 
+La excepción es `CUSTOMER_DELETED`: el recurso ya no existe (404), así que el
+evento es la **lápida** y trae lo necesario para revocar sin consultar nada — qué
+servicios y en qué router. `partner_events` no tiene FK a propósito y sobrevive
+al borrado.
+
+**Retención:** hoy los eventos no se podan. Compromiso con los integradores: si se
+introduce retención, se avisa antes y un cursor más viejo que lo conservado recibe
+un error explícito, nunca un lote silenciosamente incompleto.
+
 #### `revision`
 
-`/customers` y `/services` devuelven `revision`: el id del último evento publicado
-de ese recurso. Sirve para detectar cambios y para reconciliar sin depender del
-reloj — dos escrituras en el mismo segundo son indistinguibles por `updated_at`,
-por `revision` no.
+`/customers` y `/services` devuelven `revision`: el `event_id` del último evento
+publicado de ese recurso (`MAX(seq)`). Sirve para detectar cambios y para
+reconciliar sin depender del reloj — dos escrituras en el mismo segundo son
+indistinguibles por `updated_at`, por `revision` no.
+
+En `/services` es la revisión del **cliente** dueño: los atributos de red viven en
+`customer_profile`, así que un cambio de router, IP o estado del cliente es un
+cambio de su servicio.
 
 `revision: null` significa que ese recurso no ha cambiado desde que existe el feed.
 No es un error.
+
+#### Decisión de acceso (integraciones AAA)
+
+`service_status` es la autoridad: `activo`/`gratis` = hay servicio;
+`suspendido`, `cancelado`, `retirado` = no. Una integración fail-closed debe
+exigir además `is_enabled = true` (sólo en `/customers`): el corte y la reconexión
+los mueven juntos, pero hay datos anteriores a `service_status` donde pueden no
+coincidir (KAN-117). El procedimiento de sincronización recomendado está en la
+descripción del contrato OpenAPI («Sincronización completa y confiable»).
 
 #### Identidad del grupo y política de aviso (en `/customers`)
 
@@ -2187,6 +3204,15 @@ Un integrador que emita el documento electrónico por su cuenta necesita
 }
 ```
 
+Con `after_id` (sólo `/customers` y `/services`):
+
+```json
+{
+  "data": [ { "id": 42, "...": "..." } ],
+  "meta": { "per_page": 100, "after_id": 0, "next_after_id": 42, "has_more": true }
+}
+```
+
 Los endpoints de detalle devuelven `{"data": {...}}` sin `meta`.
 
 ### 22.6 Errores
@@ -2199,7 +3225,7 @@ distinga «me cambió la IP» de «me revocaron la llave» sin llamar por teléf
 | 401 | *(sin cuerpo propio)* | Token inexistente, vencido o de un dueño que no es `ApiClient` |
 | 401 | `invalid_credentials` | Autenticó pero no con una llave de API (p. ej. sesión del panel) |
 | 401 | `key_revoked` / `key_expired` | Llave revocada o vencida |
-| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave |
+| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave. El cuerpo trae además `your_ip`, la IP con la que llegó la petición (desde OpenAPI 1.2.0, KAN-39). Es el único rechazo que la incluye |
 | 403 | `client_disabled` | El cliente de API está desactivado |
 | 403 | `tenant_missing` | La llave no tiene tenant asignado (falla cerrado) |
 | 403 | `https_required` | Petición por HTTP plano en producción |
@@ -2228,10 +3254,25 @@ curl -H "Authorization: Bearer 42|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
      "https://ispwatch-crm.app/api/v1/partner/invoices?status=issued&from=2026-08-01&per_page=100"
 ```
 
-`Accept: application/json` no es decorativo: sin esa cabecera, una petición sin
-llave válida se va por el redirect de invitados (`redirectGuestsTo` en
-`bootstrap/app.php`) y devuelve **302 a `/`** en lugar de 401. Anotado como
-papercut en `MEJORAS_RECOMENDADAS.md`.
+`Accept: application/json` sigue siendo buena práctica, pero desde el
+2026-09-21 (KAN-41) **ya no cambia el resultado**: toda respuesta de error bajo
+`api/*` es JSON, la pida el cliente o no. Antes, sin esa cabecera, una petición
+sin llave válida se iba por el redirect de invitados (`redirectGuestsTo`) y
+devolvía **302 a `/`**; quien siguiera el redirect terminaba leyendo el HTML del
+panel con un 200 y creyendo que su llave servía.
+
+Los códigos que devuelve la API pública cuando la petición no llega a su
+controlador:
+
+| Situación | Código | Cuerpo |
+|---|---|---|
+| Sin llave, llave revocada o vencida | `401` | `{"error": "invalid_credentials", "message": "…"}` |
+| La URL no existe | `404` | `{"error": "not_found", "message": "…"}` |
+| La URL existe pero el verbo no (la API es de **solo lectura**) | `405` + cabecera `Allow` | `{"error": "method_not_allowed", "message": "…"}` |
+| Límite de peticiones | `429` + cabecera `Retry-After` | `{"error": "http_error", "message": "…"}` |
+
+La API del panel (`/api/...`, sesión de Sanctum) usa el otro sobre de la casa,
+`{"success": false, "message": "…"}`, con los mismos códigos.
 
 ### 22.8-bis Contrato OpenAPI
 
@@ -2266,7 +3307,7 @@ por eso están escritos en el propio YAML:
 | `plan.speed_down` / `speed_up` | **Texto** (`"10M"`), no un número de bits: es lo que se aplica literal en el equipo |
 | `plan.price` | Entero |
 | Fechas | ISO-8601 UTC… salvo `installation_date` (`2026-08-18`) y `created_at`/`updated_at` **de `/customers`**, que salen como `2026-07-03 18:29:20` (sin `T` ni `Z`) porque provienen de una tabla sin casts de fecha |
-| `is_enabled` | **No indica si el cliente está cortado.** El corte automático lo deja en `true` |
+| `is_enabled` | Se mueve junto con `service_status` (el corte lo pone en `false`, la reconexión en `true`). Hasta 2026-09-30 el contrato decía que el corte lo dejaba en `true`; eso dejó de ser cierto cuando el auto-corte empezó a registrar la intención en la ficha |
 
 ### 22.9 Administración de llaves (panel)
 

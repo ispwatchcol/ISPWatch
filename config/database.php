@@ -100,7 +100,13 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'schema' => env('DB_SCHEMA', 'public'),
+            // SIN valor por defecto a propósito (KAN-95 · P-39). Poner
+            // 'public' aquí convertía el olvido de una variable en una escritura
+            // silenciosa sobre PRODUCCIÓN: Supabase aloja `ispwatch_dev` y
+            // `public` en la misma base, y lo único que los separa es esta clave.
+            // DatabaseSafetyServiceProvider aborta el arranque si falta fuera de
+            // producción, en vez de adivinar el esquema equivocado.
+            'schema' => env('DB_SCHEMA'),
             // Supabase (dev y producción) exige TLS, así que 'require' sigue
             // siendo el valor por defecto. Es configurable porque el Postgres
             // de CI corre en un contenedor sin SSL y rechaza la conexión con

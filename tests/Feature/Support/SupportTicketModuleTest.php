@@ -107,7 +107,10 @@ class SupportTicketModuleTest extends TestCase
 
         $ticket = SupportTicket::find($response->json('ticket.id'));
 
-        $this->assertSame('open', $ticket->status, 'Todo ticket nace abierto.');
+        // Un ticket nace RADICADO: es donde la Solicitud Maestra abre el ciclo
+        // de vida (seccion 7). El estado sale del catalogo (`is_initial`), no de
+        // una constante, asi que mover el primer paso del flujo es editar una fila.
+        $this->assertSame('radicado', $ticket->status, 'Todo ticket nace radicado.');
         $this->assertSame('medium', $ticket->priority);
         $this->assertSame('technical', $ticket->category);
         $this->assertNull($ticket->resolved_at);
@@ -261,84 +264,101 @@ class SupportTicketModuleTest extends TestCase
 
     // ── Cambio de estado ─────────────────────────────────────────────────
 
-    #[Test]
-    public function cambia_el_estado_y_sella_resolved_at_al_resolver(): void
+    /** Recorre el flujo hasta el estado pedido, paso a paso por la matriz. */
+    private function llevarA(SupportTicket $ticket, array $pasos): void
     {
-        $ticket = $this->ticketOf($this->tenant, $this->customer);
-
-        $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'resolved'])
-            ->assertOk();
-
-        $ticket->refresh();
-
-        $this->assertSame('resolved', $ticket->status);
-        $this->assertNotNull($ticket->resolved_at, 'Resolver debe sellar la fecha de resolución.');
+        foreach ($pasos as $estado) {
+            $this->actingAs($this->staff)
+                ->patchJson("/api/support/{$ticket->id}/status", ['status' => $estado])
+                ->assertOk();
+        }
     }
 
     #[Test]
-    public function pasar_a_en_progreso_no_sella_resolved_at(): void
+    public function restablecer_el_servicio_sella_resolved_at(): void
+    {
+        $ticket = $this->ticketOf($this->tenant, $this->customer);
+
+        // No se salta del radicado al restablecimiento: hay que recorrer el
+        // flujo. Eso es exactamente lo que este PR vino a imponer.
+        $this->llevarA($ticket, [
+            'en_clasificacion', 'en_diagnostico_remoto', 'asignado',
+            'en_intervencion', 'servicio_restablecido',
+        ]);
+
+        $ticket->refresh();
+
+        $this->assertSame('servicio_restablecido', $ticket->status);
+        $this->assertNotNull($ticket->resolved_at, 'Restablecer debe sellar la fecha.');
+        // Restablecido NO es cerrado: el documento le dedica un recuadro entero.
+        $this->assertNull($ticket->closed_at);
+    }
+
+    #[Test]
+    public function clasificar_no_sella_resolved_at(): void
     {
         $ticket = $this->ticketOf($this->tenant, $this->customer);
 
         $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'in_progress'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
             ->assertOk();
 
         $ticket->refresh();
 
-        $this->assertSame('in_progress', $ticket->status);
+        $this->assertSame('en_clasificacion', $ticket->status);
         $this->assertNull($ticket->resolved_at);
     }
 
     /**
-     * DEFECTO FIJADO — hoy no existe máquina de estados: `updateStatus()` sólo
-     * valida que el valor esté entre los cuatro del enum, así que cerrado →
-     * abierto pasa sin objeción. La Fase 2 debe modelar la reapertura como
-     * transición explícita; hasta entonces esto documenta la realidad.
+     * DEFECTO CORREGIDO. Este test afirmaba lo contrario —«hoy se admite
+     * cualquier transición, incluida cerrado → abierto»— y dejaba escrito que
+     * la Fase 2 debía modelar la reapertura como transición explícita. Es lo
+     * que hace el workflow formal, así que el test cambia a conciencia.
      */
     #[Test]
-    public function hoy_se_admite_cualquier_transicion_incluida_cerrado_a_abierto(): void
+    public function ya_no_se_admite_cualquier_transicion(): void
     {
         $ticket = $this->ticketOf($this->tenant, $this->customer, ['status' => 'closed']);
 
         $this->actingAs($this->staff)
             ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'open'])
-            ->assertOk();
+            ->assertStatus(422)
+            ->assertJsonPath('error', 'ticket_transition_not_allowed');
 
-        $this->assertSame('open', $ticket->refresh()->status);
+        $this->assertSame('closed', $ticket->refresh()->status);
     }
 
     /**
-     * DEFECTO FIJADO — al reabrir un ticket resuelto, `resolved_at` conserva la
-     * fecha anterior porque nada la limpia. Eso sesga el tiempo promedio de
-     * resolución que calcula `statistics()`. La Fase 2 lo corrige junto con la
-     * máquina de estados; cuando lo haga, este test debe cambiar de forma
-     * consciente y no simplemente "arreglarse".
+     * Lo que antes era un defecto —«resolved_at sobrevive a la reapertura»— es
+     * ahora el comportamiento EXIGIDO: «los estados y timestamps se conservan
+     * sin sobrescritura» (seccion 19.5 de la Solicitud Maestra).
+     *
+     * Lo que sí cambió es cómo se llega: volver a intervenir ya no es escribir
+     * un estado cualquiera, es una transición que la matriz permite desde
+     * `servicio_restablecido` porque la falla puede reaparecer antes de cerrar.
      */
     #[Test]
-    public function reabrir_un_ticket_resuelto_no_limpia_resolved_at(): void
+    public function volver_a_intervenir_no_limpia_resolved_at(): void
     {
         $ticket = $this->ticketOf($this->tenant, $this->customer);
 
-        $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'resolved'])
-            ->assertOk();
+        $this->llevarA($ticket, [
+            'en_clasificacion', 'en_diagnostico_remoto', 'asignado',
+            'en_intervencion', 'servicio_restablecido',
+        ]);
 
         $resuelto = $ticket->refresh()->resolved_at;
         $this->assertNotNull($resuelto);
 
         $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'open'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_intervencion'])
             ->assertOk();
 
         $ticket->refresh();
 
-        $this->assertSame('open', $ticket->status);
-        $this->assertNotNull(
-            $ticket->resolved_at,
-            'Comportamiento actual: resolved_at sobrevive a la reapertura. Es un defecto conocido.'
-        );
+        $this->assertSame('en_intervencion', $ticket->status);
+        $this->assertNotNull($ticket->resolved_at, 'El restablecimiento ocurrió: su fecha es un hecho.');
+        $this->assertEquals($resuelto, $ticket->resolved_at, 'Y no se vuelve a sellar.');
     }
 
     #[Test]
@@ -374,16 +394,32 @@ class SupportTicketModuleTest extends TestCase
         $this->assertSame($this->staff->id, $ticket->staff_id);
     }
 
+    /**
+     * DEFECTO CORREGIDO. El `PUT` sellaba `resolved_at` porque movía el estado
+     * desde el formulario de edición. Ya no lo mueve: `status` salió de la
+     * validación y un cambio de estado es una transición.
+     *
+     * Se IGNORA en vez de dar 422 porque la pantalla de edición reenvía el
+     * formulario entero; rechazar la petición por un campo que el usuario no
+     * tocó habría roto el guardado.
+     */
     #[Test]
-    public function el_update_tambien_sella_resolved_at_al_resolver(): void
+    public function el_put_generico_ya_no_mueve_el_estado(): void
     {
         $ticket = $this->ticketOf($this->tenant, $this->customer);
 
         $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'resolved'])
+            ->putJson("/api/support/{$ticket->id}", ['status' => 'cerrado', 'subject' => 'Otro asunto'])
             ->assertOk();
 
-        $this->assertNotNull($ticket->refresh()->resolved_at);
+        $ticket->refresh();
+
+        // El helper crea el ticket directo en base, en `open`. Lo que importa
+        // es que siga donde estaba: el `PUT` no lo movió a `cerrado`.
+        $this->assertSame('open', $ticket->status, 'El estado no se mueve por el PUT.');
+        $this->assertSame('Otro asunto', $ticket->subject, 'Pero el resto del formulario sí se guarda.');
+        $this->assertNull($ticket->resolved_at);
+        $this->assertNull($ticket->closed_at);
     }
 
     #[Test]

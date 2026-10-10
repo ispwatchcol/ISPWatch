@@ -72,17 +72,23 @@
                     </select>
                 </div>
 
-                <!-- Estado -->
-                <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Estado <span class="text-red-500">*</span>
-                    </label>
-                    <select
-                        v-model="form.status"
-                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        <option v-for="e in statuses" :key="e.code" :value="e.code">{{ e.label }}</option>
-                    </select>
+                <!--
+                  EL SELECTOR DE ESTADO SE RETIRÓ.
+                  Elegir un estado de una lista permitía saltar de recién
+                  radicado a cerrado sin causa confirmada, sin acción y sin
+                  resultado. Ahora el estado se mueve por TRANSICIONES, que
+                  validan de dónde viene el ticket, y cerrar tiene requisitos.
+                  El backend ya ignora `status` en este formulario.
+                -->
+                <div class="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Estado actual:
+                        <span class="font-semibold">{{ statusLabel(form.status) || '—' }}</span>
+                    </p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        El estado se cambia desde el <strong>ciclo de vida</strong>, en el detalle del ticket:
+                        allí sólo se ofrecen los pasos que el flujo permite desde donde está.
+                    </p>
                 </div>
 
                 <!-- Asignar Staff -->
@@ -109,6 +115,26 @@
                         :cargando="!catalogosCargados && !catalogosConError"
                         @reintentar="cargarCatalogos(true)"
                     />
+                </div>
+
+                <!-- Sin cobro al cliente. Aquí es donde el detalle manda a
+                     quien necesita volver a hacer cobrable la visita. -->
+                <div class="mb-6 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+                    <label class="flex items-start gap-2 cursor-pointer">
+                        <input v-model="form.no_charge" type="checkbox"
+                            class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+                        <span>
+                            <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+                            <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                                Mantenimiento o garantía. Los equipos entregados salen igual del inventario y son
+                                gasto de la empresa, pero el ticket no admite cargos mientras esté marcado.
+                            </span>
+                        </span>
+                    </label>
+                    <input v-if="form.no_charge" v-model="form.no_charge_reason" type="text" maxlength="255"
+                        placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+                        class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                    <p v-if="errors.no_charge" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ errors.no_charge[0] || errors.no_charge }}</p>
                 </div>
 
                 <!-- Botones -->
@@ -149,6 +175,7 @@ import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 // PR #2: de la misma respuesta sale el vocabulario de diagnóstico.
 const {
     statuses, priorities, categories,
+    statusLabel,
     cargado: catalogosCargados,
     error: catalogosConError,
     cargar: cargarCatalogos,
@@ -163,7 +190,9 @@ const form = ref({
     description: '',
     category: '',
     priority: '',
-    status: ''
+    status: '',
+    no_charge: false,
+    no_charge_reason: '',
 })
 
 // PR #2. Separado de `form` a propósito: el diagnóstico se envía sólo si el
@@ -207,7 +236,9 @@ const loadTicket = async () => {
             category: ticket.category,
             priority: ticket.priority,
             status: ticket.status,
-            staff_id: ticket.staff_id || ''
+            staff_id: ticket.staff_id || '',
+            no_charge: !!ticket.no_charge,
+            no_charge_reason: ticket.no_charge_reason || '',
         }
 
         // El backend devuelve { code, label } o null por campo. Al formulario

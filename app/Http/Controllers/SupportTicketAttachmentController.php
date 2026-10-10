@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Constants\Permissions;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketAttachment;
 use Illuminate\Http\Request;
@@ -72,7 +73,17 @@ class SupportTicketAttachmentController extends Controller
     {
         // `findOrFail` pasa por el scope global de BelongsToTenant, así que un
         // ticket de otro ISP da 404 —no 403— y ni siquiera confirma que exista.
-        $ticket = SupportTicket::findOrFail($ticketId);
+        //
+        // PR C · La evidencia de un expediente ARCHIVADO sigue siendo accesible
+        // para quien puede archivar o restaurar. CNO confirmó el 2026-09-11 que
+        // las evidencias son accesibles para quienes manejan tickets, y archivar
+        // no borra un solo archivo del bucket: dejar los adjuntos inalcanzables
+        // convertiría el archivado en una pérdida de facto. Para el resto sigue
+        // siendo 404, igual que el ticket.
+        $ticket = SupportTicket::when(
+            $this->puedeVerArchivados($request),
+            fn ($q) => $q->withTrashed(),
+        )->findOrFail($ticketId);
 
         // El adjunto se busca DENTRO del ticket. Sin este `where`, adivinar un id
         // de adjunto y colgarlo de un ticket propio serviría el archivo de otro.
@@ -131,5 +142,23 @@ class SupportTicketAttachmentController extends Controller
         }
 
         return [null, $ruta];
+    }
+
+    /**
+     * Réplica de la comprobación de `SupportTicketController`: el bypass de
+     * superadministrador vive en `CheckPermission`, no en el modelo, y aquí se
+     * decide dentro del controlador.
+     */
+    private function puedeVerArchivados(Request $request): bool
+    {
+        $usuario = $request->user();
+
+        if (!$usuario) {
+            return false;
+        }
+
+        return (int) $usuario->role_id === 1
+            || $usuario->hasPermission(Permissions::TICKET_ARCHIVE)
+            || $usuario->hasPermission(Permissions::TICKET_RESTORE);
     }
 }

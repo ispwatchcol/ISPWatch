@@ -160,8 +160,24 @@ class InventoryDeviceCrudTest extends TestCase
         $this->assertDatabaseHas('inventory_device', ['id' => $device->id]);
     }
 
+    /**
+     * REGLA CAMBIADA (PR F3, § 78). Antes esto esperaba un 422.
+     *
+     * «Figura en una hoja de instalación» era un proxy válido de «está puesto en
+     * casa de alguien» mientras la ÚNICA forma de devolver un equipo fuera
+     * BORRAR esa línea. Desde que el retiro por ticket existe, la línea vieja se
+     * CONSERVA a propósito —es el registro de una visita que sí ocurrió— y el
+     * proxy pasó a mentir: un aparato ya devuelto a bodega seguía teniéndola, y
+     * el guard lo rechazaba para siempre con un mensaje falso y sin salida
+     * posible, porque el operador YA lo había devuelto.
+     *
+     * Ahora «dónde está hoy» lo responde sólo `inventory_device.status`, que es
+     * quien lo sabe. Lo que sí sigue frenando el borrado es que el equipo esté
+     * referenciado por un ticket —ver `TicketEquipmentTest`—, porque esa hoja
+     * perdería el serial.
+     */
     #[Test]
-    public function tampoco_se_borra_si_figura_en_una_instalacion_aunque_el_estado_diga_otra_cosa(): void
+    public function un_equipo_devuelto_a_bodega_se_borra_aunque_tenga_historial_de_instalacion(): void
     {
         $device   = $this->device(['status' => InventoryDevice::STATUS_STOCK]);
         $customer = User::factory()->create(['tenant_id' => $this->tenant->id]);
@@ -181,9 +197,14 @@ class InventoryDeviceCrudTest extends TestCase
             'quantity'        => 1,
         ]);
 
-        $this->deleteJson("/api/inventory/{$device->id}")->assertStatus(422);
+        $this->deleteJson("/api/inventory/{$device->id}")->assertOk();
 
-        $this->assertDatabaseHas('inventory_device', ['id' => $device->id]);
+        $this->assertDatabaseMissing('inventory_device', ['id' => $device->id]);
+
+        // La línea de la instalación sobrevive al borrado del equipo: pierde el
+        // vínculo por `SET NULL`, que es la deuda anotada como P-58, pero la
+        // visita sigue constando con su marca y modelo.
+        $this->assertDatabaseHas('installation_equipment', ['installation_id' => $installation->id]);
     }
 
     #[Test]

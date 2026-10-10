@@ -90,9 +90,11 @@ class TicketCatalogReadPathTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('status');
 
-        // Y lo que sigue vigente se sigue aceptando.
+        // Y lo que sigue vigente se sigue aceptando. `en_clasificacion` y no
+        // `resolved`: con el workflow formal la transicion valida ademas el
+        // ESTADO ORIGEN, y de `open` no se salta a resuelto.
         $this->actingAs($this->staff)
-            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'resolved'])
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => 'en_clasificacion'])
             ->assertOk();
     }
 
@@ -137,16 +139,27 @@ class TicketCatalogReadPathTest extends TestCase
     {
         $data = $this->actingAs($this->staff)->getJson('/api/catalogs/ticket')->assertOk()->json();
 
+        // Los cuatro originales van PRIMERO por peso (10..40); detras, los
+        // dieciocho del workflow (100..280). Se comprueba el PREFIJO para
+        // seguir protegiendo el orden sin congelar el catalogo entero.
         $this->assertSame(
             ['open', 'in_progress', 'resolved', 'closed'],
-            collect($data['statuses'])->pluck('code')->all(),
+            collect($data['statuses'])->pluck('code')->take(4)->all(),
             'El orden lo fija `weight`, no el orden de inserción.'
+        );
+
+        // Y el flujo de la Solicitud Maestra va detrás, también por peso.
+        $this->assertSame(
+            ['radicado', 'en_clasificacion', 'en_diagnostico_remoto'],
+            collect($data['statuses'])->pluck('code')->slice(4, 3)->values()->all(),
         );
 
         $this->assertSame('Abierto', $data['statuses'][0]['label']);
         $this->assertSame(['low', 'medium', 'high', 'urgent'], collect($data['priorities'])->pluck('code')->all());
         $this->assertSame(4, count($data['categories']));
-        $this->assertSame(1, $data['versions']['status']);
+        // La versión sube al ampliar el vocabulario: es para lo que sirve.
+        // El workflow añadió dieciocho estados, así que `status` va por 2.
+        $this->assertSame(2, $data['versions']['status']);
     }
 
     #[Test]

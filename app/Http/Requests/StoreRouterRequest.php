@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\NormalizesRouterControlMode;
+use App\Services\CustomerProvisioningService;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreRouterRequest extends FormRequest
@@ -21,14 +22,24 @@ class StoreRouterRequest extends FormRequest
 
     public function rules(): array
     {
+        // En RADIUS el router puede ser un agrupador lógico sin MikroTik detrás
+        // (KAN-102): el AAA externo autentica y aprovisiona, e ISPWatch nunca
+        // abre una sesión contra el equipo. Exigir IP, usuario, contraseña y
+        // firmware obligaba a inventar datos de relleno que después alguien
+        // intentaría usar. `status` sigue obligatorio: el preflight de
+        // reconexión lo lee también en RADIUS.
+        $equipo = $this->normalizedControlMode() === CustomerProvisioningService::MODE_RADIUS
+            ? 'nullable'
+            : 'required';
+
         return [
             'name' => 'required|string|max:255',
-            'ip' => 'required|ip',
+            'ip' => "{$equipo}|ip",
             'ipv6' => 'nullable|string|max:255',
             'failover' => 'nullable|string|max:255',
             'external_id' => 'nullable|string|max:255',
-            'user_rb' => 'required|string|max:255',
-            'password_rb' => 'required|string|max:255',
+            'user_rb' => "{$equipo}|string|max:255",
+            'password_rb' => "{$equipo}|string|max:255",
             'puerto_api' => 'nullable|integer|min:1|max:65535',
             'puerto_www' => 'nullable|integer|min:1|max:65535',
             'puerto_ssh' => 'nullable|integer|min:1|max:65535',
@@ -40,7 +51,7 @@ class StoreRouterRequest extends FormRequest
             'rangos_ip' => 'nullable|string',
             'cut_type_id' => 'nullable|integer',
             'billing_router_id' => 'nullable|integer',
-            'firmware_version' => 'required|string|max:100',
+            'firmware_version' => "{$equipo}|string|max:100",
             'status' => 'required|string|max:50',
             'coordinates' => 'nullable',
             'agregar_cliente_mkt' => 'nullable|boolean',

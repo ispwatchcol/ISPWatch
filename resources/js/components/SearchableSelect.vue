@@ -27,7 +27,7 @@
                 v-if="dropdownOpen"
                 ref="dropdownRef"
                 :style="dropdownStyle"
-                class="fixed z-[9999] bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-2xl"
+                class="fixed z-app-dropdown bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-2xl"
             >
                 <div class="p-2 border-b border-gray-200 dark:border-gray-600">
                     <input

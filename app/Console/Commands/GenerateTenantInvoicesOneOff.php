@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Billing\MonthlyInvoiceAlreadyExists;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -97,66 +98,81 @@ class GenerateTenantInvoicesOneOff extends Command
             return self::SUCCESS;
         }
 
-        $created = 0; $failed = 0; $creditApplied = 0;
+        $created = 0; $failed = 0; $creditApplied = 0; $skipConcurrent = 0;
         $bar = $this->output->createProgressBar(count($toCreate));
         $bar->start();
 
         foreach ($toCreate as [$profile, $plan]) {
             try {
                 $subtotal = (float) ($plan->cost_product ?? 0);
-                $number   = $this->billing->generateInvoiceNumber($tenantId);
 
-                $invoice = Invoice::create([
-                    'tenant_id'    => $tenantId,
-                    'customer_id'  => $profile->user_id,
-                    'service_id'   => $plan->id,
-                    'number'       => $number,
-                    'issue_date'   => $issueDate,
-                    'due_date'     => $dueDate,
-                    'period_start' => $periodStart,
-                    'period_end'   => $periodEnd,
-                    'currency'     => 'COP',
-                    'subtotal'     => $subtotal,
-                    'tax'          => 0,
-                    'total'        => $subtotal,
-                    'balance_due'  => $subtotal,
-                    'status'       => 'issued',
-                ]);
+                // La MISMA puerta que la corrida mensual (§ 88): transacción,
+                // cliente bloqueado y la mensualidad del mes buscada otra vez
+                // dentro del bloqueo. El filtro de arriba (periodo exacto) no
+                // basta: no ve una primera factura prorrateada ni lo que otra
+                // ejecución emita mientras este comando recorre la lista. El
+                // cálculo de la factura sigue siendo el de este comando.
+                $this->billing->withMonthlyInvoiceLock($tenantId, (int) $profile->user_id, $periodEnd, function () use (
+                    $tenantId, $profile, $plan, $subtotal, $issueDate, $dueDate, $periodStart, $periodEnd, &$creditApplied
+                ) {
+                    $number   = $this->billing->generateInvoiceNumber($tenantId);
 
-                InvoiceItem::create([
-                    'invoice_id'  => $invoice->id,
-                    'type'        => 'plan',
-                    'description' => "Servicio mensual: {$plan->name}",
-                    'quantity'    => 1,
-                    'unit_price'  => $subtotal,
-                    'amount'      => $subtotal,
-                ]);
+                    $invoice = Invoice::create([
+                        'tenant_id'    => $tenantId,
+                        'customer_id'  => $profile->user_id,
+                        'service_id'   => $plan->id,
+                        'number'       => $number,
+                        'issue_date'   => $issueDate,
+                        'due_date'     => $dueDate,
+                        'period_start' => $periodStart,
+                        'period_end'   => $periodEnd,
+                        'currency'     => 'COP',
+                        'subtotal'     => $subtotal,
+                        'tax'          => 0,
+                        'total'        => $subtotal,
+                        'balance_due'  => $subtotal,
+                        'status'       => 'issued',
+                    ]);
 
-                // Servicios adicionales recurrentes del cliente. Este comando
-                // NO pasa por BillingService::createMonthlyInvoiceFor(), así
-                // que sin esta llamada facturaría de menos y en silencio: el
-                // cliente recibiría sólo el plan y el alquiler de su equipo se
-                // perdería ese mes. Delega en el mismo método que la corrida
-                // normal para que las dos rutas no puedan divergir.
-                $this->billing->addRecurringExtrasTo($invoice, $periodStart, $periodEnd);
+                    InvoiceItem::create([
+                        'invoice_id'  => $invoice->id,
+                        'type'        => 'plan',
+                        'description' => "Servicio mensual: {$plan->name}",
+                        'quantity'    => 1,
+                        'unit_price'  => $subtotal,
+                        'amount'      => $subtotal,
+                    ]);
 
-                // Apply available customer credit, mirroring BillingService.
-                $invoice->refresh();
-                $profile->refresh();
-                if ($profile->credit_balance > 0 && $invoice->balance_due > 0) {
-                    $apply = min((float) $profile->credit_balance, (float) $invoice->balance_due);
-                    $invoice->balance_due -= $apply;
-                    $invoice->status = $invoice->balance_due <= 0
-                        ? 'paid'
-                        : ($invoice->balance_due < $invoice->total ? 'partial' : 'issued');
-                    $invoice->save();
+                    // Servicios adicionales recurrentes del cliente. Este comando
+                    // NO pasa por BillingService::createMonthlyInvoiceFor(), así
+                    // que sin esta llamada facturaría de menos y en silencio: el
+                    // cliente recibiría sólo el plan y el alquiler de su equipo se
+                    // perdería ese mes. Delega en el mismo método que la corrida
+                    // normal para que las dos rutas no puedan divergir.
+                    $this->billing->addRecurringExtrasTo($invoice, $periodStart, $periodEnd);
 
-                    $profile->credit_balance -= $apply;
-                    $profile->save();
-                    $creditApplied++;
-                }
+                    // Apply available customer credit, mirroring BillingService.
+                    $invoice->refresh();
+                    $profile->refresh();
+                    if ($profile->credit_balance > 0 && $invoice->balance_due > 0) {
+                        $apply = min((float) $profile->credit_balance, (float) $invoice->balance_due);
+                        $invoice->balance_due -= $apply;
+                        $invoice->status = $invoice->balance_due <= 0
+                            ? 'paid'
+                            : ($invoice->balance_due < $invoice->total ? 'partial' : 'issued');
+                        $invoice->save();
+
+                        $profile->credit_balance -= $apply;
+                        $profile->save();
+                        $creditApplied++;
+                    }
+                });
 
                 $created++;
+            } catch (MonthlyInvoiceAlreadyExists $e) {
+                // Ya la tenía (otra ejecución, o una mensualidad del mes con
+                // otro periodo exacto). No es un fallo: se salta.
+                $skipConcurrent++;
             } catch (\Throwable $e) {
                 $failed++;
                 Log::error("one-off tenant billing: customer {$profile->user_id} failed: {$e->getMessage()}");
@@ -168,7 +184,7 @@ class GenerateTenantInvoicesOneOff extends Command
 
         $bar->finish();
         $this->newLine();
-        $this->info("Done. Created: {$created} | Failed: {$failed} | Credit applied on: {$creditApplied}");
+        $this->info("Done. Created: {$created} | Failed: {$failed} | Credit applied on: {$creditApplied} | Already had the month: {$skipConcurrent}");
 
         return self::SUCCESS;
     }

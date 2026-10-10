@@ -38,6 +38,15 @@ Por eso **nunca se usa `php artisan migrate` a secas**: el comando correcto es
 `php artisan migrate:both`, que aplica en ambos esquemas. PostGIS vive en `public`, lo que
 obliga a un *fallback* en el `search_path` para el esquema de desarrollo.
 
+**`DB_SCHEMA` no tiene valor por defecto** desde el 2026-09-21 (KAN-95 · P-39). Antes
+`config/database.php` resolvía a `public` cuando la variable faltaba, de modo que el olvido de
+una línea en el `.env` apuntaba la terminal de desarrollo a **producción**; el 2026-08-21 una
+migración sin revisar entró por ahí. Ahora, fuera de producción, la aplicación no arranca sin
+esa variable y lo dice. Además, `App\Support\ProductionDatabaseGuard` frena todo comando de
+consola cuya conexión resuelta apunte al esquema `public` de Supabase mientras `APP_ENV` no sea
+`production`: con terminal pide teclear el nombre del esquema, sin terminal se detiene. La
+escotilla, para scripts que sepan lo que hacen, es `ISPWATCH_ALLOW_PRODUCTION_DB=true`.
+
 ### Convenciones de nombres
 
 - Tablas del dominio original **en singular** (`router`, `sectorial`, `role`, `billing`,
@@ -105,7 +114,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `traffic_daily` | 57 | Agregado diario de tráfico |
 | `router_outage_events` | 0 | Falla masiva (append-only), consumido por Converza |
 | `script_version` | 2 | Catálogo de versiones de script |
-| `partner_events` | — | Cambios comerciales (append-only) para integradores externos; el `id` es cursor y revisión |
+| `partner_events` | — | Cambios comerciales (append-only) para integradores externos. `seq` (nullable, único) es el cursor y la revisión que se publican; lo asigna `PartnerEventSequencer` después del commit. El `id` es interno y no sale de la API (desde 2026-09-30, migración `2026_09_30_120000`) |
 > **No hay tablas `radius_*`, y es a propósito.** Cuando un router tiene
 > `radius = true`, las sesiones, la contabilidad y las órdenes de desconexión viven
 > en el sistema AAA externo, no aquí. Una versión anterior de este trabajo las
@@ -186,6 +195,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `revoked_at` | timestamp? | Revocación manual, distinta de la caducidad |
 | `last_used_ip` | varchar(45)? | Detectar uso desde un origen inesperado aun dentro de la allowlist |
 | `created_by` | bigint? | Quién emitió la llave |
+| `expiry_notified_at` | timestamp? | Cuándo `api-keys:expiring` avisó que vence. Un aviso por llave (KAN-43, migración `2026_10_05_110000`) |
 
 **`api_key_request_logs`**: `api_client_id`, `token_id`, `tenant_id` (los tres nullable —
 un token inexistente no resuelve cliente y ese intento es justo el que interesa auditar),
@@ -286,6 +296,7 @@ erDiagram
     service_plan ||--o{ invoices : "service_id"
     tenant ||--o{ invoices : ""
     tenant ||--o{ payment_methods : ""
+    payment_methods ||--o{ payments : "payment_method_id (KAN-109)"
     tenant ||--o{ invoice_types : "NULL = del sistema"
     invoices ||--o{ billing_action_logs : "invoice_id"
     invoices ||--o{ invoice_carryovers : "from_invoice_id (dejó saldo)"
@@ -388,8 +399,14 @@ erDiagram
     inventory_stock ||--o{ inventory_movements : "kardex"
     inventory_device ||--o{ inventory_movements : "kardex"
     customer_installations ||--o{ installation_equipment : "equipos usados"
-    inventory_device ||--o| installation_equipment : "instalado en"
+    customer_installations ||--o{ installation_planned_items : "plan previsto"
+    inventory_stock ||--o{ installation_planned_items : "producto planificado"
+    inventory_device ||--o{ installation_equipment : "instalado en"
+    support_ticket ||--o{ ticket_equipment : "equipos de la visita"
+    inventory_device ||--o{ ticket_equipment : "entregado / retirado"
+    support_ticket ||--o{ inventory_movements : "kardex"
 
+    inventory_movements ||--o| expenses : "gasto automático"
     expense_categories ||--o{ expenses : ""
     users ||--o{ expenses : "beneficiario / creador"
 ```
@@ -416,6 +433,8 @@ usada en los documentos, la marca y el contador de numeración de facturas.
 | `next_invoice_number` | integer | NN | `1` | Contador secuencial de facturación |
 | `contract_prefix` | varchar(20) | | | Prefijo del consecutivo de contratos (`CTR` si está vacío) |
 | `next_contract_number` | integer | NN | `1` | Contador secuencial de contratos firmados |
+| `inventory_entry_creates_expense` | boolean | NN | `false` | Si la entrada de inventario genera un gasto automático. **Nace apagado a propósito**: el ISP que ya registra la factura del proveedor contaría la compra dos veces |
+| `inventory_expense_category_id` | bigint | | | Categoría en la que caen esos gastos. FK a `expense_categories`, `nullOnDelete` |
 | `logo` | varchar(255) | | | Ruta del logo |
 | `brand_color` | varchar(7) | | | Color de marca en HEX |
 | `document_footer_text` | text | | | Pie de página de los documentos |
@@ -634,8 +653,36 @@ Una fila de `billing` es un **perfil de facturación**; los routers la referenci
 | `carried_in` | numeric(12,2) | NN | `0` | Saldo de facturas anteriores que ESTA factura está cobrando (ver `invoice_carryovers`) |
 | `carried_out` | numeric(12,2) | NN | `0` | Saldo que esta factura trasladó a la siguiente al cerrarse con un abono parcial |
 | `status` | varchar(255) | NN | `draft` | CHECK: `draft`, `issued`, `paid`, `partial`, `void`, `overdue`, `cancelled` |
+| `voided_at` | timestamp | | | **Anulación** (2026-09-19). Cuándo se anuló |
+| `voided_by` | bigint | | | **FK** → `users.id` (**SET NULL**). Quién la anuló |
+| `void_reason` | varchar(500) | | | Por qué. Obligatorio al anular (10–500) |
 | `last_reminder_sent` | timestamp | | | Idempotencia del recordatorio |
 | `notes` | text | | | |
+
+> ⚠️ **`draft` es el default de la columna y NADA lo escribe.** Las siete rutas de creación
+> llaman a `generateInvoiceNumber()` y dejan la factura en `issued` (o en `paid` si el total
+> es 0). En la práctica no existe ninguna factura en borrador; el estado sobrevive como valor
+> por defecto y como la única puerta que aún permite el borrado físico.
+
+#### Anulación (2026-09-19)
+
+Una factura emitida **no se borra: se anula**. `DELETE /billing/invoices/{id}` sólo alcanza un
+borrador sin número y sin ticket — es decir, ninguna de las que el sistema genera.
+
+| Aspecto | Decisión |
+|---|---|
+| Estado destino | **`void`**. Es el que el sistema ya escribía (`VoidCourtesyInvoices`) y el que `SupportTicketController` consulta para decidir si un ticket con cargos puede archivarse |
+| `cancelled` | Equivalente histórico. Nada lo escribe desde que el `PUT` genérico dejó de aceptarlo; se sigue **leyendo** como anulada en todos los `whereNotIn` del módulo |
+| Qué se conserva | Número, subtotal, impuesto, total, titular congelado, ítems, fechas y `ticket_id` |
+| Qué cambia | `status` → `void`, `balance_due` → 0, `carried_out` → 0, y el trío de anulación |
+| Por qué `balance_due` a 0 | Es el saldo lo que miran recordatorios, cortes y cálculo de mora. Es lo que saca la factura de la cobranza |
+| Dinero ya aplicado | Vuelve como **saldo a favor** del cliente. **El pago NO se borra** — el recaudo ocurrió — a diferencia de `markInvoiceUnpaid()`, que sí lo borra si sólo financiaba esa factura |
+| Arrastres | Los que esta factura cobraba vuelven a `pending`; los que ella generó y nadie cobró se eliminan. Igual que al borrar |
+| Lápida `suppressed` | **No se pone.** `monthlyInvoiceExists()` no filtra por estado, así que una mensual anulada sigue ocupando su periodo y la facturación automática no la regenera. Borrarla sí la necesitaba, porque la fila desaparecía |
+| Auditoría | Evento `invoice.voided` en `audit_logs` con actor, factura, ticket, estado anterior/nuevo, motivo y `correlation_id` |
+
+`voided_by` va en **SET NULL** por lo mismo que `customer_id` (P-43) y que `archived_by` en
+`support_ticket`: dar de baja al operador que anuló no puede llevarse la factura por delante.
 
 > `carried_in` / `carried_out` son **denormalización para los listados**: la verdad
 > contable vive en `invoice_carryovers`. Un abono parcial ya no deja la factura en
@@ -716,15 +763,38 @@ adicional recurrente, `service`, `adjustment`…), `description`, `quantity` num
 **`payments`** — `tenant_id`, `customer_id` (**FK SET NULL** desde P-43), `customer_name`
 varchar(160) y `customer_document` varchar(40) — el titular congelado al registrar el pago,
 igual que en `invoices` —, `amount` numeric(15,2),
-`payment_date` date, `method` (default `cash`), `reference`, `notes`,
+`payment_date` date, `method` (default `cash`), `payment_method_id` (FK → `payment_methods.id`,
+**SET NULL**, nullable — KAN-109), `reference`, `notes`,
 `status` CHECK `completed`\|`void`, `created_by` (FK → `users.id`, quién registró el pago).
+
+> **Forma de pago: dos columnas con papeles distintos (KAN-109, 2026-09-26).**
+> `payment_method_id` es la referencia estable: la que usan el filtro de Recaudos, el CSV y
+> el dashboard, y la que sobrevive a que la forma de pago se renombre en el catálogo.
+> `method` es el **nombre con que se registró el pago**, copiado del catálogo en ese momento,
+> y **nadie lo reescribe**: ni un renombrado, ni el relleno, ni editar el monto del pago.
+> Sólo cambia cuando alguien elige explícitamente otra forma de pago.
+>
+> `payment_method_id` queda en NULL cuando el texto no corresponde a ninguna forma de pago
+> del catálogo del tenant ("método histórico": típicamente un nombre que se renombró antes
+> de esta migración, o el `cash` por defecto de la API), cuando corresponde a **más de una**
+> (el catálogo admite duplicados, ver MEJORAS P-61) o cuando la forma de pago se borró.
+> En esos casos se muestra `method`. El emparejamiento vive sólo en
+> `App\Services\PaymentMethodLinker`: mismo tenant, `trim` + minúsculas Unicode, y
+> coincidencia única.
+>
+> La migración `2026_09_26_000001` rellenó la columna con ese criterio; `php artisan
+> payments:link-methods` reporta por tenant lo que quedó sin enlazar (sin `--apply` no
+> escribe). Revertirla sólo quita la columna: el texto de los pagos nunca se tocó.
 
 **`payment_allocations`** — tabla pivote N:M con importe: `payment_id`, `invoice_id`
 (ambos FK CASCADE) y `amount` numeric(15,2). Permite que un pago cubra varias facturas y
 que una factura reciba varios pagos.
 
 **`payment_methods`** — formas de pago por tenant (`name`, `description`, `is_active`).
-Semilla: Efectivo, Tarjeta, Corresponsal, Transacción.
+Semilla: Efectivo, Tarjeta, Corresponsal, Transacción. Renombrar una forma de pago ya no
+deja fuera los pagos anteriores: los pagos la referencian por `payment_method_id`. Borrarla
+deja esos pagos con `payment_method_id = NULL` y su texto original; para retirarla sin
+perder el enlace, se desactiva (`is_active = false`).
 
 ### 4.9.1 `additional_services` y `customer_additional_services` — Servicios adicionales recurrentes
 
@@ -795,15 +865,31 @@ Registra el resultado por **(tenant, cliente, periodo, acción)** — hay un ín
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `router_id` / `customer_id` / `ip` | | Contexto |
+| `router_id` / `customer_id` / `ip` | | Contexto. **`router_id` es nullable**: el caso «cliente sin router asignado» no tiene equipo que anotar y es justo el que hay que ver |
 | `action` | varchar(255) | CHECK: `SUSPEND`, `UNSUSPEND`, `INSTALL_POLICY` |
-| `reason` | varchar(40) | `manual`, `auto_cut_overdue`, `reconcile`, `auto_reconnect_paid` |
+| `reason` | varchar(40) | Qué **originó** la acción: `manual`, `auto_cut_overdue`, `reconcile`, `auto_reconnect_paid` |
+| `outcome` | varchar(40) | Cómo **terminó**, normalizado (`App\Support\ReconnectionOutcome`). Nullable e indexada |
 | `status` | varchar(255) | CHECK: `success`, `failed`, `pending` |
 | `attempts` | smallint | Máx. 4 |
 | `next_retry_at` | timestamp | Backoff 30 min / 2h / 6h / 24h |
-| `error_message` | text | |
+| `error_message` | text | Texto libre del equipo. **No se expone al navegador** |
 
 Backoff más agresivo que en facturación por diseño: *un corte sin aplicar es fuga de ingreso*.
+
+**`outcome` vs `reason`: responden preguntas distintas** y por eso son dos columnas. `reason`
+dice qué disparó la acción; `outcome` dice cómo acabó, en vocabulario cerrado:
+`reactivado_automaticamente`, `ya_reactivado`, `no_aplica`, `pendiente_router_no_asignado`,
+`pendiente_sin_router_configurado`, `pendiente_router_no_disponible`,
+`pendiente_configuracion_incompleta`, `pendiente_error_mikrotik`.
+
+Se añadió (migración `2026_09_22_000001`) para poder **contar y filtrar** los motivos por los que
+una reconexión queda pendiente. `error_message` no sirve para eso: es texto libre del RouterOS,
+no se agrupa, y arrastra IPs y detalles del equipo que no pueden salir a pantalla. Las filas
+anteriores quedan en `NULL` — adivinarles el motivo sería inventar datos en una bitácora.
+
+Una fila con `outcome` pendiente **y** `status` distinto de `success` es lo que mantiene
+encendida la alerta de reconexión en la ficha del cliente
+(`SuspensionActionLog::pendingReconnectionFor()`). Ver § 72 de `BITACORA_TECNICA.md`.
 
 ### 4.12 `sectorial` — Elementos de red
 
@@ -842,6 +928,18 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 | Firma | `customer_signature_path`, `technician_signature_path`, `signed_at` |
 | Cobro | `payment_agreement`, `installation_cost`, `additional_charges`, `additional_items` (json), `discount`, `discount_reason`, `payment_method`, `payment_received`, `payment_notes` |
 | Comercial | `customer_retention`, `special_attention`, `promotion_notes` |
+| Sin cobro | `no_charge` (boolean NOT NULL, default `false`), `no_charge_reason` (varchar(255) null) |
+
+**`no_charge`** (migración `2026_09_21_000001`) es la orden que **no se le factura al
+cliente**: mantenimiento o garantía. Con ella puesta, guardar la cartera NO emite factura
+—`InstallationBillingService` ni se llama— y la orden no admite cifras (`installation_cost`,
+adicionales, descuento ni `payment_received`); el equipo cargado en la hoja sale igual del
+inventario y lo asume la empresa.
+
+No es un «tipo de orden»: hay mantenimientos que sí se cobran y traslados regalados por
+retención, así que atar el cobro a un catálogo de tipos obligaría a desdoblarlo en cuanto
+apareciera la primera excepción. El motivo es opcional a propósito — un campo obligatorio
+acaba lleno de «.», que informa menos que un vacío porque además miente.
 
 ### 4.14 `customer_documents` y `document_templates`
 
@@ -918,7 +1016,53 @@ siguen saliendo idénticas.
 ### 4.15 `support_ticket` y derivadas
 
 `support_ticket`: `user_id` (cliente), `staff_id` (asignado), `sectorial_id` (elemento
-afectado), `subject`, `description`, `resolved_at`, `closed_at`.
+afectado), `subject`, `description`, `resolved_at`, `closed_at`, y desde el PR C
+`deleted_at`, `archived_by` y `archived_reason`.
+
+#### Sin cobro al cliente (2026-09-21)
+
+| Columna | Tipo | Para qué |
+|---|---|---|
+| `no_charge` | `boolean NOT NULL` default `false` | La visita no se le cobra al cliente (mantenimiento, garantía) |
+| `no_charge_reason` | `varchar(255) NULL` | Motivo, opcional |
+
+Con `no_charge` en true, `POST /support/{id}/charge` responde **422**: el ticket no admite
+cargos. Es una prohibición, no un valor por defecto — el interruptor «Cargo Asociado» del
+alta ya venía apagado y eso no impedía facturar la visita un mes después. Quitar la marca
+exige `ticket_edit` y escribe un evento `no_charge_changed` en `support_ticket_history`.
+
+Mismos nombres y misma forma que en `customer_installations` (§4.13) a propósito: es la
+misma decisión de negocio vista desde los dos módulos por los que entra una visita.
+
+#### Archivado (PR C · 2026-09-13)
+
+| Columna | Tipo | Regla | Para qué |
+|---|---|---|---|
+| `deleted_at` | `timestamp NULL` | índice `support_ticket_deleted_at_index` | Marca de **archivado**. El modelo usa `SoftDeletes` |
+| `archived_by` | `bigint NULL` | **FK** → `users.id` **ON DELETE SET NULL** | Quién archivó |
+| `archived_reason` | `varchar(500) NULL` | obligatoria al archivar (10–500), validada en el controlador | Por qué |
+
+> **`deleted_at` NO significa «eliminado».** Significa archivado, y es la única forma de
+> retirar un ticket de la operación: el borrado físico sigue prohibido por la ruta (403), por
+> el guardia del modelo (`forceDelete()` lanza) y por la clave foránea `RESTRICT` del
+> historial. El modelo **oculta `deleted_at` en el JSON** y expone `archived_at` e
+> `is_archived` en su lugar, para que la palabra «eliminado» no entre en el contrato de la API.
+>
+> **No se añadió `archived_at` como columna:** sería `deleted_at` con otro nombre, y dos
+> columnas que deben decir lo mismo acaban diciendo cosas distintas.
+>
+> `archived_by` va en **SET NULL** por la misma razón que las notas y los adjuntos (H-6): dar
+> de baja al administrador que archivó un ticket no puede desarchivarlo ni tocar el
+> expediente. Quién fue queda además en `support_ticket_history`, que es inalterable.
+>
+> **Se restaura poniendo las tres en NULL**, y el evento `ticket_restored` del historial
+> conserva el motivo del archivado anterior.
+>
+> **Efecto en todas las lecturas:** el *global scope* de `SoftDeletes` añade
+> `deleted_at is null` a cada consulta del modelo, así que los archivados desaparecen a la vez
+> de listados, estadísticas y `/v1/partner`. Los cuatro puntos que **sí** deben verlos —
+> detalle, historial, cargos y adjuntos— lo hacen con `withTrashed()` y **sólo** para quien
+> tiene `ticket_archive` o `ticket_restore`.
 
 > ⚠️ **Las columnas `status`, `priority` y `category` ya no existen.** La R3 (2026-08-15)
 > las eliminó junto con sus `CHECK` {`open`,`in_progress`,`resolved`,`closed`},
@@ -972,6 +1116,64 @@ base. Ver [`RUNBOOK_DESPLIEGUE_R3_TICKETS.md`](RUNBOOK_DESPLIEGUE_R3_TICKETS.md)
 
 Todas las FK son **`ON DELETE RESTRICT`**: perder una fila de catálogo dejaría un ticket
 histórico sin poder decir en qué estado quedó.
+
+#### Workflow de estados (2026-09-19)
+
+`ticket_status` gana dos columnas y pasa de 4 filas a 22.
+
+| Columna | Tipo | Para qué |
+|---|---|---|
+| `flow_category` | `varchar(20)` NN, default `legacy` | `main` (los 9 del flujo) · `auxiliary` (los 9 auxiliares) · `legacy` (los 4 de antes) |
+| `legacy_code` | `varchar(30)` NULL | A cuál de los 4 viejos equivale. **No es una FK**: es un código estable |
+
+**Los 18 estados salen literales de la Solicitud Maestra §7**, «Ciclo de vida requerido».
+El documento no asigna código técnico a ninguno —igual que no se lo asignó a las subcausas del
+Anexo A—, así que los códigos se derivan del nombre en snake_case sin tildes.
+
+| Flujo (§7, diagrama) | code | peso | equivale a |
+|---|---|---|---|
+| RADICADO | `radicado` | 100 | `open` · **estado inicial** |
+| EN CLASIFICACIÓN | `en_clasificacion` | 110 | `open` |
+| EN DIAGNÓSTICO REMOTO | `en_diagnostico_remoto` | 120 | `in_progress` |
+| ASIGNADO | `asignado` | 130 | `in_progress` |
+| VISITA PROGRAMADA *(cuando aplique)* | `visita_programada` | 140 | `in_progress` |
+| EN INTERVENCIÓN | `en_intervencion` | 150 | `in_progress` |
+| SERVICIO RESTABLECIDO | `servicio_restablecido` | 160 | `resolved` · sella `resolved_at` |
+| EN OBSERVACIÓN *(opcional)* | `en_observacion` | 170 | `resolved` |
+| CERRADO | `cerrado` | 180 | `closed` · terminal, sella `closed_at` |
+
+| Auxiliares (§7) | code | peso | equivale a |
+|---|---|---|---|
+| Pendiente del cliente | `pendiente_cliente` | 200 | `in_progress` |
+| Pendiente de material | `pendiente_material` | 210 | `in_progress` |
+| Pendiente de tercero | `pendiente_tercero` | 220 | `in_progress` |
+| Pendiente de infraestructura | `pendiente_infraestructura` | 230 | `in_progress` |
+| Asociado a incidente masivo | `asociado_incidente_masivo` | 240 | `in_progress` |
+| Duplicado | `duplicado` | 250 | `closed` · terminal |
+| No fue posible contactar | `no_fue_posible_contactar` | 260 | `in_progress` |
+| Solución temporal | `solucion_temporal` | 270 | `resolved` |
+| Reabierto | `reabierto` | 280 | `in_progress` |
+
+> ⚠️ **RESTABLECIDO NO ES CERRADO.** El documento le dedica un recuadro: «Servicio
+> restablecido registra el momento en que vuelve la conectividad; Cerrado significa que la
+> causa, la acción, las pruebas finales, el resultado y la validación quedaron documentados.
+> Deben existir timestamps separados». Por eso `servicio_restablecido` **no** es terminal y
+> sella sólo `resolved_at`.
+
+> **Los cuatro viejos no se renombran ni se borran.** `open`, `in_progress`, `resolved` y
+> `closed` se quedan marcados como `legacy`, porque los tickets ya existentes apuntan a ellos
+> por clave foránea y porque el **contrato del integrador está congelado** desde la R2: compara
+> contra `open`. `/v1/partner` devuelve `COALESCE(legacy_code, code)`, así que sigue diciendo
+> `open` mientras el panel dice «En clasificación».
+>
+> Las **estadísticas** cuentan por la misma equivalencia. Sin eso, el tablero habría quedado en
+> cero el día del despliegue.
+
+> **Las transiciones NO están en base de datos**, sino en `App\Support\TicketWorkflow`. Los
+> catálogos viven en tablas porque son vocabulario que el ISP puede reetiquetar; una transición
+> es una regla de negocio, no hay pantalla para administrarla, y **D-13** —quién administra los
+> catálogos— sigue delegada sin resolver. Una tabla que nadie puede editar aparenta ser
+> configurable sin serlo. Se expone por `GET /support/{id}/transitions`.
 
 ### 4.15a `support_ticket_history` — auditoría inalterable
 
@@ -1032,6 +1234,174 @@ permiso `view_audit_log` de administración cuando el historial lo tiene que ver
 el ticket con `view_support`, y su clave es `model_type`+`model_id` sin FK al ticket. Se
 sigue el patrón de `sectorial_history`.
 
+### 4.15c `ticket_intervention` — visitas y atenciones remotas
+
+Añadida por el **PR F1** para el requisito **F1-08**. La § 14 de la Solicitud Maestra lo pide
+literal: «Un ticket puede tener múltiples intervenciones. Cada una debe registrar fecha/hora,
+tipo remoto o presencial, técnico, diagnóstico encontrado, acción, materiales, equipos
+retirados/instalados, evidencia, resultado y siguiente paso.»
+
+Materiales y equipos **no** están aquí: son el PR F3, y dependen de la decisión **D-14** sobre
+si mover o no el kardex de inventario.
+
+| Columna | Nota |
+|---|---|
+| `tenant_id` | Estampado desde el ticket, como en `support_ticket_history`. Permite filtrar sin join |
+| `support_ticket_id` | FK **RESTRICT**. El ticket no se borra (PR A); si alguien lo intentara, la base debe negarse antes que llevarse el expediente |
+| `sequence` | El «Número» de la § 14, correlativo **por ticket**. Único junto a `support_ticket_id` |
+| `kind` | `remoto` \| `presencial`. Los dos únicos que nombra el documento (decisión **S-2**) |
+| `technician_id`, `assistant_id` | FK **SET NULL**. Un acompañante por intervención (decisión **S-3**) |
+| `technician_name`, `assistant_name` | Nombre **congelado** al registrar, patrón `author_name` de H-6. Dar de baja al técnico no deja la visita sin autor |
+| `started_at`, `finished_at` | `finished_at` `NULL` = en curso. Es además el **cerrojo de edición** |
+| `finding`, `action_taken`, `outcome`, `next_step` | Hallazgo, acción, resultado y próximo paso, en texto |
+| `created_by` | FK **SET NULL** |
+
+**Índices:** `UNIQUE(support_ticket_id, sequence)` · `UNIQUE(id, support_ticket_id)` ·
+`INDEX(tenant_id, support_ticket_id)`.
+
+El segundo único no es redundante: existe para que `support_ticket_attachment` pueda declarar
+una **clave foránea compuesta** contra él. Ver 4.15d.
+
+#### No tiene `deleted_at`, y no es un olvido
+
+El ticket sí usa `SoftDeletes`, porque archivar un expediente entero es una operación de
+negocio reversible y auditada (PR C). Una intervención es otra cosa: el registro de que
+alguien fue, miró y actuó. Un borrado blando aquí sería una puerta trasera — bastaría marcar
+la fila para que la visita desapareciera del expediente sin que el histórico lo contara, y el
+§ 15.10 lo prohíbe: «El cierre no debe borrar la causa sospechada, **las intervenciones** ni
+los estados anteriores».
+
+Tampoco hay borrado físico: no existe endpoint, y el modelo bloquea `deleting`.
+
+La corrección va por otro camino:
+
+| `finished_at` | Estado | Qué se puede hacer |
+|---|---|---|
+| `NULL` | En curso | Editar directamente |
+| Lleno | Finalizada | **No se edita.** Hay que reabrirla con motivo de 10–500 caracteres, lo que deja `intervention_reopened` en el historial |
+
+### 4.15d Evidencia enlazada a la intervención
+
+El PR F1 añade tres columnas **nullable** a `support_ticket_attachment`, y no una tabla de
+evidencias aparte: el archivo ya vive en el bucket privado y ya se sirve por un endpoint que
+comprueba tenant y ticket. Duplicarlo daría dos copias del mismo byte y dos sitios donde
+comprobar permisos.
+
+| Columna | Nota |
+|---|---|
+| `intervention_id` | La «intervención relacionada» de la § 14. `NULL` es válido: la evidencia que manda el cliente al abrir el ticket no pertenece a ninguna visita |
+| `evidence_type` | El «Tipo». Texto libre: la § 14 los enumera en prosa sin asignarles código, igual que las subcausas del Anexo A.2 — criterio ya cerrado por el cliente en **D-06** |
+| `description` | La «descripción» |
+
+**Clave foránea COMPUESTA** `(intervention_id, ticket_id)` → `ticket_intervention (id,
+support_ticket_id)`, con `ON DELETE RESTRICT`.
+
+Con una foránea simple, nada impediría colgar una evidencia del ticket 10 de una intervención
+del ticket 77, y el aislamiento dependería de que ningún `where` se olvide. Esta tabla es
+justo donde eso más duele: **no tiene `tenant_id`** —lo deriva del ticket— así que un enlace
+cruzado no sólo mezclaría expedientes, podría cruzar ISPs.
+
+**Diferencia por motor:** la foránea se crea **sólo en PostgreSQL**. SQLite no admite añadir
+una foránea a una tabla existente con `ALTER TABLE`; allí la garantía la aportan el índice
+único y la validación del servicio, y el test correspondiente se salta con un mensaje
+explícito. Verificado contra PostgreSQL 18.3: el enlace cruzado se rechaza.
+
+`file_path` pasó además a `$hidden` en el modelo. Es la ruta interna del bucket, no le sirve a
+nadie del otro lado —el archivo se pide por `url` / `download_url`, que pasan por el endpoint
+autenticado— y publicarla describe la organización del almacenamiento a quien no tiene por qué
+conocerla.
+
+### 4.15e `ticket_measurement` — mediciones técnicas estructuradas
+
+Añadida por el **PR F2** para el requisito **F1-09**. El § 12 de la Solicitud Maestra pide,
+literal: «Cada medición debe guardar **tipo de prueba, resultado, unidad, fecha/hora, origen y
+fase**. Los resultados no deben quedar únicamente en observaciones.»
+
+Las seis están aquí una a una.
+
+| Columna | Nota |
+|---|---|
+| `tenant_id` | Estampado desde el ticket, como en `support_ticket_history` y `ticket_intervention` |
+| `support_ticket_id` | FK **RESTRICT**: el ticket no se borra, y si alguien lo intentara la base debe negarse antes que llevarse las mediciones |
+| `intervention_id` | De qué visita salió, si salió de una. **NULL es normal**: el diagnóstico remoto inicial se toma antes de que exista ninguna intervención |
+| `test_type` | **Texto libre.** Ver abajo |
+| `value` | **Texto, no número.** Ver abajo |
+| `unit` | Nullable: «conectado» no tiene unidad |
+| `measured_at` | Cuándo se tomó, que no es cuándo se registró |
+| `source` | El «origen» del § 12: CPE, OLT, RADIUS, manual… |
+| `phase` | `inicial` \| `seguimiento` \| `final` |
+| `recorded_by`, `recorded_by_name` | Quién la tomó, con el nombre **congelado** (patrón H-6) |
+
+**Índices:** `(tenant_id, support_ticket_id)` · `(support_ticket_id, phase)`.
+
+El segundo sostiene la regla de cierre: «¿tiene este ticket alguna medición final?» se
+consulta en cada propuesta, en cada cierre y en cada carga del detalle.
+
+#### `test_type` es texto libre, y es deliberado
+
+El § 12 enumera las mediciones en prosa y por tecnología —«RSSI; SNR; CCQ; ruido; Tx/Rx…»—
+**sin asignarles código**, exactamente como el Anexo A.2 hace con las subcausas. El cliente
+cerró ese criterio el 11/09/2026 (**D-06**): mantenerlas como referencia y no crear códigos
+individuales.
+
+Las listas del documento viajan como **sugerencias** en `App\Support\TicketMeasurements` y
+alimentan un `<datalist>`; no son valores seleccionables ni códigos de catálogo.
+
+#### `value` es texto, no decimal
+
+Los ejemplos del § 13 mezclan los dos tipos en la misma frase: «PPPoE conectado; RSSI –76 dBm;
+CCQ 54 %; latencia 104 ms». Forzar `decimal` obligaría a partir la medición en dos tablas o a
+perder «PPPoE conectado», que es una medición tan válida como las otras. El requerimiento pide
+«resultado», no «valor numérico».
+
+#### Clave foránea compuesta, esta vez en los dos motores
+
+`(intervention_id, support_ticket_id)` → `ticket_intervention (id, support_ticket_id)`, con
+`ON DELETE RESTRICT`. Impide que una medición del ticket 10 cuelgue de una intervención del
+ticket 77.
+
+A diferencia de la del PR F1 sobre `support_ticket_attachment` —que sólo existe en PostgreSQL
+porque allí hubo que añadirla con `ALTER TABLE` a una tabla ya creada, cosa que SQLite no
+admite— **ésta funciona en ambos motores**: la tabla nace con ella.
+
+#### Sin `deleted_at`
+
+Por lo mismo que `ticket_intervention`, y con un motivo adicional: el § 15.5 convierte la
+medición final en **requisito de cierre**. Poder esconderla —aun blandamente— equivaldría a
+poder saltarse el requisito sin que constara. No hay endpoint de borrado y el modelo bloquea
+`deleting`.
+
+Corregir sí se puede, mientras el ticket no esté cerrado, y cada corrección deja
+`measurement_updated` en el historial con el valor anterior y el nuevo.
+
+### 4.15f La justificación de la medición final ausente
+
+Dos columnas nullable sobre `support_ticket`, añadidas por el PR F2:
+
+| Columna | Nota |
+|---|---|
+| `final_test_waiver_reason` | Código de la lista **cerrada** de `TicketMeasurements::razonesSinPruebaFinal()` |
+| `final_test_waiver_note` | La justificación en texto, obligatoria junto a la razón |
+
+El § 15.5 exige «prueba final **o** justificación de por qué no fue posible», y el § 13
+precisa cómo: «el usuario deberá **seleccionar una razón y escribir la justificación**».
+Nótese la conjunción — son dos campos, no uno.
+
+**Viven en `support_ticket` y no en `ticket_measurement`** porque describen la **ausencia** de
+una medición. Una fila en la tabla de mediciones que dijera «aquí no hay medición» sería una
+contradicción, y rompería la consulta que sostiene la regla: «¿existe alguna fila con
+`phase = final`?» pasaría a tener que distinguir filas reales de filas-marcador. Es el mismo
+criterio por el que `no_charge_reason` vive en el ticket.
+
+Nullable las dos: lo normal es cerrar **con** medición final. La regla que las exige vive en
+el controlador de cierre, no en un `NOT NULL` que habría roto todos los tickets ya cerrados.
+
+**La lista de razones la define el equipo, no el documento.** El § 13 pide «seleccionar» —es
+decir, lista cerrada— pero en ninguna sección la enumera. Se compuso con vocabulario que el
+documento ya usa (R14, R15, S09, § 7 y la familia NF del Anexo A.2), más `otro`, que el § 15.8
+exige que siempre pida explicación. Queda registrada como **D-16** para que el cliente la
+confirme.
+
 ### 4.15b Catálogos del ticket
 
 Siete tablas con un núcleo común: `code` (estable e **inmutable**), `label` (visible y
@@ -1071,8 +1441,71 @@ Sube en cada alta, retiro o reetiquetado.
 | `inventory_branch` | `name`, `dir`, `numero` varchar(30) — **texto, no entero** (ver nota abajo) |
 | `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `customer_id`, `status`, `serial`, `mac` |
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
-| `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `customer_id`, `notes`, `created_by`, `created_at` |
+| `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `support_ticket_id`, `customer_id`, `notes`, `created_by`, `created_at` |
 | `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+| `installation_planned_items` (2026-09-30) | `installation_id`, `stock_id` (nullable), **`label`** varchar(255), **`unit`** varchar(20), **`is_serialized`** bool, `quantity` numeric(12,2), `notes` varchar(255), `created_by`, `tenant_id` |
+| `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`reversed_at`**, `reversed_by`, `reversed_by_name`, `reversal_reason` |
+
+> **`installation_planned_items` es el PLAN, no el consumo** (migración
+> `2026_09_30_000001`). No pasa por el ledger, no descuenta ni reserva, y admite cantidades
+> mayores que el saldo. `label`, `unit` e `is_serialized` se copian del producto al crear la línea
+> y no se vuelven a tocar: renombrar o borrar el producto (`stock_id` → NULL) no cambia lo
+> planificado. Borrar la orden borra su plan (CASCADE), pero una orden con líneas en
+> `installation_equipment`, firmada o facturada ya no se puede borrar (P-69, bloqueo en
+> `CustomerInstallationController::destroy` y en el `deleting` del modelo). Las órdenes
+> anteriores conservan su texto libre en `customer_installations.equipment`; no se migraron al
+> plan porque ese texto no identifica productos con fiabilidad.
+
+> **`ticket_equipment` no es una copia de `installation_equipment`.** Existe aparte porque la
+> visita de soporte mueve inventario en **dos sentidos** y la instalación sólo en uno:
+>
+> - `direction = 'out'` → salió del inventario y quedó en casa del cliente.
+> - `direction = 'in'` → volvió de casa del cliente al inventario (el router viejo del cambio).
+>
+> `source_type`/`source_id` es el custodio interno del **otro extremo**: de dónde salió cuando
+> es `out`, a dónde volvió cuando es `in`. Sin eso, deshacer una línea no sabría a quién
+> devolverle la existencia. En un retiro admite además **`scrap`**, que no es un custodio sino
+> la baja: el equipo volvió quemado y no vuelve a circular (`inventory_device.status` pasa a
+> `retired` y el kardex escribe `baja`). Distinguirlo no es un matiz — un aparato muerto
+> devuelto a bodega cuenta como disponible.
+>
+> `unit_price` congela el precio del catálogo al momento de la visita —para que el ticket de
+> ayer no cambie de costo si mañana sube el router— y va **NULL en las líneas `in`**: un retiro
+> no se cobra, y dejar ahí un precio invitaría a arrastrarlo al cargo del ticket.
+>
+> **No lleva `unique` sobre `device_id`,** a diferencia de `installation_equipment`: un mismo
+> equipo entra y sale varias veces a lo largo de su vida y cada paso es una fila. El invariante
+> real —un equipo físico no está en dos casas a la vez— lo sostiene `inventory_device.status`,
+> que es una sola fila por aparato, y lo aplica `InventoryLedger`.
+
+> **Una línea de `ticket_equipment` no se borra nunca.** Deshacer un movimiento no lo borra: lo
+> **revierte**. `reversed_at` marca la línea, `reversed_by` + `reversed_by_name` congelan quién
+> y `reversal_reason` guarda el motivo, que es obligatorio. La fila **se queda y se sigue
+> mostrando** en la hoja del ticket, tachada.
+>
+> **No hay `deleted_at`, y no es un olvido.** `SoftDeletes` ocultaría la línea de toda consulta
+> por omisión, que es justo lo contrario de lo que se busca: un aparato que cambió de manos
+> tiene que constar en el expediente aunque el movimiento se deshiciera. Misma decisión que
+> `ticket_intervention` (§ 77). El modelo bloquea `deleting` con una excepción.
+>
+> `reversed_by` es **`SET NULL`**: dar de baja a un empleado no puede borrar el rastro de lo que
+> hizo, y por eso el nombre va congelado al lado.
+
+> **El invariante «un equipo no está en dos casas a la vez» NO vive en un `unique`.** Vive en
+> `inventory_device.status` + `customer_id`, que es **una fila por aparato**, y lo comprueban las
+> cuatro rutas del ledger que pueden dejar un equipo en un cliente: `transferDevice`,
+> `assignDeviceToInstallation`, `assignDeviceToTicket` y `reverseTicketLine`. El
+> `unique(device_id)` de `installation_equipment` decía algo más fuerte —«un equipo no aparece
+> en dos hojas **nunca**»— y se relajó a índice normal (`2026_09_23_000003`), porque la hoja
+> vieja se conserva como historia cuando el equipo se retira por un ticket. Ver P-55, resuelto.
+
+> **`installation_equipment.device_id` dejó de ser único el 2026-09-23.** La restricción decía
+> «un equipo no puede estar instalado en dos casas a la vez» pero la implementaba como «un
+> equipo no puede aparecer en dos hojas nunca». Mientras la única forma de devolver algo fue
+> borrar la línea de la hoja, las dos frases coincidían; con el retiro desde un ticket ya no.
+> El equipo se retira —y la hoja vieja se queda como historia, que es lo correcto— y al
+> reinstalarlo en otro cliente el INSERT chocaba contra el unique, dejando el aparato inservible
+> para el resto de su vida útil. Hoy es un índice normal (migración `2026_09_23_000003`).
 
 > **`inventory_branch.numero` es texto a propósito.** Nació como `integer` (int4, tope
 > 2.147.483.647) y **todo celular colombiano lo desborda**: 3001234567 es 3.001.234.567. La
@@ -1116,7 +1549,7 @@ Agregado permanente.
 
 | Tabla | Descripción |
 |---|---|
-| `expenses` | `expense_category_id`, `user_id` (beneficiario), `created_by`, `expense_date`, `amount`, `description`, `notes`, `status` (`activo`\|`anulado` — **no hay borrado físico**) |
+| `expenses` | `expense_category_id`, `user_id` (beneficiario), `created_by`, `inventory_movement_id` (**UK**, nullable — el movimiento que lo originó si lo creó el inventario), `expense_date`, `amount`, `description`, `notes`, `status` (`activo`\|`anulado` — **no hay borrado físico**) |
 | `expense_categories` | `name` por tenant |
 | `bulk_provision_runs` | **PK uuid**. `status`, `total`, `processed`, `success_count`, `fail_count`, `pppoe_skipped_count`, `results` (json), `finished_at` |
 | `audit_logs` | `user_id`, `action`, `model_type`, `model_id`, `old_values`/`new_values` (json), `ip_address`, `user_agent` |
@@ -1158,7 +1591,7 @@ Agregado permanente.
 | `customer_credits.to_invoice_id` | `invoices.id` | SET NULL |
 | `customer_documents.customer_id` | `users.id` | CASCADE |
 | `customer_profile.olt_id` | `sectorial.id` | SET NULL |
-| `customer_profile.router_id` | `router.id` | SET NULL |
+| `customer_profile.router_id` | `router.id` | **RESTRICT** en PostgreSQL desde `2026_10_05_120000` (KAN-55); SET NULL en SQLite. Para borrar un router con solo bajas, `RouterController::destroy(force)` las suelta antes en la misma transacción |
 | `customer_profile.sectorial_id` | `sectorial.id` | SET NULL |
 | `customer_profile.service_id` | `service_plan.id` | SET NULL |
 | `customer_profile.user_id` | `users.id` | CASCADE |
@@ -1182,10 +1615,20 @@ Agregado permanente.
 | `inventory_movements.device_id` | `inventory_device.id` | SET NULL |
 | `inventory_movements.stock_id` | `inventory_stock.id` | SET NULL |
 | `inventory_movements.installation_id` | `customer_installations.id` | SET NULL |
+| `inventory_movements.support_ticket_id` | `support_ticket.id` | SET NULL |
 | `inventory_movements.customer_id` / `created_by` | `users.id` | SET NULL |
 | `installation_equipment.installation_id` | `customer_installations.id` | CASCADE |
-| `installation_equipment.device_id` | `inventory_device.id` | SET NULL (**único**) |
+| `installation_equipment.device_id` | `inventory_device.id` | SET NULL (índice **no** único desde 2026-09-23) |
 | `installation_equipment.stock_id` | `inventory_stock.id` | SET NULL |
+| `installation_planned_items.installation_id` | `customer_installations.id` | CASCADE (el plan no mueve inventario) |
+| `installation_planned_items.stock_id` | `inventory_stock.id` | SET NULL (etiqueta y unidad congeladas) |
+| `installation_planned_items.tenant_id` | `tenant.id` | CASCADE |
+| `installation_planned_items.created_by` | `users.id` | SET NULL |
+| `ticket_equipment.ticket_id` | `support_ticket.id` | CASCADE |
+| `ticket_equipment.device_id` | `inventory_device.id` | SET NULL |
+| `ticket_equipment.stock_id` | `inventory_stock.id` | SET NULL |
+| `ticket_equipment.tenant_id` | `tenant.id` | CASCADE |
+| `ticket_equipment.created_by` | `users.id` | SET NULL |
 | `inventory_provider.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_stock.tenant_id` | `tenant.id` | SET NULL |
 | `invoice_carryovers.customer_id` | `users.id` | **SET NULL** (P-43) |
@@ -1201,6 +1644,7 @@ Agregado permanente.
 | `invoices.service_id` | `service_plan.id` | SET NULL |
 | `invoices.tenant_id` | `tenant.id` | NO ACTION |
 | `invoices.ticket_id` | `support_ticket.id` | SET NULL |
+| `invoices.voided_by` | `users.id` | SET NULL |
 | `ip_assignment.id_range` | `ip_range.id` | SET NULL |
 | `ip_assignment.router_id` | `router.id` | SET NULL |
 | `ip_range.tenant_id` | `tenant.id` | SET NULL |
@@ -1208,6 +1652,7 @@ Agregado permanente.
 | `payment_allocations.payment_id` | `payments.id` | CASCADE |
 | `payment_methods.tenant_id` | `tenant.id` | CASCADE |
 | `payments.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `payments.payment_method_id` | `payment_methods.id` | **SET NULL** (KAN-109) |
 | `payments.tenant_id` | `tenant.id` | NO ACTION |
 | `role.tenant_id` | `tenant.id` | CASCADE |
 | `router.billing_router_id` | `billing.id` | SET NULL |
@@ -1235,6 +1680,7 @@ Agregado permanente.
 | `staff_profile.user_id` | `users.id` | CASCADE |
 | `support_ticket.sectorial_id` | `sectorial.id` | SET NULL |
 | `support_ticket.staff_id` | `users.id` | SET NULL |
+| `support_ticket.archived_by` | `users.id` | SET NULL |
 | `support_ticket.tenant_id` | `tenant.id` | SET NULL |
 | `support_ticket.user_id` | `users.id` | SET NULL |
 | `support_ticket_attachment.ticket_id` | `support_ticket.id` | CASCADE |
@@ -1270,6 +1716,9 @@ Agregado permanente.
 | `unique_tenant_invoice_number` | `invoices` | `(tenant_id, number)` | Numeración segura ante concurrencia |
 | `bal_unique_per_period` | `billing_action_logs` | `(tenant_id, customer_id, period_start, action)` | Un solo registro de resultado por cliente/periodo |
 | `customer_profile_pppoe_username_router_unique` | `customer_profile` | **parcial**: `(router_id, pppoe_username)` `WHERE pppoe_username IS NOT NULL AND <> '' AND router_id IS NOT NULL` | Evita que RouterOS **sobrescriba en silencio** el secret de otro cliente |
+| `customer_profile_ip_user_router_unique` | `customer_profile` | **parcial**: `(router_id, ip_user)` `WHERE ip_user IS NOT NULL AND <> '' AND router_id IS NOT NULL` | Dos clientes del mismo router no comparten IP (KAN-118). Antes sólo lo validaba la aplicación; una carrera entre dos guardados podía duplicarla. La misma IP sí puede repetirse en otro router. La migración aborta listando los duplicados si los hay |
+| `inventory_device_tenant_serial_ci_unique` | `inventory_device` | **parcial y funcional**: `(tenant_id, LOWER(serial))` `WHERE serial IS NOT NULL AND <> ''` | `SN-001` y `sn-001` son el mismo equipo (KAN-100 · P-44). Funcional porque `=` distingue mayúsculas en PostgreSQL; parcial porque un rollo de cable no tiene serial |
+| `inventory_device_tenant_mac_ci_unique` | `inventory_device` | **parcial y funcional**: `(tenant_id, LOWER(mac))` `WHERE mac IS NOT NULL AND <> ''` | Igual que el anterior, para la MAC |
 | `router_name_tenant_id_unique` | `router` | `(name, tenant_id)` | |
 | `sectorial_name_tenant_id_unique` | `sectorial` | `(name, tenant_id)` | |
 | `service_plan_name_tenant_id_unique` | `service_plan` | `(name, tenant_id)` | |
@@ -1281,6 +1730,11 @@ Agregado permanente.
 
 > La unicidad de **IP por router** (`customer_profile.ip_user`) se valida **sólo en la
 > aplicación** (`CustomerProfileController`), no hay índice que la respalde.
+
+> **La migración de esos dos índices aborta si ya hay duplicados** (2026_09_21_000001). Es
+> deliberado: son equipos reales y decidir cuál fila se queda con el valor es una decisión de
+> inventario. Para verlos antes de migrar: `php artisan inventory:duplicate-identifiers`.
+
 
 ### Índices de rendimiento
 
@@ -1295,7 +1749,7 @@ Agregado permanente.
 | `expenses` | `expense_date`, `status`, `tenant_id`, `(tenant_id, expense_date)` |
 | `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, `(tenant_id, issue_date)`, **parcial** `due_date WHERE balance_due > 0` |
 | `payment_allocations` | `payment_id`, `invoice_id` |
-| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)` |
+| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)`, `payment_method_id` |
 | `user_services` | `(user_id, status)` |
 | `invoice_carryovers` | `(customer_id, status)`, `(tenant_id, status)`, `from_invoice_id`, `to_invoice_id` |
 | `invoice_types` | `tenant_id` |
@@ -1308,7 +1762,7 @@ Agregado permanente.
 | `sectorial` | `parent_id` |
 | `sectorial_history/note/photo` | `(sectorial_id, created_at)` |
 | `support_ticket` | `sectorial_id` |
-| `suspension_action_logs` | `action`, `next_retry_at`, `(customer_id, created_at)`, `(router_id, action)` |
+| `suspension_action_logs` | `action`, `outcome`, `next_retry_at`, `(customer_id, created_at)`, `(router_id, action)` |
 | `traffic_samples` | `(router_id, sampled_at)`, `sampled_at` |
 
 ---

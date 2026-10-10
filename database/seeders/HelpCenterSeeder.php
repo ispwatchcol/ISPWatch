@@ -10,29 +10,42 @@ use App\Models\HelpArticle;
 class HelpCenterSeeder extends Seeder
 {
     /**
-     * Reemplaza por completo el contenido del Centro de Ayuda.
+     * Siembra el contenido del Centro de Ayuda SIN borrar lo ajeno (P-12 / KAN-75).
      *
-     * Va en una transacción porque el primer paso es BORRARLO TODO: si el
-     * seeder se cortara a mitad (timeout, error de conexión), los usuarios
-     * verían un Centro de Ayuda vacío o a medias. Con la transacción es todo
-     * o nada — ante cualquier fallo queda el contenido anterior intacto.
+     * Antes empezaba con `HelpArticle::query()->delete()`: un reemplazo total.
+     * Cualquier artículo escrito desde el editor de superadmin se perdía al
+     * re-sembrar, sin aviso. Ahora es un upsert por clave estable:
      *
-     * OJO: sigue siendo un reemplazo total, no un upsert. Cualquier artículo
-     * escrito desde el editor de superadmin se pierde al re-sembrar
-     * (ver MEJORAS_RECOMENDADAS.md P-8).
+     *   - categoría por `name`;
+     *   - artículo por (`category_id`, `title`).
+     *
+     * Lo que este seeder define se crea o se pone al día. Lo que NO define
+     * (creado desde la UI) no se toca. Re-sembrar dos veces no duplica nada.
+     *
+     * Límite consciente: si se RENOMBRA un artículo aquí, el viejo queda, porque
+     * ya no se puede distinguir de uno creado a mano. Para retirar contenido en
+     * producción el camino es una migración de datos con huella, como
+     * 2026_10_01_100000, que respeta lo editado.
+     *
+     * Va en una transacción: ante cualquier fallo queda el contenido anterior.
      */
     public function run(): void
     {
         DB::transaction(function () {
-            HelpArticle::query()->delete();
-            HelpCategory::query()->delete();
-
             foreach ($this->getCategories() as $catData) {
                 $articles = $catData['articles'];
                 unset($catData['articles']);
-                $category = HelpCategory::create($catData);
+
+                $category = HelpCategory::updateOrCreate(
+                    ['name' => $catData['name']],
+                    $catData
+                );
+
                 foreach ($articles as $article) {
-                    HelpArticle::create(array_merge($article, ['category_id' => $category->id]));
+                    HelpArticle::updateOrCreate(
+                        ['category_id' => $category->id, 'title' => $article['title']],
+                        $article
+                    );
                 }
             }
         });
@@ -406,6 +419,10 @@ class HelpCenterSeeder extends Seeder
 
     private function getCategories(): array
     {
+        // Fuente única compartida con la migración que lleva estos
+        // artículos a producción.
+        $radius = require __DIR__ . '/content/radius_aaa_articles.php';
+
         return [
             // 1. PRIMEROS PASOS
             [
@@ -944,9 +961,13 @@ class HelpCenterSeeder extends Seeder
 
             // 5. ROUTERS Y RED
             [
-                'name' => 'Routers y Red',
-                'icon' => 'bi-router',
-                'display_order' => 5,
+                // Datos de la categoría desde la misma fuente que usa la
+                // migración, para que un entorno sembrado por cada camino no
+                // termine con dos versiones de la misma sección.
+                'name' => $radius['category']['name'],
+                'icon' => $radius['category']['icon'],
+                'description' => $radius['category']['description'],
+                'display_order' => $radius['category']['display_order'],
                 'articles' => [
                     [
                         'title' => 'Agregar un router MikroTik',
@@ -971,31 +992,16 @@ class HelpCenterSeeder extends Seeder
 <h3>Verificar conexión <span style="color:#6366f1">③</span></h3>
 <p>Después de guardar, comprueba que ISPWatch llega al equipo.</p>',
                     ],
-                    [
-                        'title' => 'El método de control del router',
-                        'display_order' => 2,
-                        'is_published' => true,
-                        'tips' => 'Sólo puede haber UN método de control activo por router. IP Bindings y Amarre son adicionales: se suman al método elegido.',
-                        'content' => '<h2>Cómo controla el router a sus clientes</h2>
-<p>En la ficha del router eliges el método. <strong>Sólo puede haber uno activo:</strong></p>
-<ul>
-  <li><strong>Simple Queue</strong>: control de velocidad por IP. El más común.</li>
-  <li><strong>PCQ</strong>: reparto equitativo de ancho de banda.</li>
-  <li><strong>HotSpot</strong>: clientes que entran con usuario y contraseña en un portal.</li>
-  <li><strong>PPPoE</strong>: clientes con usuario y contraseña de conexión.</li>
-  <li><strong>DHCP Leases</strong>: asignación fija por dirección MAC.</li>
-</ul>
-<h3>Opciones adicionales</h3>
-<p>Estas dos <strong>se suman</strong> al método elegido, no lo reemplazan:</p>
-<ul>
-  <li><strong>IP Bindings</strong>: fija la relación IP–equipo.</li>
-  <li><strong>Amarre</strong>: bloquea al cliente si cambia de equipo.</li>
-</ul>
-<p>El método elegido determina qué credenciales te pide el formulario del cliente: usuario y contraseña PPPoE, usuario y contraseña HotSpot, o la dirección MAC.</p>',
-                    ],
+                    // El artículo del método de control y el de RADIUS (AAA)
+                    // viven en content/radius_aaa_articles.php, compartidos con
+                    // la migración 2026_09_22_100000 que los lleva a producción.
+                    // El primero ya existía aquí en línea y listaba sólo cinco
+                    // métodos: RADIUS quedó fuera del manual durante un mes.
+                    $radius['control_mode_article'],
+                    ...$radius['articles'],
                     [
                         'title' => 'Herramientas de diagnóstico',
-                        'display_order' => 3,
+                        'display_order' => 4,
                         'is_published' => true,
                         'tips' => 'Antes de estrenar el corte automático en un router nuevo: verifica la VPN y aplica las reglas de bloqueo. Si no, el primer día de corte marcará a todos como cortados y ninguno lo estará.',
                         'content' => '<h2>Los botones de la ficha del router</h2>
@@ -1015,7 +1021,7 @@ class HelpCenterSeeder extends Seeder
                     ],
                     [
                         'title' => 'La VPN: cómo llega ISPWatch a tus equipos',
-                        'display_order' => 4,
+                        'display_order' => 5,
                         'is_published' => true,
                         'tips' => 'Si el túnel se cae, ISPWatch se queda ciego con ese router: sigue facturando y marcando cortes en pantalla, pero ninguna orden llega al equipo.',
                         'content' => '<h2>Por qué aparece tanto la palabra VPN</h2>
@@ -1037,7 +1043,7 @@ class HelpCenterSeeder extends Seeder
                     ],
                     [
                         'title' => 'Falla masiva',
-                        'display_order' => 5,
+                        'display_order' => 6,
                         'is_published' => true,
                         'tips' => 'ISPWatch NO envía los mensajes de WhatsApp: deja el aviso registrado para que el sistema de mensajería conectado lo difunda. Confirma con tu proveedor que esa conexión existe.',
                         'content' => '<h2>Reportar una caída que afecta a muchos clientes</h2>
@@ -1052,7 +1058,7 @@ class HelpCenterSeeder extends Seeder
                     ],
                     [
                         'title' => 'Historial de tráfico',
-                        'display_order' => 6,
+                        'display_order' => 7,
                         'is_published' => true,
                         'tips' => 'Empieza a medir desde que lo activas. No hay historial de antes: si acabas de prenderlo, la gráfica sale vacía hasta la siguiente medición.',
                         'content' => '<h2>Medir el tráfico de un router</h2>
@@ -1067,7 +1073,7 @@ class HelpCenterSeeder extends Seeder
                     ],
                     [
                         'title' => 'Planes de internet',
-                        'display_order' => 7,
+                        'display_order' => 8,
                         'is_published' => true,
                         'tips' => 'Configurar la primera factura en el plan ahorra hacerlo cliente por cliente: todo el que lo contrate hereda la promoción.',
                         'content' => '<h2>Planes de internet</h2>
@@ -1087,7 +1093,7 @@ class HelpCenterSeeder extends Seeder
                     ],
                     [
                         'title' => 'Sectoriales y fibra óptica',
-                        'display_order' => 8,
+                        'display_order' => 9,
                         'is_published' => true,
                         'tips' => 'Los puertos ocupados nunca se editan: si el número no cuadra, lo que está mal es lo que cuelga de ese elemento, no el contador.',
                         'content' => '<h2>Los elementos físicos de tu red</h2>

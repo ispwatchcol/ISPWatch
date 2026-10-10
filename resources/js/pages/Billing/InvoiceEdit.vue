@@ -22,12 +22,27 @@ const form = ref({
     notes: '',
 })
 
+/**
+ * Los estados que esta pantalla puede poner.
+ *
+ * Dos cambios respecto a la lista anterior, y los dos son correcciones:
+ *
+ *   · **`pending` no existe.** El CHECK de `invoices.status` admite draft,
+ *     issued, paid, partial, void, overdue y cancelled. Elegir «Pendiente de
+ *     pago» mandaba un valor que PostgreSQL rechaza con un 23514 — y que SQLite
+ *     aceptaba, así que los tests no lo veían. Se sustituye por `partial`, que
+ *     es el estado real de una factura abonada a medias.
+ *
+ *   · **`cancelled` se retira.** Anular una factura dejó de ser un caso
+ *     particular de «editar el estado»: tiene su propio botón, su permiso
+ *     (`invoice_void`), motivo obligatorio y auditoría. El backend ya no lo
+ *     acepta por aquí.
+ */
 const statusOptions = [
-    { value: 'issued',    label: 'Emitida' },
-    { value: 'pending',   label: 'Pendiente de pago' },
-    { value: 'paid',      label: 'Pagado' },
-    { value: 'overdue',   label: 'Vencida' },
-    { value: 'cancelled', label: 'Cancelada' },
+    { value: 'issued',  label: 'Emitida' },
+    { value: 'partial', label: 'Abonada parcialmente' },
+    { value: 'paid',    label: 'Pagada' },
+    { value: 'overdue', label: 'Vencida' },
 ]
 
 const fetchInvoice = async () => {

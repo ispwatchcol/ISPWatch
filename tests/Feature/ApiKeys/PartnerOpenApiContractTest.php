@@ -4,6 +4,7 @@ namespace Tests\Feature\ApiKeys;
 
 use App\Http\Controllers\Api\Partner\PartnerMetaController;
 use App\Models\ApiClient;
+use App\Models\PartnerEvent;
 use App\Models\Tenant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
@@ -138,6 +139,22 @@ class PartnerOpenApiContractTest extends TestCase
                 . 'permiso equivocado y recibiría 403 sin entender por qué.'
             );
         }
+    }
+
+    #[Test]
+    public function el_contrato_declara_exactamente_los_tipos_de_evento_que_emite_el_codigo(): void
+    {
+        // Un tipo nuevo que no está en el enum hace fallar al integrador que
+        // valida respuestas contra el esquema; uno que está en el enum y el
+        // código ya no emite le hace esperar un aviso que nunca llega.
+        $yaml = str_replace("\r\n", "\n", file_get_contents(base_path(PartnerMetaController::SPEC_PATH)));
+
+        $this->assertMatchesRegularExpression('/^    EventType:\n/m', $yaml, 'Falta el esquema EventType.');
+        preg_match('/^    EventType:\n(.*?)(?=^    \S)/ms', $yaml, $bloque);
+        preg_match_all('/^        - ([A-Z_]+)\s*$/m', $bloque[1], $tipos);
+
+        $this->assertEqualsCanonicalizing(PartnerEvent::TYPES, $tipos[1],
+            'El enum EventType del contrato no coincide con PartnerEvent::TYPES.');
     }
 
     #[Test]

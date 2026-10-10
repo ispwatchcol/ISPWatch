@@ -131,7 +131,7 @@
                       <v-icon name="fa-edit" class="w-4 h-4" />
                     </button>
                     <button
-                      v-if="can('view_inventory')"
+                      v-if="can('delete_inventory')"
                       @click="confirmDelete(item)"
                       class="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-all hover:scale-110"
                       title="Eliminar"
@@ -197,7 +197,7 @@
                 Editar
               </button>
               <button
-                v-if="can('view_inventory')"
+                v-if="can('delete_inventory')"
                 @click="confirmDelete(item)"
                 class="py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg
                        transition-colors text-sm font-medium flex items-center justify-center gap-1"

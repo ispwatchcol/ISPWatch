@@ -221,7 +221,10 @@ const tenantTimezone = ref("America/Bogota");
 const supportItems = computed(() => {
     const items = [];
 
-    if (authStore.hasPermission('view_support')) {
+    // PR B · Cada entrada por su capacidad. «Instalaciones» sigue con
+    // `view_support` a propósito: ese permiso gobierna también instalaciones,
+    // sectoriales e inventario, y no forma parte de esta separación.
+    if (authStore.hasPermission('ticket_view')) {
         items.push({
             name: 'Tickets',
             to: '/support',
@@ -229,7 +232,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (authStore.hasPermission('view_support')) {
+    if (authStore.hasPermission('ticket_create')) {
         items.push({
             name: 'Nuevo Ticket',
             to: '/support/create',
@@ -245,7 +248,7 @@ const supportItems = computed(() => {
         });
     }
 
-    if (authStore.hasPermission('view_support')) {
+    if (authStore.hasPermission('ticket_export')) {
         items.push({
             name: 'Estadísticas',
             to: '/support/statistics',

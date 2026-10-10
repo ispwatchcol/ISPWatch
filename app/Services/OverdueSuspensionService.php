@@ -232,7 +232,10 @@ class OverdueSuspensionService
             // (avoids false positives in the gap right after cut_time).
             $cutTime = $billingConfig->cut_time ?? '00:00:00';
             [$h, $m, $s] = array_pad(explode(':', $cutTime), 3, 0);
-            $cutMoment = $now->copy()->setTime((int) $h, (int) $m, (int) $s);
+            // Sobre el DÍA de corte, no sobre hoy: con la hora de hoy, este
+            // audit (07:00) daba «pendiente» todos los días a un router que
+            // corta después de las 06:00 y nunca alertaba (§ 89).
+            $cutMoment = $now->copy()->setDay(min($cutDay, $now->day))->setTime((int) $h, (int) $m, (int) $s);
             $due = $now->day >= $cutDay && $now->gte($cutMoment->copy()->addHour());
 
             if (!$due) {
@@ -400,6 +403,168 @@ class OverdueSuspensionService
     }
 
     /**
+     * Minutos que una fila UNSUSPEND puede quedarse en `pending` antes de leerla
+     * como abandonada. `pending` es también el estado de un intento EN CURSO
+     * (openLogFor la deja así antes de escribir en la RB), y reintentar encima de
+     * ése es la carrera sobre la misma lista que produce falsos positivos.
+     */
+    public const RECONNECT_PENDING_STALE_MINUTES = 15;
+
+    /**
+     * El espejo de reconcileSuspensions(): vuelve a abrir en la RB a los clientes
+     * que la BD da por ACTIVOS (status = true) pero cuya última reconexión no
+     * quedó confirmada en el equipo (P-29).
+     *
+     * Existe porque reactivateIfCleared() corrige la BD aunque el router no
+     * confirme —dejarla en false haría que el otro reconciliador re-cortara a
+     * quien ya pagó—, y eso deja al cliente activo en el panel y bloqueado en el
+     * equipo. Hasta ahora sólo lo delataban el log UNSUSPEND/failed y el aviso
+     * rojo del cajero: los dos dependen de que alguien mire.
+     *
+     * Candidato = la ÚLTIMA fila del cliente en suspension_action_logs (de
+     * cualquier acción) es un UNSUSPEND sin éxito. Si después hubo un SUSPEND,
+     * el cliente se volvió a cortar y reconectarlo sería deshacer ese corte.
+     *
+     * El intento reutiliza BillingService::attemptReconnection(): mismo preflight,
+     * mismo candado por cliente que el pago y el reintento manual, y el desenlace
+     * queda estampado en la fila, así que la alerta de la ficha se apaga sola
+     * cuando el equipo por fin confirma.
+     *
+     * @param int|null $routerId  Sólo un router (null = todos)
+     * @param bool $dryRun  Sólo informa, nunca toca la RB
+     * @param bool $force   Ignora backoff y agotados (nunca el intento en curso)
+     * @param int|null $tenantId  Sólo un tenant (null = todos; lo usa el planificador)
+     * @return array  [scanned, reconnected_ok, reconnect_failed, skipped_*, would_reconnect]
+     */
+    public function reconcileReconnections(?int $routerId = null, bool $dryRun = false, bool $force = false, ?int $tenantId = null): array
+    {
+        $stats = [
+            'scanned'            => 0,
+            'reconnected_ok'     => 0,
+            'reconnect_failed'   => 0,
+            'skipped_superseded' => 0, // hubo un movimiento posterior (p. ej. un nuevo corte)
+            'skipped_not_active' => 0, // service_status dice baja o suspendido
+            'skipped_backoff'    => 0,
+            'skipped_exhausted'  => 0,
+            'skipped_in_flight'  => 0,
+            'skipped_external'   => 0, // router gestionado por un AAA externo
+            'would_reconnect'    => 0, // dry-run only
+        ];
+
+        // Sólo clientes con alguna reconexión sin cerrar: barrer toda la cartera
+        // activa para descartar casi todo sería una consulta por cliente y hora.
+        $openUnsuspends = SuspensionActionLog::where('action', SuspensionActionLog::ACTION_UNSUSPEND)
+            ->whereIn('status', [SuspensionActionLog::STATUS_FAILED, SuspensionActionLog::STATUS_PENDING])
+            ->select('customer_id');
+
+        $query = CustomerProfile::where('status', true)
+            ->whereNotNull('router_id')
+            ->whereIn('user_id', $openUnsuspends);
+
+        if ($routerId !== null) {
+            $query->where('router_id', $routerId);
+        }
+
+        if ($tenantId !== null) {
+            $query->whereHas('user', fn($q) => $q->where('tenant_id', $tenantId));
+        }
+
+        $profiles = $query->get();
+
+        Log::info("Reconcile reconnections: scanning {$profiles->count()} active customer(s) with an open UNSUSPEND"
+            . ($routerId ? " (router #{$routerId})" : '')
+            . ($dryRun ? ' [dry-run]' : ''));
+
+        $externallyManaged = Router::withoutGlobalScopes()
+            ->where('radius', true)
+            ->pluck('id')
+            ->flip();
+
+        $staleBefore = now()->subMinutes(self::RECONNECT_PENDING_STALE_MINUTES);
+
+        foreach ($profiles as $profile) {
+            $stats['scanned']++;
+
+            // En AAA externo ISPWatch ordena y no ejecuta: unsuspendCustomer()
+            // devuelve éxito delegado sin tocar nada, y contarlo como reconexión
+            // sería el mismo falso positivo que evita el reconciliador de cortes.
+            if ($externallyManaged->has((int) $profile->router_id)) {
+                $stats['skipped_external']++;
+                continue;
+            }
+
+            $latest = SuspensionActionLog::where('customer_id', $profile->user_id)
+                ->latest('id')
+                ->first();
+
+            if (!$latest
+                || $latest->action !== SuspensionActionLog::ACTION_UNSUSPEND
+                || $latest->status === SuspensionActionLog::STATUS_SUCCESS
+            ) {
+                $stats['skipped_superseded']++;
+                continue;
+            }
+
+            // status = true pero service_status dice baja o suspendido: la ficha
+            // se contradice, y reabrir el equipo sobre una contradicción es
+            // decidir por el operador. Se queda visible en Acciones masivas.
+            $serviceStatus = (string) $profile->service_status;
+            if ($serviceStatus === 'suspendido'
+                || ($serviceStatus !== '' && !in_array($serviceStatus, CustomerProfile::BILLABLE_SERVICE_STATUSES, true))
+            ) {
+                $stats['skipped_not_active']++;
+                continue;
+            }
+
+            if ($latest->status === SuspensionActionLog::STATUS_PENDING
+                && $latest->updated_at
+                && $latest->updated_at->greaterThan($staleBefore)
+            ) {
+                $stats['skipped_in_flight']++;
+                continue;
+            }
+
+            if (!$force && $latest->isExhausted()) {
+                $stats['skipped_exhausted']++;
+                continue;
+            }
+
+            if (!$force
+                && $latest->status === SuspensionActionLog::STATUS_FAILED
+                && $latest->next_retry_at
+                && $latest->next_retry_at->isFuture()
+            ) {
+                $stats['skipped_backoff']++;
+                continue;
+            }
+
+            if ($dryRun) {
+                $stats['would_reconnect']++;
+                continue;
+            }
+
+            try {
+                $outcome = $this->billingService->attemptReconnection($profile, ['source' => 'reconcile']);
+
+                if ($outcome === \App\Support\ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE) {
+                    $stats['reconnected_ok']++;
+                    Log::info("Reconcile reconnections: customer {$profile->user_id} reconnected on router {$profile->router_id}.");
+                } else {
+                    $stats['reconnect_failed']++;
+                    Log::warning("Reconcile reconnections: customer {$profile->user_id} still pending on router {$profile->router_id}. outcome={$outcome}");
+                }
+            } catch (\Throwable $e) {
+                $stats['reconnect_failed']++;
+                Log::error("Reconcile reconnections: exception reconnecting customer {$profile->user_id}: {$e->getMessage()}");
+            }
+        }
+
+        Log::info('Reconcile reconnections: complete.', $stats);
+
+        return $stats;
+    }
+
+    /**
      * Get all customer profiles on the given router that have enough overdue invoices
      * to qualify for suspension.
      *
@@ -417,9 +582,16 @@ class OverdueSuspensionService
         // comparing to the string 'active' throws on PostgreSQL.
         // exclude_from_billing: clientes "no facturar" quedan fuera del corte
         // automático por mora (facturación manual / clientes especiales).
+        // Bajas definitivas fuera aunque tengan status=true (datos anteriores a
+        // service_status, KAN-117): cortarlas las pasaría a 'suspendido', o sea
+        // las revive como clientes en mora. Vacío/null cuenta como 'activo',
+        // igual que hasBillableServiceStatus().
         $profiles = CustomerProfile::where('router_id', $router->id)
             ->where('status', true)
             ->where('exclude_from_billing', false)
+            ->where(fn ($q) => $q->whereNull('service_status')
+                ->orWhere('service_status', '')
+                ->orWhereIn('service_status', CustomerProfile::BILLABLE_SERVICE_STATUSES))
             ->get();
 
         return $profiles->filter(function (CustomerProfile $profile) use ($maxOverdue) {

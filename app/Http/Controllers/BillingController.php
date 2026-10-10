@@ -15,7 +15,9 @@ use App\Services\Templates\TemplateRenderer;
 use App\Traits\ExportsCsv;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class BillingController extends Controller
 {
@@ -262,7 +264,9 @@ class BillingController extends Controller
                     // la columna cuando el cliente ya no existe (P-43).
                     $payment->customerDisplayName(),
                     $this->csvMoney($payment->amount),
-                    $payment->method,
+                    // Nombre vigente del catálogo: el reporte tiene que cuadrar
+                    // con el filtro, que va por id (KAN-109).
+                    $payment->methodLabel(),
                     $payment->reference ?? '',
                     $quien,
                     $facturas !== '' ? $facturas : 'Saldo a favor',
@@ -281,6 +285,10 @@ class BillingController extends Controller
                 // qué factura se fue el que ella dejó pendiente.
                 'carryoversIn.fromInvoice:id,number',
                 'carryoversOut.toInvoice:id,number',
+                // Quién anuló, para que el aviso del detalle pueda nombrarlo.
+                // Sólo el nombre: la pantalla no necesita más y el correo del
+                // operador no tiene por qué viajar en la respuesta.
+                'voider:id,user_name,user_lastname',
             ])->findOrFail($id)
         );
     }
@@ -392,8 +400,25 @@ class BillingController extends Controller
     {
         $invoice = Invoice::findOrFail($id);
 
+        // Una factura anulada es de SÓLO LECTURA. Es el registro contable de
+        // algo que dejó de tener efecto; editarle el importe o las fechas
+        // después reescribiría el pasado.
+        if ($respuesta = $this->rechazarSiEstaAnulada($invoice, 'editarse')) {
+            return $respuesta;
+        }
+
         $data = $request->validate([
-            'status'       => 'sometimes|in:issued,pending,paid,overdue,cancelled',
+            // `cancelled` YA NO SE ACEPTA AQUÍ, y `pending` nunca fue un estado
+            // válido: el CHECK de `invoices.status` admite draft, issued, paid,
+            // partial, void, overdue y cancelled, así que mandar `pending`
+            // reventaba con un 23514 en PostgreSQL y pasaba en SQLite.
+            //
+            // Anular tenía que dejar de ser un caso particular de «editar». Con
+            // esta ruta bastaba `view_billing` —un permiso de LECTURA— para
+            // sacar una factura de las cuentas, sin motivo, sin confirmación y
+            // sin una línea en `audit_logs`. Ahora se hace por
+            // `POST /billing/invoices/{id}/void`, que exige `invoice_void`.
+            'status'       => 'sometimes|in:issued,paid,partial,overdue',
             'issue_date'   => 'sometimes|date',
             'due_date'     => 'sometimes|date',
             'period_start' => 'sometimes|nullable|date',
@@ -411,6 +436,11 @@ class BillingController extends Controller
     public function markUnpaid($id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        if ($respuesta = $this->rechazarSiEstaAnulada($invoice, 'marcarse como no pagada')) {
+            return $respuesta;
+        }
+
         $invoice = $this->billingService->markInvoiceUnpaid($invoice);
 
         return response()->json($invoice);
@@ -420,6 +450,29 @@ class BillingController extends Controller
     public function destroy($id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        // EL BORRADO FÍSICO QUEDA PARA LOS BORRADORES SIN ESTRENAR, y nada más.
+        //
+        // Una factura emitida, pagada, parcial, vencida o ligada a un ticket es
+        // un documento con valor contable: tiene número consecutivo, importes
+        // que cuadran contra la caja y, si viene de un ticket, es el respaldo
+        // del cobro de esa visita. Destruirla rompe la trazabilidad por un sitio
+        // que nadie mira hasta que alguien reclama.
+        //
+        // Se responde 422 y no 403 a propósito: no es que al usuario le falte un
+        // permiso —lo tiene—, es que la operación no procede para esta factura.
+        // El mensaje dice cuál es el camino correcto.
+        //
+        // Esto se comprueba en el SERVIDOR, no sólo ocultando el botón: la
+        // pantalla ya no lo ofrece, pero un `curl` con el permiso llegaba igual.
+        if ($motivo = $invoice->porQueNoSePuedeBorrar()) {
+            return response()->json([
+                'message'   => $motivo,
+                'error'     => 'invoice_deletion_blocked',
+                'status'    => $invoice->status,
+                'ticket_id' => $invoice->ticket_id,
+            ], 422);
+        }
 
         // Auditoría ANTES de borrar: después la fila ya no existe y se perdería
         // el importe, el periodo y el cliente. Borrar una factura además deja
@@ -441,10 +494,133 @@ class BillingController extends Controller
         return response()->json(['message' => 'Factura eliminada correctamente.']);
     }
 
+    /**
+     * 422 uniforme cuando alguien intenta escribir sobre una factura anulada.
+     *
+     * Devuelve `null` si la factura está viva, para poder usarlo como guardia
+     * al principio de cada método: `if ($r = $this->rechazarSiEstaAnulada(...))
+     * return $r;`.
+     */
+    private function rechazarSiEstaAnulada(Invoice $invoice, string $accion)
+    {
+        if (!$invoice->estaAnulada()) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => "La factura {$invoice->number} está anulada y no puede {$accion}. "
+                . 'Una factura anulada es de sólo lectura: se conserva como registro contable.',
+            'error'   => 'invoice_is_void',
+            'status'  => $invoice->status,
+        ], 422);
+    }
+
+    /**
+     * ANULA una factura. Reemplaza al borrado para todo lo que no sea un
+     * borrador sin estrenar.
+     *
+     * POR QUÉ ESTE ENDPOINT EXISTE
+     *
+     * Anular ya se podía: bastaba un `PUT /billing/invoices/{id}` con
+     * `status: cancelled`, detrás de `view_billing` — un permiso de LECTURA.
+     * Sin motivo, sin confirmación y sin una línea en `audit_logs`. El aviso del
+     * modal de borrado incluso lo recomendaba («edítala y ponla en Cancelada»).
+     *
+     * Ahora es una operación con nombre propio: permiso propio, motivo
+     * obligatorio, auditoría y un efecto sobre el dinero que está escrito en un
+     * solo sitio (`BillingService::voidInvoice`).
+     *
+     * QUÉ CONSERVA: número, subtotal, impuesto, total, titular congelado,
+     * ítems, fechas y el vínculo con el ticket. Lo único que cambia es el
+     * estado, el saldo —a cero, que es lo que la saca de la cobranza— y el trío
+     * de anulación.
+     */
+    public function voidInvoice(Request $request, $id)
+    {
+        $invoice = Invoice::findOrFail($id);
+
+        if ($invoice->estaAnulada()) {
+            return response()->json([
+                'message' => "La factura {$invoice->number} ya estaba anulada.",
+                'error'   => 'invoice_already_void',
+                'status'  => $invoice->status,
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'reason' => 'required|string|min:10|max:500',
+        ], [
+            'reason.required' => 'El motivo de la anulación es obligatorio.',
+            'reason.min'      => 'El motivo debe explicar la decisión: mínimo 10 caracteres.',
+            'reason.max'      => 'El motivo no puede pasar de 500 caracteres.',
+        ]);
+
+        $estadoAnterior = $invoice->status;
+        $correlacion    = (string) Str::uuid();
+
+        // La auditoría va ANTES y FUERA de la transacción del servicio, por lo
+        // mismo que en la eliminación de clientes: si la anulación falla a mitad
+        // de camino, el intento tiene que quedar registrado igualmente. Un
+        // intento fallido de sacar una factura de las cuentas es justo lo que
+        // hay que poder revisar después.
+        \App\Models\AuditLog::log([
+            'tenant_id'   => $invoice->tenant_id,
+            'action'      => 'invoice.voided',
+            'model_type'  => Invoice::class,
+            'model_id'    => $invoice->id,
+            'old_values'  => $invoice->only([
+                'number', 'customer_id', 'customer_name', 'ticket_id',
+                'total', 'balance_due', 'status', 'issue_date',
+                'period_start', 'period_end', 'invoice_type',
+            ]),
+            'new_values'  => [
+                'status'         => Invoice::STATUS_VOID,
+                'balance_due'    => 0,
+                'reason'         => $data['reason'],
+                'correlation_id' => $correlacion,
+            ],
+            'description' => "Factura {$invoice->number} anulada"
+                . ($invoice->ticket_id ? " (cargo del ticket #{$invoice->ticket_id})" : '')
+                . ": {$data['reason']}",
+        ]);
+
+        try {
+            $anulada = $this->billingService->voidInvoice(
+                $invoice,
+                $data['reason'],
+                $request->user()?->id,
+            );
+        } catch (\Throwable $e) {
+            \Log::error('Error al anular la factura: ' . $e->getMessage(), [
+                'invoice_id'     => $invoice->id,
+                'correlation_id' => $correlacion,
+                'exception'      => get_class($e),
+            ]);
+
+            return response()->json([
+                'message'        => 'No se pudo anular la factura: ' . $e->getMessage(),
+                'correlation_id' => $correlacion,
+            ], 500);
+        }
+
+        return response()->json([
+            'message'        => "Factura {$anulada->number} anulada. "
+                . 'Se conserva el número, los importes y el histórico. 🧾',
+            'invoice'        => $anulada,
+            'previous_status' => $estadoAnterior,
+            'correlation_id' => $correlacion,
+        ]);
+    }
+
     // Add Items
     public function addItems(Request $request, $id)
     {
         $invoice = Invoice::findOrFail($id);
+
+        if ($respuesta = $this->rechazarSiEstaAnulada($invoice, 'recibir ítems nuevos')) {
+            return $respuesta;
+        }
+
         $request->validate([
             'description' => 'required',
             'amount' => 'required|numeric',
@@ -472,10 +648,18 @@ class BillingController extends Controller
     public function registerPayment(Request $request)
     {
         $request->validate([
-            'customer_id' => 'required|exists:users,id',
+            // KAN-110: acotado al tenant de la sesion. Con `exists:users,id` a
+            // secas, un `customer_id` de otro ISP pasaba la validacion y el pago
+            // se creaba a nombre de un cliente ajeno.
+            'customer_id' => ['required', 'integer', $this->tenantCustomerRule($request)],
             'amount' => 'required|numeric|min:0.01',
             'payment_date' => 'required|date',
-            'method' => 'required',
+            // Forma de pago del catálogo por id (KAN-109). `method` como texto
+            // sigue valiendo para los clientes que aún no mandan el id.
+            'payment_method_id' => ['nullable', 'integer', $this->tenantPaymentMethodRule($request)],
+            'method' => 'required_without:payment_method_id|nullable|string|max:255',
+        ], [
+            'customer_id.exists' => 'El cliente no pertenece a este operador.',
         ]);
 
         // Stamp the staff user who registered the payment (from the auth token,
@@ -483,27 +667,141 @@ class BillingController extends Controller
         $data = $request->all();
         $data['created_by'] = $request->user()?->id;
 
+        // KAN-110 · EL TENANT SALE DE LA SESION, NUNCA DEL CUERPO.
+        //
+        // `$request->all()` arrastra el `tenant_id` que mande el cliente, y el
+        // hook `creating` de BelongsToTenant no lo corrige: solo rellena cuando
+        // viene vacio, y aqui venia lleno. Resultado: un usuario con
+        // `view_billing` podia crear un pago en otro ISP con solo cambiar ese
+        // campo del cuerpo.
+        //
+        // Se sella, no se rechaza. `RegisterPayment.vue` SI manda `tenant_id`
+        // —lo toma de la sesion, asi que siempre coincide—, y devolver 422 por
+        // un valor que el propio frontend envia romperia el contrato de las
+        // peticiones legitimas. Sobrescribirlo deja el pago siempre en el tenant
+        // correcto y no rompe a nadie.
+        $data['tenant_id'] = $this->sellarTenant($request, $data['tenant_id'] ?? null);
+
+        // Ata el pago con su intento de reconexión y con las dos entradas que
+        // dejan en audit_logs, para poder reconstruir el caso entero después.
+        $correlacion = (string) Str::uuid();
+        $data['correlation_id'] = $correlacion;
+        $data['source']         = 'payment';
+
         try {
             $payment = $this->billingService->registerPayment($data);
+        } catch (\InvalidArgumentException $e) {
+            // Forma de pago de otro tenant que se coló por un tenant_id del
+            // cuerpo distinto al de la sesión: es un dato inválido, no un fallo.
+            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\Throwable $e) {
             \Log::error('Error al registrar pago: ' . $e->getMessage(), [
-                'customer_id' => $data['customer_id'] ?? null,
-                'amount'      => $data['amount'] ?? null,
-                'exception'   => get_class($e),
+                'customer_id'    => $data['customer_id'] ?? null,
+                'amount'         => $data['amount'] ?? null,
+                'correlation_id' => $correlacion,
+                'exception'      => get_class($e),
             ]);
             return response()->json([
-                'message' => 'No se pudo registrar el pago: ' . $e->getMessage(),
+                'message'        => 'No se pudo registrar el pago: ' . $e->getMessage(),
+                'correlation_id' => $correlacion,
             ], 500);
         }
 
         // `reactivation` sale del servicio (no es una columna): le dice al cajero
-        // si el cliente estaba cortado y si quedó reconectado. Se agrega como
-        // clave suelta del JSON para no tocar la forma que ya consume el front
-        // (allocations, creator, …).
+        // si el cliente estaba cortado y CÓMO terminó la reconexión. Se agrega
+        // como clave suelta del JSON para no tocar la forma que ya consume el
+        // front (allocations, creator, …).
+        //
+        // El pago ya está guardado y no se revierte pase lo que pase con el
+        // equipo: por eso sigue siendo 201, y el problema del router viaja
+        // dentro del cuerpo en lugar de convertirse en un error HTTP que haría
+        // creer al cajero que el pago no entró.
         $body = $payment->load(['allocations', 'creator:id,name,user_name,user_lastname'])->toArray();
-        $body['reactivation'] = $payment->reactivation;
+        $body['reactivation']   = $payment->reactivation;
+        $body['correlation_id'] = $correlacion;
+
+        // El botón de reintento sólo existe para quien puede ejecutarlo. Se
+        // decide en el servidor: que el front lo esconda no es una protección.
+        $body['reactivation']['can_retry'] = ($payment->reactivation['pending'] ?? false)
+            && (bool) $request->user()?->hasPermission(Permissions::EXECUTE_MASS_ACTIONS);
 
         return response()->json($body, 201);
+    }
+
+    /**
+     * Reintento manual de la reconexión de UN cliente.
+     *
+     * Existe aparte del reintento de `suspension-logs/{id}` porque el caso que
+     * motivó todo esto —cliente sin router asignado— no tiene fila con equipo
+     * que reintentar: el operador arregla la ficha y quiere reintentar por
+     * CLIENTE, no por log.
+     *
+     * Protegido por `execute_mass_actions`, que es el permiso con el que ya se
+     * operan los cortes y reconexiones fallidas. Registrar pagos NO alcanza:
+     * cobrar en el mostrador y escribir en un RouterBoard son atribuciones
+     * distintas.
+     */
+    public function retryReconnection(Request $request, int $customerId)
+    {
+        $tenantId = $request->user()?->tenant_id;
+
+        // Aislamiento por sede: un operador sólo reintenta sobre clientes de su
+        // tenant. Se resuelve contra users, que es donde vive el tenant_id del
+        // cliente, y un cliente de otra sede es indistinguible de uno que no
+        // existe.
+        $customer = \App\Models\User::where('id', $customerId)
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+            ->firstOrFail();
+
+        $profile = \App\Models\CustomerProfile::where('user_id', $customer->id)->firstOrFail();
+
+        $correlacion = (string) Str::uuid();
+
+        // Un servicio, una reconexión a la vez. Si ya hay una corriendo (doble
+        // click, o el pago todavía resolviendo), NO se lanza otra: dos procesos
+        // escribiendo la misma lista del RouterBoard es la carrera que produce
+        // falsos positivos.
+        $lock = Cache::lock("reconnect-retry-{$customer->id}", 60);
+        if (!$lock->get()) {
+            return response()->json([
+                'message'        => 'Ya hay una reconexión en curso para este cliente. Espera a que termine.',
+                'correlation_id' => $correlacion,
+            ], 409);
+        }
+
+        try {
+            $outcome = $this->billingService->attemptReconnection($profile, [
+                'source'         => 'retry',
+                'correlation_id' => $correlacion,
+                'actor_id'       => $request->user()?->id,
+            ]);
+        } finally {
+            $lock->release();
+        }
+
+        \App\Models\AuditLog::log([
+            'tenant_id'   => $tenantId,
+            'user_id'     => $request->user()?->id,
+            'action'      => 'reconnection.retried',
+            'model_type'  => \App\Models\CustomerProfile::class,
+            'model_id'    => $profile->id,
+            'new_values'  => [
+                'customer_id'    => $customer->id,
+                'outcome'        => $outcome,
+                'source'         => 'retry',
+                'correlation_id' => $correlacion,
+            ],
+            'description' => 'Reintento manual de reconexión: '
+                . \App\Support\ReconnectionOutcome::label($outcome),
+        ]);
+
+        return response()->json(array_merge(
+            \App\Support\ReconnectionOutcome::describe($outcome),
+            [
+                'reconnected'    => $outcome === \App\Support\ReconnectionOutcome::REACTIVADO_AUTOMATICAMENTE,
+                'correlation_id' => $correlacion,
+            ]
+        ));
     }
 
     // Update Payment
@@ -514,14 +812,17 @@ class BillingController extends Controller
         $data = $request->validate([
             'amount'       => 'sometimes|numeric|min:0.01',
             'payment_date' => 'sometimes|date',
-            'method'       => 'sometimes|string',
+            // Vacío o nulo = no tocar la forma de pago: es lo que manda un
+            // select abierto sin selección, y no puede borrar el dato (KAN-109).
+            'method'            => 'sometimes|nullable|string|max:255',
+            'payment_method_id' => ['sometimes', 'nullable', 'integer', $this->tenantPaymentMethodRule($request)],
             'reference'    => 'nullable|string|max:255',
             'notes'        => 'nullable|string',
         ]);
 
         $payment = $this->billingService->updatePayment($payment, $data);
 
-        return response()->json($payment->load('allocations'));
+        return response()->json($payment->load(['allocations', 'paymentMethod:id,name,is_active']));
     }
 
     // Delete Payment
@@ -580,6 +881,56 @@ class BillingController extends Controller
      * del tenant (tipo del sistema o propio) y estar activo. Se rechaza el slug
      * de otro tenant, que si no permitiría etiquetar facturas con tipos ajenos.
      */
+    /**
+     * La forma de pago tiene que ser del catálogo del tenant de la sesión.
+     * Sin esto, un id de otro ISP pasaría la validación con un `exists` plano.
+     */
+    /**
+     * KAN-110 · El cliente tiene que ser de QUIEN registra el pago.
+     *
+     * Acota el `exists` en la misma consulta, sin un segundo viaje a la base y
+     * sin poder olvidarse. Es el mismo patron que `tenantPaymentMethodRule`,
+     * que el KAN-109 introdujo para la forma de pago.
+     */
+    private function tenantCustomerRule(Request $request): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('users', 'id')
+            ->where('tenant_id', (int) $request->user()?->tenant_id);
+    }
+
+    /**
+     * KAN-110 · Devuelve SIEMPRE el tenant de la sesion, y deja rastro si el
+     * cuerpo traia otro.
+     *
+     * No se rechaza la peticion: el frontend manda `tenant_id` de forma
+     * legitima —lo toma de la sesion— y un 422 por ese campo romperia el
+     * contrato. Pero un valor DISTINTO al de la sesion no es un descuido del
+     * formulario: o alguien manipulo la peticion, o un cliente quedo con un
+     * tenant viejo en memoria. Las dos cosas merecen quedar escritas.
+     */
+    private function sellarTenant(Request $request, $tenantDelCuerpo): ?int
+    {
+        $tenantDeLaSesion = $request->user()?->tenant_id;
+
+        if ($tenantDelCuerpo !== null && (int) $tenantDelCuerpo !== (int) $tenantDeLaSesion) {
+            \Log::warning('Se ignoro un tenant_id del cuerpo distinto al de la sesion', [
+                'ruta'              => $request->path(),
+                'tenant_sesion'     => $tenantDeLaSesion,
+                'tenant_recibido'   => $tenantDelCuerpo,
+                'usuario'           => $request->user()?->id,
+                'ip'                => $request->realIp(),
+            ]);
+        }
+
+        return $tenantDeLaSesion === null ? null : (int) $tenantDeLaSesion;
+    }
+
+    private function tenantPaymentMethodRule(Request $request): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('payment_methods', 'id')
+            ->where('tenant_id', (int) $request->user()?->tenant_id);
+    }
+
     private function invoiceTypeRule(Request $request): \Closure
     {
         $tenantId = $request->user()?->tenant_id;
@@ -716,7 +1067,10 @@ class BillingController extends Controller
             'customer'      => 'nullable|string|max:255',
             'customer_id'   => 'nullable|integer',
             'reference'     => 'nullable|string|max:255',
-            'method'        => 'nullable|string|max:100',
+            // Texto exacto con que se registró el pago. Se mantiene por
+            // compatibilidad; la pantalla filtra por payment_method_id.
+            'method'        => 'nullable|string|max:255',
+            'payment_method_id' => 'nullable|integer',
             'registered_by' => 'nullable|string|max:255',
             'invoice'       => 'nullable|string|max:100',
             'date_from'     => 'nullable|date',
@@ -745,6 +1099,7 @@ class BillingController extends Controller
             'allocations:id,payment_id,invoice_id,amount',
             'allocations.invoice:id,number,invoice_type',
             'creator:id,name,user_name,user_lastname',
+            'paymentMethod:id,name,is_active',
         ]);
 
         // Búsqueda general: referencia o cliente.
@@ -767,6 +1122,14 @@ class BillingController extends Controller
 
         if (!empty($f['reference'])) {
             $query->whereLike('reference', $f['reference']);
+        }
+
+        // Por id y no por nombre: el nombre del catálogo se puede cambiar y
+        // los pagos anteriores al cambio guardan el nombre viejo (KAN-109). El
+        // global scope de Payment ya acota al tenant, así que un id ajeno
+        // simplemente no encuentra nada.
+        if (!empty($f['payment_method_id'])) {
+            $query->where('payment_method_id', $f['payment_method_id']);
         }
 
         if (!empty($f['method'])) {
@@ -912,7 +1275,7 @@ class BillingController extends Controller
         $recentPayments = Payment::where('tenant_id', $tenantId)
             ->where('status', 'completed')
             ->whereBetween('payment_date', [$start, $end])
-            ->with('customer.customerProfile')
+            ->with(['customer.customerProfile', 'paymentMethod:id,name'])
             ->orderBy('created_at', 'desc')->limit(5)->get();
 
         return response()->json([
@@ -1010,10 +1373,35 @@ class BillingController extends Controller
 
     // ─── Billing Configs ─────────────────────────────────────────────────────
 
-    // List all billing configs with their associated routers
-    public function getBillingConfigs()
+    /**
+     * Configuraciones de facturación del tenant de la sesión (KAN-121).
+     *
+     * `Billing` no lleva scope de tenant (P-RLS-2 / KAN-42), así que sin este
+     * filtro el listado devolvía las de TODOS los ISP, y el PUT dejaba
+     * modificar la de otro — días de facturación y de corte incluidos.
+     *
+     * No basta con `tenant_id`: las filas anteriores a que RouterController lo
+     * poblara pueden tenerlo en NULL y siguen en uso. Esas se reconocen por el
+     * router que las referencia, que sí es del tenant.
+     */
+    private function tenantBillingConfigs(Request $request)
     {
-        $configs = Billing::with('routers:id,name,cut_type_id,billing_router_id')
+        $tenantId = $request->user()?->tenant_id;
+
+        return Billing::query()->where(function ($q) use ($tenantId) {
+            $q->where('tenant_id', $tenantId)
+                ->orWhere(function ($legacy) use ($tenantId) {
+                    $legacy->whereNull('tenant_id')
+                        ->whereHas('routers', fn ($r) => $r->where('tenant_id', $tenantId));
+                });
+        });
+    }
+
+    // List the tenant's billing configs with their associated routers
+    public function getBillingConfigs(Request $request)
+    {
+        $configs = $this->tenantBillingConfigs($request)
+            ->with('routers:id,name,cut_type_id,billing_router_id')
             ->with('routers.cutType:id,name')
             ->get();
 
@@ -1023,7 +1411,8 @@ class BillingController extends Controller
     // Update a billing config (cut_day, cut_time, overdue_invoices, etc.)
     public function updateBillingConfig(Request $request, $id)
     {
-        $billing = Billing::findOrFail($id);
+        // Otro tenant → 404, igual que un id inexistente (KAN-121).
+        $billing = $this->tenantBillingConfigs($request)->findOrFail($id);
 
         $validated = $request->validate([
             'create_invoice' => 'nullable|date',

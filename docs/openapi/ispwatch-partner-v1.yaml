@@ -25,7 +25,13 @@ openapi: 3.0.3
 
 info:
   title: ISPWatch Partner API
-  version: "1.0.0"
+  # 1.1.0 (2026-09-30): tipos de evento CUSTOMER_DELETED / ROUTER_CHANGED /
+  # NETWORK_CHANGED, paginación por cursor `after_id`, filtro `router_id` en
+  # /services y publicación en serie del feed. Todo aditivo: nada que ya se
+  # consumía cambió de forma ni de significado.
+  # 1.2.0 (2026-10-05): el 403 `ip_not_allowed` trae `your_ip`, la IP con la
+  # que llegó la petición (P-37 / KAN-39). Aditivo: `error` y `message` no cambian.
+  version: "1.2.0"
   description: |
     API de **solo lectura** para integradores externos (CRM, facturación
     electrónica, orquestadores AAA). Expone la autoridad comercial de ISPWatch
@@ -67,8 +73,49 @@ info:
 
     1. `GET /ping` — confirma llave, permisos y **desde qué IP te ve el
        servidor**. Es lo primero que hay que llamar cuando algo da 403.
-    2. Carga inicial: `GET /customers` y `GET /services` paginando.
+    2. Carga inicial: `GET /customers` y `GET /services` con `after_id`.
     3. Sincronización: `GET /events?since=<último>` en ciclo.
+
+    ## Sincronización completa y confiable (integraciones AAA)
+
+    Lo que esta API garantiza, y lo que no, para quien toma decisiones de
+    acceso con estos datos:
+
+    - **Los listados no son una foto atómica.** Cada página es una consulta
+      aparte: páginas distintas pueden reflejar instantes distintos.
+      `meta.total` dice cuántas filas había al pedir esa página, no durante
+      todo el recorrido.
+    - **Para recorrer una colección completa use `after_id`**, no `page`. Con
+      `page`, un cliente eliminado a mitad del recorrido corre la paginación
+      y una fila que no cambió se salta sin ningún error.
+    - **`updated_since` no sirve como incremental para decidir acceso.** En
+      `/customers` mira la fecha del usuario, que no cambia al cortar o
+      reactivar; en `/services`, la del contrato de servicio, que no cambia
+      con `service_status`. Para eso está `/events`.
+    - **El feed es exhaustivo para los cambios que deciden acceso**: estado
+      comercial, plan, router, IP, usuario PPPoE, modo RADIUS del router,
+      `is_enabled` y baja física del cliente (ver `EventType`).
+    - **Retención**: hoy los eventos no se podan. Si algún día se introduce
+      retención, se avisará antes y un cursor más viejo que lo conservado
+      recibirá un error explícito, nunca un lote silenciosamente incompleto.
+
+    Procedimiento recomendado:
+
+    1. Recorrer `/events` hasta `has_more: false` y guardar `next_since`.
+    2. Barrer `/customers` y `/services` completos con `after_id`.
+    3. Reproducir `/events` desde el cursor del paso 1: lo que cambió durante
+       el barrido llega ahí.
+    4. Seguir `/events` en ciclo. Ante cada evento, re-consultar el recurso y
+       decidir con su estado **actual**.
+    5. Repetir el barrido completo periódicamente como reconciliación.
+
+    Si se pierde el cursor, se repite desde el paso 1.
+
+    **Decisión de acceso.** `service_status` es la autoridad (`activo` y
+    `gratis` = hay servicio; `suspendido`, `cancelado` y `retirado` = no).
+    Una integración fail-closed debe exigir además `is_enabled = true`, que
+    sale en `/customers`: ambos se mueven juntos, pero hay datos anteriores a
+    `service_status` donde pueden no coincidir.
 
     ## Formato de fechas
 
@@ -186,6 +233,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/AfterId"
         - $ref: "#/components/parameters/UpdatedSince"
         - name: service_status
           in: query
@@ -201,7 +249,9 @@ paths:
           schema: { type: string, maxLength: 40 }
       responses:
         "200":
-          description: Página de clientes.
+          description: |
+            Página de clientes. `meta` es `PageMeta` si se pidió por `page`, y
+            `KeysetMeta` si se pidió por `after_id`.
           content:
             application/json:
               schema:
@@ -210,7 +260,10 @@ paths:
                   data:
                     type: array
                     items: { $ref: "#/components/schemas/Customer" }
-                  meta: { $ref: "#/components/schemas/PageMeta" }
+                  meta:
+                    oneOf:
+                      - { $ref: "#/components/schemas/PageMeta" }
+                      - { $ref: "#/components/schemas/KeysetMeta" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/ValidationError" }
@@ -274,6 +327,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/AfterId"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/CustomerId"
         - name: status
@@ -284,9 +338,17 @@ paths:
           in: query
           description: Estado comercial del cliente dueño del servicio.
           schema: { $ref: "#/components/schemas/ServiceStatus" }
+        - name: router_id
+          in: query
+          description: |
+            Router/grupo lógico del servicio (`network.router_id`). Para
+            sincronizar un NAS sin bajarse todos los servicios del ISP.
+          schema: { type: integer }
       responses:
         "200":
-          description: Página de servicios.
+          description: |
+            Página de servicios. `meta` es `PageMeta` si se pidió por `page`,
+            y `KeysetMeta` si se pidió por `after_id`.
           content:
             application/json:
               schema:
@@ -295,7 +357,10 @@ paths:
                   data:
                     type: array
                     items: { $ref: "#/components/schemas/Service" }
-                  meta: { $ref: "#/components/schemas/PageMeta" }
+                  meta:
+                    oneOf:
+                      - { $ref: "#/components/schemas/PageMeta" }
+                      - { $ref: "#/components/schemas/KeysetMeta" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/ValidationError" }
@@ -342,7 +407,7 @@ paths:
         crece mientras se recorre, así que «la página 2» ya no contiene las
         mismas filas y se saltan eventos sin que aparezca ningún error.
 
-        Se recorre por cursor sobre un id autoincremental:
+        Se recorre por cursor sobre `event_id`:
 
         ```
         GET /events?since=0&limit=100
@@ -357,11 +422,18 @@ paths:
         transporta el recurso. El consumidor re-consulta `/customers/{id}` o
         `/services/{id}` para el estado definitivo. Así el feed no puede quedar
         desactualizado, y un evento duplicado —que puede ocurrir— sólo cuesta
-        una petición.
+        una petición. La excepción es `CUSTOMER_DELETED`: el recurso ya no
+        existe, así que el evento trae lo necesario para revocar.
 
-        **Entrega al menos una vez, en orden.** El orden por id es estricto y
-        no hay saltos hacia atrás, pero un mismo cambio puede aparecer dos
-        veces: el consumidor debe ser idempotente por `event_id`.
+        **Entrega al menos una vez, en orden.** Un `event_id` se asigna cuando
+        el cambio ya está confirmado, en serie: un evento nunca aparece con un
+        número menor que otro ya entregado, así que recorrer con
+        `since = next_since` no se salta nada. Un mismo cambio sí puede
+        aparecer dos veces (con `event_id` distintos): el consumidor debe ser
+        idempotente.
+
+        La numeración tiene huecos (es compartida entre ISPs y se asigna por
+        lotes). Un hueco **no** indica un evento perdido.
       x-ability: read:events
       security:
         - bearerAuth: [read:events]
@@ -589,6 +661,20 @@ components:
       in: query
       description: Tope duro de 100.
       schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    AfterId:
+      name: after_id
+      in: query
+      description: |
+        Paginación por cursor: devuelve las filas con id estrictamente mayor,
+        en orden ascendente. `0` empieza desde el principio. La respuesta trae
+        `KeysetMeta`; se sigue con `after_id = meta.next_after_id` mientras
+        `meta.has_more` sea `true`.
+
+        **Es el modo recomendado para recorrer una colección completa.** Con
+        `page`, si se elimina una fila anterior a la página actual durante el
+        recorrido, la paginación se corre y una fila que no cambió se salta
+        sin ningún error. No se combina con `page` (`422`).
+      schema: { type: integer, minimum: 0 }
     UpdatedSince:
       name: updated_since
       in: query
@@ -596,6 +682,11 @@ components:
         Devuelve sólo lo modificado desde esta fecha/hora. Sirve para
         sincronización incremental barata, pero **no reemplaza a `/events`**:
         dos escrituras en el mismo segundo son indistinguibles por reloj.
+
+        **No sirve para decisiones de acceso.** En `/customers` compara la
+        fecha del usuario, que no se mueve al cortar o reactivar al cliente;
+        en `/services`, la del contrato de servicio, que no se mueve cuando
+        cambia `service_status`.
       schema: { type: string, format: date-time }
     CustomerId:
       name: customer_id
@@ -634,7 +725,8 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           examples:
             ip:
-              value: { error: ip_not_allowed, message: "La IP de origen no está autorizada para esta llave." }
+              summary: IP fuera de la allowlist; `your_ip` es la IP con la que llegó la petición
+              value: { error: ip_not_allowed, message: "La IP de origen no está autorizada para esta llave.", your_ip: "203.0.113.25" }
             permiso:
               summary: Falta el ability del área (respuesta de Sanctum)
               value: { message: "Invalid ability provided." }
@@ -729,6 +821,23 @@ components:
         Contrato público: se **agregan** valores nuevos, no se renombran los
         existentes. Un consumidor debe ignorar los tipos que no conozca en vez
         de fallar.
+
+        | Tipo | Cuándo | `changes` |
+        |---|---|---|
+        | `SERVICE_CREATED` | Alta de un servicio (panel o carga masiva) | `{plan_id, status}` |
+        | `SERVICE_ACTIVATED` | `service_status` pasa a `activo`/`gratis` desde algo que no era `suspendido` | `{service_status: {from, to}}` |
+        | `SERVICE_SUSPENDED` | `service_status` pasa a `suspendido` | `{service_status: {from, to}}` |
+        | `SERVICE_REACTIVATED` | Sale de `suspendido` a `activo`/`gratis` | `{service_status: {from, to}}` |
+        | `SERVICE_CANCELLED` | Baja comercial: `retirado` o `cancelado` | `{service_status: {from, to}}` |
+        | `PLAN_CHANGED` | Cambio de plan (puede llegar dos veces) | `{plan_id: {from, to}}` |
+        | `CUSTOMER_UPDATED` | Datos de identidad, o `is_enabled` cuando cambia solo | `{fields: [...]}` |
+        | `ROUTER_CHANGED` | Cambio de router del cliente, o se activó/desactivó RADIUS en su router (`from` = `to`) | `{router_id: {from, to}, managed_by_external_aaa: {from, to}}` |
+        | `NETWORK_CHANGED` | Cambio de IP o de usuario PPPoE | `{fields: ["ip", "pppoe_username"]}`, sin valores |
+        | `CUSTOMER_DELETED` | Baja **física**: el cliente y sus servicios dejan de existir (404) | `{service_ids, router_id, managed_by_external_aaa}` |
+
+        En `CUSTOMER_UPDATED`, `fields` usa los nombres internos
+        (`name`, `last_name`, `cedula` = `document`, `address`, `city`,
+        `state`, `is_company`) más `is_enabled`.
       enum:
         - SERVICE_CREATED
         - SERVICE_ACTIVATED
@@ -737,6 +846,9 @@ components:
         - PLAN_CHANGED
         - SERVICE_CANCELLED
         - CUSTOMER_UPDATED
+        - CUSTOMER_DELETED
+        - ROUTER_CHANGED
+        - NETWORK_CHANGED
 
     # ---- Tipos base --------------------------------------------------------
 
@@ -752,9 +864,13 @@ components:
       type: integer
       nullable: true
       description: |
-        Id del último evento publicado de este recurso. Sirve para reconciliar
-        sin depender del reloj: dos escrituras en el mismo segundo son
-        indistinguibles por `updated_at`, por `revision` no.
+        `event_id` del último evento publicado de este recurso. Sirve para
+        reconciliar sin depender del reloj: dos escrituras en el mismo segundo
+        son indistinguibles por `updated_at`, por `revision` no.
+
+        En `/services` es la revisión del **cliente** dueño: los atributos de
+        red viven en su ficha, así que un cambio de router, IP o estado del
+        cliente es un cambio de su servicio.
 
         `null` = el recurso no ha cambiado desde que existe el feed. **No es un
         error** ni un dato faltante.
@@ -780,6 +896,14 @@ components:
         message:
           type: string
           description: Explicación legible por una persona.
+        your_ip:
+          type: string
+          description: |
+            Sólo en `ip_not_allowed`: la IP con la que el servidor vio llegar la
+            petición. Es la que hay que pedirle al ISP que autorice. `/ping` no
+            sirve para averiguarla en este caso, porque pasa por la misma
+            comprobación de allowlist y también responde 403.
+          example: "203.0.113.25"
 
     PageMeta:
       type: object
@@ -788,6 +912,22 @@ components:
         per_page: { type: integer, example: 50 }
         total: { type: integer, example: 137 }
         last_page: { type: integer, example: 3 }
+
+    KeysetMeta:
+      type: object
+      description: Paginación por cursor (`after_id`).
+      properties:
+        per_page: { type: integer, example: 100 }
+        after_id: { type: integer, description: El cursor recibido., example: 0 }
+        next_after_id:
+          type: integer
+          description: |
+            Cursor para la página siguiente. Si la página vino vacía, devuelve
+            el mismo `after_id` recibido.
+          example: 1843
+        has_more:
+          type: boolean
+          description: "`true` = hay más filas después de esta página."
 
     CursorMeta:
       type: object
@@ -872,11 +1012,15 @@ components:
         is_enabled:
           type: boolean
           description: |
-            **NO es autoritativo y no indica si el cliente está cortado.** El
-            corte automático por mora lo deja en `true`. Para saber si hay
-            servicio hay que mirar `service_status`. Se expone sólo porque
-            existe en la ficha; un integrador no debería tomar decisiones con
-            este campo.
+            Indicador heredado de "cliente habilitado". La autoridad es
+            `service_status`, pero hoy los dos se mueven juntos: el corte (por
+            mora o manual) lo pone en `false` y la reconexión en `true`.
+
+            Una integración fail-closed debe exigir **ambos**
+            (`service_status` en `activo`/`gratis` **y** `is_enabled = true`):
+            puede haber datos anteriores a `service_status` donde no
+            coinciden. Si cambia sin que cambie `service_status`, el feed
+            emite `CUSTOMER_UPDATED` con `is_enabled` en `fields`.
         service_status: { $ref: "#/components/schemas/ServiceStatus" }
         credit_balance:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
@@ -972,7 +1116,12 @@ components:
     Event:
       type: object
       properties:
-        event_id: { type: integer, description: Cursor. Estrictamente creciente. }
+        event_id:
+          type: integer
+          description: |
+            Cursor. Se asigna al publicar el evento, en serie: un evento nunca
+            aparece con un número menor que otro ya entregado. No cambia una
+            vez asignado. Tiene huecos, que no indican pérdida.
         event_type: { $ref: "#/components/schemas/EventType" }
         customer_id: { type: integer }
         service_id:
@@ -983,13 +1132,10 @@ components:
           type: object
           nullable: true
           description: |
-            Campos que cambiaron, con valor anterior y nuevo. Es informativo:
-            el estado definitivo se obtiene re-consultando el recurso.
-          additionalProperties:
-            type: object
-            properties:
-              from: {}
-              to: {}
+            Qué cambió. La forma depende del tipo (ver `EventType`). Es
+            informativo: el estado definitivo se obtiene re-consultando el
+            recurso, salvo en `CUSTOMER_DELETED`, donde el recurso ya no existe.
+          additionalProperties: true
           example:
             plan_id: { from: 118, to: 136 }
         occurred_at: { type: string, format: date-time, nullable: true }

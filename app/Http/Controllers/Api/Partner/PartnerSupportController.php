@@ -6,6 +6,7 @@ use App\Models\CustomerInstallation;
 use App\Models\SupportTicket;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Tickets de soporte e instalaciones del tenant, en solo lectura.
@@ -38,6 +39,23 @@ class PartnerSupportController extends PartnerController
         // apareciendo —con el campo en null— en vez de esfumarse del listado.
         $query = SupportTicket::query()
             ->where('support_ticket.tenant_id', $tenantId)
+            // PR C · Los expedientes archivados NUNCA salen por la API pública.
+            //
+            // Redundante a propósito: el *global scope* de `SoftDeletes` ya lo
+            // excluye. Se escribe igualmente porque el integrador ve un contrato
+            // congelado, y un `withTrashed()` añadido aquí por descuido —o la
+            // retirada del trait— publicaría expedientes retirados sin que nada
+            // fallara. Hay un test que lo fija.
+            ->whereNull('support_ticket.deleted_at')
+            // CONTRATO CONGELADO, SEGUNDA VUELTA. El workflow de la Solicitud
+            // Maestra añadió dieciocho estados; el integrador sigue comparando
+            // contra `open`, `in_progress`, `resolved` y `closed`. `legacy_code`
+            // declara a cuál de los cuatro equivale cada estado nuevo, y es eso
+            // —no el código interno— lo que sale por aquí.
+            //
+            // El `COALESCE` cubre una fila de catálogo añadida a mano sin
+            // equivalencia: mejor devolver su propio código que un null que el
+            // integrador leería como «sin estado».
             ->leftJoin('ticket_status as ts', 'ts.id', '=', 'support_ticket.status_id')
             ->leftJoin('ticket_priority as tp', 'tp.id', '=', 'support_ticket.priority_id')
             ->leftJoin('ticket_category as tc', 'tc.id', '=', 'support_ticket.category_id')
@@ -46,7 +64,7 @@ class PartnerSupportController extends PartnerController
                 'support_ticket.user_id',
                 'support_ticket.subject',
                 'support_ticket.description',
-                'ts.code as status_code',
+                DB::raw('COALESCE(ts.legacy_code, ts.code) as status_code'),
                 'tp.code as priority_code',
                 'tc.code as category_code',
                 'support_ticket.resolved_at',
@@ -55,7 +73,10 @@ class PartnerSupportController extends PartnerController
             ]);
 
         if ($status = $request->query('status')) {
-            $query->where('ts.code', $status);
+            // Filtrar por `open` tiene que traer también `radicado` y
+            // `en_clasificacion`: el integrador no conoce los estados nuevos y
+            // su filtro debe seguir significando lo mismo que ayer.
+            $query->where(DB::raw('COALESCE(ts.legacy_code, ts.code)'), $status);
         }
 
         if ($priority = $request->query('priority')) {
@@ -119,6 +140,10 @@ class PartnerSupportController extends PartnerController
                 'customer_installations.additional_charges',
                 'customer_installations.discount',
                 'customer_installations.payment_received',
+                // Sin esto, una visita de garantía viaja como una orden de
+                // $0 y el integrador no puede distinguirla de una a la que
+                // todavía no le han puesto precio.
+                'customer_installations.no_charge',
                 'customer_installations.created_at',
                 'customer_installations.updated_at',
             ]);
@@ -160,6 +185,7 @@ class PartnerSupportController extends PartnerController
             'additional_charges' => $row->additional_charges,
             'discount'           => $row->discount,
             'payment_received'   => $row->payment_received,
+            'no_charge'          => (bool) $row->no_charge,
             'created_at'         => $row->created_at,
             'updated_at'         => $row->updated_at,
         ]);

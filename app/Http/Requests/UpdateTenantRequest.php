@@ -2,17 +2,36 @@
 
 namespace App\Http\Requests;
 
+use App\Constants\Permissions;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UpdateTenantRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
      * Authorization logic is handled in the controller via role checks.
+     *
+     * Con una excepción (KAN-91): activar el gasto automático de inventario
+     * exige ADEMÁS `view_expenses`. La ruta ya pide `manage_tenant`, pero este
+     * interruptor es el que hace que dar de alta un equipo mueva el balance
+     * financiero — la decisión de que inventario toque finanzas la toma quien
+     * maneja finanzas, no quien administra la empresa.
+     *
+     * El almacenista no pierde nada: ingresar equipos sigue pidiendo sólo
+     * `view_inventory`. Lo que queda protegido es la decisión, que se toma una
+     * vez, no el trabajo diario.
      */
     public function authorize(): bool
     {
-        return true;
+        $tocaGastoDeInventario = $this->has('inventory_entry_creates_expense')
+            || $this->has('inventory_expense_category_id');
+
+        if (! $tocaGastoDeInventario) {
+            return true;
+        }
+
+        return (bool) $this->user()?->hasPermission(Permissions::VIEW_EXPENSES);
     }
 
     /**
@@ -35,6 +54,20 @@ class UpdateTenantRequest extends FormRequest
             'timezone' => ['sometimes', 'nullable', 'string', 'max:100'],
             'currency' => ['sometimes', 'nullable', 'string', 'max:10'],
             'next_invoice_number' => ['sometimes', 'nullable', 'integer', 'min:1'],
+
+            // ── Gasto automático al ingresar inventario (KAN-91) ───────────────
+            // QUIÉN puede tocarlo se decide en authorize(): la ruta pide
+            // manage_tenant, pero encender esto hace que el inventario mueva el
+            // balance financiero, así que exige además view_expenses.
+            'inventory_entry_creates_expense' => ['sometimes', 'boolean'],
+            'inventory_expense_category_id' => [
+                'sometimes', 'nullable', 'integer',
+                // Acotada al propio tenant: sin esto se podría apuntar a la
+                // categoría de otra empresa y el gasto saldría clasificado en el
+                // catálogo ajeno.
+                Rule::exists('expense_categories', 'id')
+                    ->where('tenant_id', $this->user()?->tenant_id),
+            ],
 
             // Prefijo del consecutivo de contratos: texto LIBRE, el ISP escribe
             // lo que quiera («CNO/», «Contrato N° »). Sólo se rechazan los

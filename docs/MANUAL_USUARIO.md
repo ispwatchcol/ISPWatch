@@ -83,6 +83,19 @@ devuelve solo. No hay que entrar a ningún equipo a mano.
 Si estabas trabajando y de repente vuelves a la pantalla de acceso, tu sesión caducó.
 Vuelve a entrar; no se pierde nada de lo que ya habías guardado.
 
+### Si aparece «Hay una versión nueva de ISPWatch»
+
+Abajo a la derecha puede salirte un aviso azul diciendo que hay una versión nueva. Significa
+que se publicó una actualización mientras tenías la pantalla abierta, y que lo que estás
+viendo es la versión anterior.
+
+- **Recargar ahora** — la página se vuelve a cargar y pasas a la versión nueva.
+- **Más tarde** — el aviso se cierra y puedes terminar lo que estabas haciendo.
+
+El sistema **nunca recarga solo**: si estás a media ficha, no vas a perder lo escrito. Cuando
+termines, recarga tú. Si un compañero te dice que un arreglo «ya está» y tú sigues viendo el
+problema, este aviso —o simplemente recargar— suele ser la explicación.
+
 ---
 
 ## 3. Cómo moverse por el sistema
@@ -229,10 +242,24 @@ Si no aplica, el bloque no aparece.
 - **No facturar a este cliente**: lo saca de **todo** el ciclo automático. No recibe factura,
   ni recordatorio, ni notificación, ni corte. Úsalo para casos especiales (cortesías
   institucionales, pruebas).
-- **No enviar notificaciones de factura**: a diferencia de la anterior, **no** afecta la
-  facturación — la factura se sigue generando cada mes y la mora/corte funcionan igual.
-  Sólo apaga el aviso de correo/WhatsApp de factura nueva y los recordatorios de pago.
-  Úsalo para clientes que piden explícitamente no recibir esos mensajes.
+- **No enviar notificaciones de factura** *(sólo al **editar** un cliente, no al crearlo)*: a
+  diferencia de la anterior, **no** afecta la facturación — la factura se sigue generando cada
+  mes y la mora/corte funcionan igual. Sólo apaga el aviso de correo/WhatsApp de factura nueva
+  y los recordatorios de pago. Úsalo para clientes que piden explícitamente no recibir esos
+  mensajes.
+
+  > **Dónde está.** Todo cliente nuevo nace con las notificaciones **encendidas**. Para
+  > apagarlas, guarda el cliente y luego ábrelo en **Clientes → editar**: la casilla está en el
+  > mismo bloque de opciones, debajo de «No facturar a este cliente».
+
+  > **Qué apaga exactamente.** El aviso automático de factura nueva, el recordatorio
+  > automático de pago, y los **recordatorios masivos** que se lanzan desde el listado de
+  > facturas. En un envío masivo el cliente silenciado aparece como *«omitido por preferencia
+  > del cliente»*, que **no** es un error: es la preferencia aplicada.
+  >
+  > **Lo único que sigue saliendo** es el recordatorio que envías **factura por factura** desde
+  > la propia factura. Ahí estás decidiendo tú, sobre ese caso concreto, en ese momento — el
+  > sistema no te lo bloquea. Si el cliente pidió silencio absoluto, evita también ese botón.
 
 **Guardar**
 
@@ -258,6 +285,27 @@ Si la carga en segundo plano falla (o el router la tenía apagada), entra a la f
 y usa el botón de **aprovisionar**. Ese botón exige que el cliente tenga **router**, **plan** e
 **IP** asignados; si le falta alguno te lo dice y no hace nada.
 
+#### Qué significa cada aviso de «no se pudo cargar al router»
+
+El cliente **siempre queda guardado**; lo que falla es la parte del equipo de red. El texto del
+aviso dice en qué punto se cortó, y cada punto se arregla en un sitio distinto:
+
+| Si el aviso dice… | Qué pasó | Dónde mirar |
+|---|---|---|
+| `authentication failure` | El sistema llegó al router y el **router rechazó la clave**. En el equipo no se ejecutó nada | El usuario y la contraseña de ESE router en **Routers → Editar**. Si estás seguro de que son correctos, mira el punto siguiente |
+| `<connection failed>` · `action timed out` | No se pudo ni abrir la sesión con el router | La IP del router (puede haber cambiado al reconectar el túnel), el **Puerto SSH** y que el servicio SSH acepte al CORE |
+| `bad parameter` · `no such item` | El router **sí ejecutó** y rechazó la orden | El plan o el perfil que falta en ese equipo, según diga el detalle |
+
+> 🔐 **La trampa del primer caso.** Quien se conecta al router **es el CORE**, no ISPWatch ni tu
+> computador. Si el usuario de RouterOS está limitado a una dirección concreta (`address=` en
+> `/user print detail`), rechaza la contraseña **correcta** aunque a ti esa misma clave te
+> funcione perfectamente desde tu equipo. Es el caso que más tiempo hace perder, porque todo
+> parece estar bien.
+>
+> **No insistas dándole al botón.** Tras varios intentos fallidos el router bloquea por un rato
+> la dirección desde la que se intenta —la del CORE— y el aviso cambia a «no conecta». Entonces
+> estarás persiguiendo un problema distinto del que tenías.
+
 ### 5.3 Editar un cliente
 
 En la lista, pulsa el icono de **editar**. Verás el mismo formulario con los datos actuales,
@@ -269,6 +317,13 @@ más unas pestañas adicionales:
 | **Documentos** | Cédula, contrato y otros archivos |
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
+
+> **Cambiar a un cliente de router.** Al guardar, ISPWatch retira en segundo plano la
+> configuración del cliente del router **anterior** (cola, usuario PPPoE/HotSpot, IP
+> bloqueada) para que no siga navegando por ahí. El resultado aparece en la bitácora de
+> **Auditoría**: si dice que no se pudo retirar, hay que borrarla a mano en ese equipo. No
+> aplica si el router anterior lo gestiona un AAA externo (RADIUS) o no tiene credenciales
+> de acceso cargadas.
 
 #### 5.3.1 Servicios adicionales del cliente
 
@@ -482,9 +537,65 @@ Un **prospecto** es alguien interesado que todavía no es cliente.
 2. Pulsa **Nueva instalación**.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
 4. Elige **fecha** y **técnico**.
-5. Guarda.
+5. En **Equipo / Materiales previstos** elige del inventario lo que el técnico debe llevar y
+   cuánto: «30 m de cable UTP», «1 router». Al lado de cada producto ves cuánto hay **en toda la
+   empresa, para planificar** —no lo que tú o el técnico pueden registrar—. Lo que no esté en el
+   inventario va en **Notas de equipo (texto libre)**.
+   > **Equipos por serial (LDF, routers, ONU…):** aquí sólo se elige el **modelo y la cantidad**.
+   > La unidad concreta —con su serial y su MAC— se elige el día de la instalación, al registrar
+   > la entrega en la hoja de la orden. Consumibles como amarres o RJ45 van por unidades y el
+   > cable por su unidad de medida (metros).
+6. Si la visita **no se le cobra al cliente** —mantenimiento, garantía, cambio de un equipo
+   quemado— marca la casilla **Sin cobro al cliente** y, si quieres, escribe el motivo.
+7. Guarda.
 
 El prospecto queda en estado **agendado**.
+
+> 📦 **Planificar no descuenta nada** (desde el 30/09/2026)
+>
+> Lo previsto es una lista para preparar la visita: **no** saca nada de la bodega ni lo aparta
+> para esta orden. Puedes planificar más de lo que hay —el sistema te avisa, pero te deja—, porque
+> lo que cuenta es el saldo del día de la visita. El inventario se descuenta sólo cuando el
+> técnico registra lo que **de verdad usó** en la hoja de la orden (§ 6.2).
+>
+> - Si tienes permiso de inventario, verás también el precio y **dónde** está cada producto
+>   (qué bodega o qué técnico lo tiene). Sin ese permiso ves sólo la cantidad total.
+> - Si después se cambia el nombre del producto en el inventario, la orden sigue mostrando el
+>   nombre con que se planificó.
+> - Una orden ya **firmada** no deja cambiar su plan.
+> - Las órdenes antiguas conservan lo que tenían escrito a mano.
+
+> 🔒 **Cuándo una orden ya no se puede eliminar ni cancelar**
+>
+> - **Eliminar** queda apagado si la orden ya descargó equipos o materiales del inventario, si
+>   tiene la hoja firmada o si tiene factura. Pasa el ratón sobre el botón para ver el motivo.
+> - **Cancelar** no se puede si la orden ya registra consumo de inventario o está firmada. Lo
+>   usado es real: el cable se gastó y el equipo quedó en casa del cliente. Por ahora la orden se
+>   queda en su estado actual; la forma de conciliar ese consumo llegará más adelante.
+>
+> Una orden sin nada usado (aunque tenga plan) se sigue pudiendo cancelar o eliminar como antes.
+
+> 🎁 **Qué hace exactamente «Sin cobro al cliente»** (desde el 21/09/2026)
+>
+> Es la respuesta a una situación de todos los días: se le quema el router al cliente, el
+> técnico va y se lo cambia, y eso **no se le cobra**.
+>
+> - El equipo **sí** se descuenta de la bodega y **sí** es un gasto de la empresa. Eso no cambia.
+> - La orden **no genera factura**, por más que alguien guarde la cartera después.
+> - La orden **no admite valores**: ni costo de instalación, ni adicionales, ni descuento, ni
+>   abono recibido. Si trae alguno, el sistema no lo borra por su cuenta — te avisa para que
+>   decidas tú qué hacer con ese dinero.
+> - El técnico ve el aviso **aunque no tenga permiso para ver precios**: es justo él quien
+>   está en la casa del cliente decidiendo si le pide plata.
+> - En el detalle de la orden ves el **costo interno** de la visita (lo que le costó a la
+>   empresa en equipos y materiales), que no se le factura a nadie.
+>
+> La casilla también está en la pestaña **Instalaciones** de la ficha del cliente, que es por
+> donde se agenda un mantenimiento a alguien que ya es cliente.
+>
+> **Para quitarla después** hace falta el permiso *Editar Descuento y Cartera de Instalación*,
+> y **no se puede** marcar una orden que ya emitió factura: primero se anula la factura en
+> Facturación.
 
 ### 6.2 El día de la instalación
 
@@ -502,15 +613,42 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    >
    > En cores con PPPoE la IP del cliente antes ni se pedía ni se guardaba, así que el
    > técnico llenaba la IP local creyendo que era la del abonado y esa parte se perdía.
-2. **Carga los equipos y materiales** que usó, en *Equipos y materiales usados*. Los equipos con
-   serial se eligen de una lista —agrupada por quién los tiene— y los materiales se agregan con
-   su cantidad ("4 RJ45"). Puedes cargar **todos los que hagan falta**: la antena, el router, el
-   plato y los conectores.
-   > Sólo aparece lo que **tú** tienes asignado, más lo del técnico de esa orden. Si no ves nada,
-   > pide que te entreguen equipos en *Inventarios → Entregas y traspasos*.
+2. **Carga los equipos y materiales** que usó, en *Equipos y materiales usados*. Puedes cargar
+   **todos los que hagan falta**: la LDF, el router, los amarres y el cable.
+   - **Equipos con serial (una unidad concreta).** Eliges la unidad exacta: cada opción muestra
+     *modelo · serial · MAC*, y si falta alguno lo dice («MAC sin informar»). Puedes filtrar por
+     modelo y **buscar por serial o MAC** (sin importar mayúsculas ni los «:»). Elegir en la lista
+     no descuenta nada: la unidad se registra al pulsar **Agregar**, y en la línea queda su serial
+     y su MAC.
+   - **Materiales por cantidad** (amarres y RJ45 por unidades, cable por metros): eliges el
+     material y de quién sale, escribes la cantidad y pulsas **Agregar**.
+   > Sólo aparece lo que **tú** puedes registrar: lo tuyo, lo del técnico de esa orden y —si
+   > administras inventario— las bodegas. El apartado de equipos con serial **siempre se ve**; si
+   > no tienes ninguna unidad a mano, te lo explica y te dice el siguiente paso: pedir que te la
+   > entreguen en *Inventarios → Entregas y traspasos*, o que la registre quien la tenga.
    >
-   > Cada línea **se descuenta del inventario** y queda en el historial del equipo. El botón
-   > **Devolver** deshace la carga y regresa la existencia a su dueño.
+   > **Arriba verás lo previsto en la orden** frente a lo usado («Cable: previsto 30 m, usado
+   > 20 m») y, debajo de cada producto, cuánto tienes **tú** a tu alcance para registrarlo —que no
+   > es lo mismo que lo que hay en la empresa—. En los equipos por serial, **Elegir serial** te
+   > lleva al selector ya filtrado por ese modelo; no registra nada, la unidad la eliges tú. En los
+   > materiales, **Preparar** deja listo el material y la cantidad que falta; revisa y pulsa
+   > **Agregar** para descontarlo. Si no hay saldo a tu alcance, lo dice.
+   >
+   > **La sección de materiales siempre aparece.** Si no hay nada que puedas usar, un recuadro te
+   > explica por qué: que no hay productos creados *por cantidad*, que ninguno tiene saldo, o que
+   > el saldo lo tiene una bodega o una persona de la que tú no puedes tomar. Es una explicación
+   > general: si un material concreto no aparece, revisa en *Inventarios → Stock* que esté creado
+   > **por cantidad** y en qué bodega o persona tiene su saldo.
+   >
+   > Cada línea **se descuenta del inventario una sola vez** y queda en el historial del equipo.
+   > El botón **Quitar** sólo sirve para corregir **una captura equivocada antes de firmar**
+   > («cargué el router que no era»): la existencia vuelve a quien la aportó como si nunca se
+   > hubiera usado. **No lo uses para devolver material que sí se gastó** — esa corrección todavía
+   > no existe en el sistema.
+   >
+   > Una vez **firmada** la orden, sus equipos y materiales quedan como se firmaron: no se agregan
+   > ni se quitan líneas (aunque elimines el PDF para volver a firmar). A una orden **cancelada**
+   > no se le cargan equipos.
    >
    > El primer equipo que cargues rellena solo marca, modelo, MAC y serial de la hoja. Ya no hay
    > campo *Modelo de antena*: ese dato sale del equipo que cargaste.
@@ -524,9 +662,15 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > el sistema la rechaza y te lo dice.
 4. **Registra el cobro**: costo de instalación, cargos adicionales, descuento (con motivo),
    forma de pago y cuánto recibió.
-   > El desplegable **Cobrar equipo de la instalación** trae los equipos que ya cargaste, con su
-   > precio. Sólo ofrece lo que de verdad se descargó, para que la factura y el acta no digan
-   > cosas distintas.
+   > Si la orden está marcada **Sin cobro al cliente**, este bloque aparece con los campos de
+   > dinero apagados y no se emite factura. La casilla está arriba del bloque, por si hay que
+   > quitarla porque al final sí se cobra.
+   > El desplegable **Cobrar equipo de la instalación** trae los equipos **y materiales** que ya
+   > cargaste, con su precio. También puedes pulsar **Cobrar** en la línea, dentro de la hoja. Sólo
+   > ofrece lo que de verdad se descargó, para que la factura y el acta no digan cosas distintas,
+   > y **cobrar no vuelve a descontar el inventario**. Una línea ya agregada no se vuelve a ofrecer
+   > mientras no guardes; después de guardar, revisa que no la cobres dos veces. Los servicios
+   > (visita, mano de obra) se siguen agregando con **+ Agregar adicional**.
 5. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
    **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
    para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
@@ -932,11 +1076,52 @@ Y al guardar el recaudo te dice cómo terminó:
 
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
-| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router confirmó la reconexión | Nada |
-| 🔴 *Pago registrado — revisar reconexión* | Quedó activo en el sistema, pero el **router no confirmó** | Ir a **Acciones masivas → reconexiones fallidas** y reintentar |
+| 🟢 *Pago registrado y cliente reactivado* | Quedó al día y el router **confirmó** la reconexión | Nada |
+| 🔴 *Pago registrado — el servicio NO quedó reactivado* | El dinero entró, pero el servicio **sigue cortado** | Leer el motivo y hacer lo que indica el aviso (ver abajo) |
 | 🟠 *Pago registrado — sigue suspendido* | Le quedan facturas **vencidas** sin pagar | Cobrar el resto; el mensaje dice cuántas faltan |
 
 El mismo aviso sale en la pestaña **Facturación** de la ficha del cliente.
+
+#### ⚠️ «El servicio NO quedó reactivado»: qué es y qué hacer
+
+Es el aviso más importante de esta pantalla. Significa exactamente esto:
+
+> **El pago SÍ se registró.** La factura quedó paga y el dinero está contabilizado. No lo
+> vuelvas a cobrar. Lo que no se pudo hacer es **volver a prender el servicio**, y el cliente
+> se va a ir creyendo que ya tiene internet.
+
+El aviso es rojo, ocupa su propio recuadro y **no se va solo**: sigue visible en la pestaña
+**Facturación** de la ficha del cliente hasta que el problema se resuelva. Siempre dice el
+motivo y qué hacer:
+
+| Motivo | Qué pasó | Qué hacer |
+|---|---|---|
+| **Sin router asignado** | El cliente no tiene ningún router en su ficha de servicio | Asignarle el router en la ficha del cliente y reintentar |
+| **Router no configurado** | El router del cliente no está dado de alta en el sistema | Crearlo en **Routers** y volver a asignarlo al cliente |
+| **Router no disponible** | El equipo está inactivo, en mantenimiento o con falla general | Revisar el estado del router; reintentar cuando vuelva |
+| **Configuración incompleta** | Faltan datos para operar el equipo (acceso del router o IP del cliente) | Completar los datos que falten y reintentar |
+| **Error de comunicación** | No se pudo hablar con el router | Reintentar; si sigue fallando, revisar la conexión del equipo |
+
+**Botón «Reintentar reconexión».** Aparece sólo si tu usuario tiene permiso para ejecutar
+acciones masivas. Si no lo ves, no es un error: pásale el caso a quien administre los routers,
+o reconecta al cliente a mano en el equipo. Mientras un reintento está corriendo el botón se
+bloquea; si alguien más lo está intentando a la vez, el sistema avisa en vez de duplicar la
+operación.
+
+**El sistema también reintenta solo.** Cada hora vuelve a intentar las reconexiones
+pendientes, cada vez con más espacio entre intentos. Si el router vuelve a responder o
+completas el dato que faltaba, el cliente queda reconectado y la alerta desaparece sin que
+hagas nada. Tras varios intentos fallidos se detiene y el caso queda marcado como *agotado*
+en **Acciones masivas**: ahí sí necesita una persona.
+
+> 💡 **Por qué el pago se guarda igual.** Cobrar y reconectar son dos cosas distintas. Que el
+> router no responda no es razón para perder un recaudo ni para hacer que el cliente pague dos
+> veces: el dinero queda registrado y el problema del equipo se resuelve aparte.
+
+> ⚠️ **Ojo con el cliente que figura ACTIVO y sigue sin internet.** Cuando el pago cubre la
+> deuda, el sistema marca al cliente como activo aunque el router no haya confirmado — si no lo
+> hiciera, el proceso automático de cortes volvería a cortarlo por moroso al día siguiente. Por
+> eso la alerta roja existe: es la única señal de que el equipo todavía no se enteró.
 
 ### 8.2.1 Abonos parciales: el saldo pasa a la próxima factura
 
@@ -987,7 +1172,7 @@ Para acotar la lista:
 | Fecha | Dos casillas: **desde** y **hasta** (ambas fechas incluidas). Puedes usar solo una |
 | Cliente | Nombre, apellido, nombre completo o cédula |
 | Monto | Dos casillas: **mínimo** y **máximo** |
-| Método | Lista con tus formas de pago |
+| Método | Lista con tus formas de pago, **incluidas las desactivadas** (salen con «(inactiva)»). Trae también los pagos registrados antes de que le cambiaras el nombre a esa forma de pago |
 | Referencia | Parte del número de comprobante |
 | Registrado por | Nombre del usuario que lo registró. Escribe `sistema` para ver los pagos automáticos (los de instalación, que no los registró una persona) |
 | Facturas afectadas | Número (o parte) de una factura cubierta por el recaudo |
@@ -997,6 +1182,17 @@ los filtros de golpe.
 
 También puedes **ordenar** pulsando en los títulos **Fecha**, **Monto**, **Método** y
 **Referencia**; el segundo clic invierte el orden.
+
+**Si le cambias el nombre a una forma de pago** (en *Formas de pago*), los pagos que ya
+tenía pasan a mostrarse con el nombre nuevo y siguen saliendo en su filtro: no se pierde
+ninguno. Pasando el mouse por encima del método ves con qué nombre se registró cada pago,
+si era distinto.
+
+**Pagos con la marca «histórico»:** son pagos cuya forma de pago no está en tu catálogo —
+por ejemplo, porque le cambiaste el nombre antes de la actualización del 26/09/2026, o
+porque vinieron de una integración con otro nombre. Se muestran con el nombre con que se
+registraron, y ese nombre **no se pierde**. Para pasarlos a una forma de pago de tu
+catálogo, edita el pago y elígela.
 
 **Los colores de la lista:** cada forma de pago tiene su color fijo, para distinguirlas
 de un vistazo. Los números de **Facturas afectadas** usan el mismo código de color que
@@ -1013,6 +1209,46 @@ En el pie de la tabla eliges cuántos recaudos ver por página (15, 25, 50, 100 
 
 Desde la lista de pagos. Al eliminarlo, las facturas que había cubierto vuelven a quedar
 con saldo.
+
+Al **editar** un pago, el campo **Método** abre siempre con la forma de pago que tiene el
+pago, aunque le hayas cambiado el nombre, la hayas desactivado o sea un método histórico
+(sale como «… (histórico)»). Si sólo corriges el monto, la fecha o la referencia, **la
+forma de pago no cambia**. Sólo cambia si eliges otra en la lista.
+
+> **Borrar o desactivar una forma de pago:** si la **desactivas**, ya no se ofrece para
+> pagos nuevos pero los que ya tiene siguen enlazados a ella. Si la **borras**, esos pagos
+> quedan como «histórico» con su nombre original. Si sólo quieres retirarla, desactívala.
+
+### 8.4.1 Anular una factura
+
+**Una factura emitida no se elimina: se anula.** Tiene número consecutivo y respalda lo que
+se cobró; borrarla dejaría un hueco en la contabilidad que nadie nota hasta que alguien
+reclama.
+
+Anular la deja **sin efecto conservándolo todo**: el número, el importe, el cliente, las fechas,
+el detalle y —si vino de un ticket— el vínculo con ese ticket. Lo que cambia es que deja de
+cobrarse: sale de los totales, de los recordatorios y del cálculo de mora.
+
+**Cómo se anula.** Botón **Anular**, en el listado de facturas o en el detalle. Pide dos cosas:
+
+1. Un **motivo** de al menos 10 caracteres. Queda firmado con tu nombre en la bitácora.
+2. Escribir **ANULAR** para confirmar.
+
+**Si la factura tenía pagos**, ese dinero vuelve como **saldo a favor** del cliente. El recaudo
+**no** se borra —el dinero entró— pero queda suelto hasta que alguien lo aplique a otra factura.
+El aviso del modal te dice exactamente cuánto es antes de confirmar.
+
+**Una factura anulada es de sólo lectura.** No se puede editar, ni añadirle ítems, ni marcarla
+como no pagada. Sigue viéndose en el listado, con el motivo y quién la anuló.
+
+**Si la factura era el cargo de un ticket**, anularla es lo que permite archivar ese ticket
+después (ver 14.3).
+
+> **¿Y el botón «Eliminar»?** Sólo aparece para un borrador que nunca llegó a emitirse — sin
+> número y sin ticket. En la práctica no verás ninguno: toda factura nace con su número.
+>
+> El permiso se llama **Anular Factura** y es distinto de **Eliminar Factura**. Si tu rol tenía
+> el de eliminar, recibió el de anular automáticamente.
 
 ### 8.5 Saldo a favor
 
@@ -1172,6 +1408,19 @@ que ya estaban mal marcados siguen navegando aunque el router ya esté bien conf
 
 **Finanzas → Gastos.**
 
+> **¿Quieres que la compra de equipos entre sola al balance?** Se puede activar en
+> *Configuración → Sistema → Gasto automático al ingresar inventario*. Con eso, cada vez que
+> ingreses equipos o material se crea el gasto solo, por el precio del catálogo × la cantidad.
+>
+> ⚠️ **No lo actives si ya registras las facturas de compra como gasto**: se contaría dos veces la
+> misma compra y el balance mostraría menos utilidad de la real. Viene **apagado** justamente por
+> eso.
+>
+> Detalles que conviene saber: si un modelo no tiene precio en el catálogo no se crea el gasto y
+> se te avisa en el momento; el importe queda congelado (cambiar el precio del catálogo después no
+> toca los gastos ya creados); y si borras el equipo, el gasto **se anula**, no se borra. Sólo ve
+> y cambia esta opción quien tenga permiso de *Lista de Gastos*.
+
 > Las **categorías de gasto** ahora se ven como tarjetas en lugar de una tabla
 > (*Finanzas → Categorías de gasto*): cada tarjeta muestra el concepto con sus
 > botones de editar y eliminar. Es el mismo formato que *Formas de pago*.
@@ -1210,6 +1459,10 @@ versión de firmware y estado.
 **Puertos:** por defecto API 8728 y web 80. **Si el SSH del equipo no está en el 22, tienes
 que indicarlo en el campo de puerto SSH**, o el sistema no podrá conectarse.
 
+**Al editar un router, la contraseña aparece vacía.** No se borró: por seguridad, el sistema
+ya no la muestra ni la envía al navegador. Si dejas el campo en blanco, se conserva la que
+estaba guardada. Escribe una solo si quieres cambiarla.
+
 ### 11.2 El método de control
 
 Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **uno activo**:
@@ -1221,18 +1474,56 @@ Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **un
 | **HotSpot** | Clientes que entran con usuario y contraseña en un portal |
 | **PPPoE** | Clientes con usuario y contraseña de conexión |
 | **DHCP Leases** | Asignación fija por dirección MAC |
-| **RADIUS (AAA)** | Tienes un servidor RADIUS que autentica a los clientes |
+| **RADIUS (AAA)** | Tienes tu propio servidor de autenticación y es él quien gestiona la red |
 
 > **RADIUS funciona al revés que los demás.** Con los otros métodos, ISPWatch entra al
 > router y escribe la configuración de cada cliente. Con RADIUS es el router el que
-> pregunta e ISPWatch responde, así que **los clientes ya no se cargan uno por uno en el
+> **pregunta a tu servidor**, así que **los clientes ya no se cargan uno por uno en el
 > Mikrotik**: dar de alta a alguien es instantáneo y las cargas masivas dejan de fallar
 > por demora.
 >
-> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**.
-> La configuración del servidor RADIUS (secreto compartido, puertos, perfiles) se hace
-> **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para que
-> el sistema deje de escribirle configuración por su cuenta.
+> Para usarlo, los clientes de ese router necesitan **usuario y contraseña PPPoE**. La IP
+> es opcional: en este modo ISPWatch no la usa. La configuración del servidor (secreto compartido, puertos, perfiles) se
+> hace **en ese servidor**, no en ISPWatch: aquí sólo marcas que el router lo usa, para
+> que el sistema deje de escribirle configuración por su cuenta.
+
+**ISPWatch no responde las consultas RADIUS.** Quien autentica es tu servidor; ISPWatch
+se queda con la parte comercial. En un router con este método:
+
+- **Deja de hacer**: cargar clientes en el Mikrotik, crear queues, listas PCQ, usuarios
+  de HotSpot, secrets PPPoE o leases DHCP, instalar reglas de bloqueo, y **cortar o
+  reconectar** en el equipo.
+- **Sigue haciendo**: facturar, calcular la mora, **decidir a quién cortar y cuándo**, y
+  reactivar al cliente en cuanto paga.
+
+El corte por mora funciona así: ISPWatch pasa el servicio a **suspendido** y publica el
+cambio; **tu sistema lo ejecuta**. Al pagar, lo reactiva y publica la reconexión.
+Ten presente que **ISPWatch no puede comprobar que el corte se aplicó**: eso ocurre en tu
+servidor. En los otros métodos verifica y reintenta; aquí la verificación es tuya.
+
+Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos,
+datos de VPN, IP, usuario y contraseña del equipo y versión de firmware**. Sólo son
+obligatorios el nombre y el estado. Si después pasas el router a otro método de control, el
+formulario te pedirá esos datos antes de guardar, porque ahí sí se conecta al equipo. Como ISPWatch no se conecta
+a ningún equipo, **un router puede ser sólo un agrupador** y no un Mikrotik real — útil
+para separar clientes por criterio propio, ya que la facturación se configura por router.
+Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP
+ni el mismo usuario PPPoE.
+
+El corte automático por mora sólo ocurre si el router tiene configuración de facturación y
+tipo de corte **Corte Automático**. Al mover un cliente a otro router, toma la facturación
+del router nuevo; si el router anterior lo gestionaba ISPWatch, su configuración se retira
+de ese equipo en segundo plano (ver 5.3). Al eliminar un cliente de un router RADIUS,
+ISPWatch no intenta conectarse al equipo.
+
+Tu servidor AAA se entera de todo esto —cortes, reconexiones, bajas, clientes eliminados,
+cambios de router, de IP y de usuario PPPoE— por el listado de cambios de la API (sección 19).
+
+> El método es **por router, no por cliente**. Para probarlo, crea un router aparte, mueve
+> un solo cliente y valida el ciclo completo antes de tocar el resto.
+>
+> Todo esto está también en el Centro de Ayuda de la aplicación, en *Routers y Red →
+> «RADIUS (AAA): cuando otro sistema gestiona la red»*.
 
 Y dos opciones **adicionales** que se suman al método elegido:
 
@@ -1432,6 +1723,11 @@ Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**
 Cada elemento tiene tres pestañas: **Fotos** (para documentar la instalación en campo),
 **Notas** (observaciones de mantenimiento) e **Historial** (registro automático de cambios).
 
+Las fotos solo las ve quien tiene sesión iniciada en tu empresa, con permiso de sectoriales
+o de soporte. Un enlace copiado no sirve fuera de esa sesión. Desde el 2026-10-05 se guardan
+en almacenamiento permanente. Las subidas **antes** de esa fecha pueden aparecer sin imagen:
+se perdieron en un despliegue y no se pueden recuperar. Vuelve a subirlas si las necesitas.
+
 ---
 
 ## 13. Planes de internet
@@ -1469,20 +1765,322 @@ Dos opciones importantes:
 4. Elige **categoría** (Técnico, Facturación, Servicios, General) y **prioridad**
    (Baja, Media, Alta, Urgente).
 5. Si el problema es de un elemento de red concreto, selecciona el **sectorial** afectado.
-6. Guarda.
+6. Si la visita **no se le cobra al cliente**, marca **Sin cobro al cliente** en el bloque
+   *Cargo Asociado*. Con eso el ticket no podrá generar cargos — ni hoy ni dentro de un mes.
+7. Guarda.
 
 ### 14.2 Trabajar el ticket
 
 Dentro del ticket puedes:
 
 - **Añadir mensajes**. Puedes marcarlos como **internos**: esos no los ve el cliente.
-- **Cambiar el estado**: Abierto → En progreso → Resuelto → Cerrado.
+- **Mover el ticket por el ciclo de vida** (ver 14.3).
 - **Adjuntar archivos**.
 - **Generar un cargo**: si la visita se cobra, esto crea una factura ligada al ticket.
+  > Si el ticket está marcado **Sin cobro al cliente**, el botón no aparece y el bloque te
+  > explica por qué. Para volver a poder cobrarlo, quita la marca en **Editar ticket**: queda
+  > registrado en el historial quién la quitó y cuándo.
+  >
+  > **El interruptor «Cargo Asociado» del alta no bastaba.** Que venga apagado sólo significa
+  > que ese día no se cobró; el ticket seguía admitiendo cargos para siempre. La marca es lo
+  > otro: una prohibición.
+- **Entregar y retirar equipos**, en el bloque **Equipos de la visita** (nuevo el 2026-09-24).
 
-### 14.3 Estadísticas
+### 14.2.2 Equipos de la visita
+
+Hasta ahora, para dejarle un equipo a un cliente había que abrir una **orden de instalación**.
+En una visita de soporte no había forma: el técnico cambiaba el router y sólo podía escribir a
+mano «router nuevo» en el cargo, así que **el equipo seguía figurando disponible en la bodega
+para siempre** y el viejo se quedaba marcado como instalado en casa del cliente.
+
+Ahora el ticket tiene su propio bloque, y funciona en los dos sentidos:
+
+- **Entregar equipo con serial.** Eliges la unidad exacta —*modelo · serial · MAC*, agrupadas por
+  quién las tiene—, con filtro por modelo y búsqueda por serial o MAC, y pulsas **Entregar**.
+  Queda a nombre del cliente del ticket y sale de tu inventario. Si no tienes ninguna unidad a
+  mano, el apartado sigue visible y explica qué hacer.
+- **Retirar equipo del cliente.** Aparece lo que ese cliente tiene instalado hoy. Eliges a dónde
+  va —a tu nombre, a una bodega, o **de baja** si volvió inservible— y el equipo deja de figurar
+  en su casa.
+  > **«Dar de baja» no es lo mismo que devolver.** Un router quemado devuelto a la bodega vuelve
+  > a contar como disponible, y alguien lo va a prometer en la siguiente instalación. Si el
+  > equipo no sirve, márcalo de baja: el botón se pone rojo y te lo advierte. Si te equivocas,
+  > la papelera deshace el movimiento y el equipo vuelve a figurar en casa del cliente.
+- **Agregar material** (amarres y RJ45 por unidades, cable por metros) con su cantidad, igual que
+  en la instalación. En la misma visita puedes entregar una unidad con serial y gastar materiales.
+
+> Sólo ves lo que **tú** tienes asignado, más lo del técnico asignado al ticket. Las bodegas sólo
+> si administras inventario. Si no ves nada, pide que te entreguen equipos en
+> *Inventarios → Entregas y traspasos*.
+>
+> Cada línea **mueve el inventario de verdad** y queda en el historial del equipo y del ticket.
+>
+> **La sección de materiales siempre aparece** (desde el 30/09/2026). Si no hay nada que puedas
+> usar, un recuadro explica por qué, igual que en la instalación. Antes, al técnico que no tenía
+> permiso para editar el ticket la lista ni siquiera se le cargaba y el bloque quedaba vacío sin
+> explicación.
+
+#### Cobrar lo usado
+
+Cada entrega o material usado tiene un botón **Cobrar**: abre el formulario de *Cargos del
+Ticket* con esa línea ya cargada (descripción, cantidad y precio). También está el desplegable
+**+ Cobrar equipo del ticket** dentro del formulario. **Cobrar no vuelve a descontar el
+inventario**: el equipo ya salió cuando se registró la entrega. Los servicios (visita técnica,
+mano de obra) se agregan como ítem manual. Una línea ya agregada no se vuelve a ofrecer en el
+mismo cargo; entre cargos distintos, revisa que no se cobre dos veces.
+
+#### Ticket cerrado
+
+Con el ticket **cerrado** la hoja de equipos se puede leer y cobrar, pero **no** se entregan,
+consumen, retiran ni deshacen equipos. Si falta registrar algo, primero **reabre el ticket**
+(pide motivo y queda en el historial) y luego registra el movimiento.
+
+#### ¿Quién puede usar este bloque?
+
+Hace falta el permiso **«Tickets · entregar y retirar equipos en la visita»**
+(`ticket_equipment`), en *Configuración → Roles*. Al actualizar, se le concedió solo a los roles
+que ya tenían **«Tickets · registrar intervenciones técnicas»**, que son los que atienden en
+campo. Si tu técnico no ve el bloque, es esa casilla.
+
+**No hace falta «Editar contenido del ticket».** Es a propósito: el técnico de campo carga el
+equipo de su visita sin poder cambiar el asunto, la categoría ni a quién está asignado.
+
+#### Deshacer un movimiento
+
+El botón de la papelera **no borra la línea**: la deshace y la deja escrita.
+
+- Te pide un **motivo** (mínimo 10 caracteres). Es obligatorio.
+- El inventario vuelve a su sitio: una entrega vuelve a quien la aportó, un retiro vuelve a
+  figurar en casa del cliente.
+- La línea **sigue en la hoja**, tachada, con quién la deshizo, cuándo y por qué. No suma al
+  total de la visita ni se puede cobrar.
+
+> **Por qué no desaparece.** La hoja de equipos es parte del expediente del ticket. Que un
+> aparato haya entrado y salido es un hecho, y borrarlo dejaría al que audita el ticket meses
+> después viendo una visita sin equipos, sin forma de saber que hubo uno. Es la misma regla de
+> las intervenciones: se corrige, no se borra.
+>
+> Un movimiento ya deshecho no se vuelve a deshacer. Si hay que mover el equipo otra vez,
+> cárgalo de nuevo y quedan las tres líneas.
+>
+> Un **expediente archivado** no admite ni cargar ni deshacer: restáuralo primero.
+
+**Cargar un equipo no lo cobra.** Son dos cosas separadas a propósito: hay equipos que se
+entregan por garantía y no se facturan. Cuando sí haya que cobrarlo, abre **Nuevo Cargo** y usa
+el desplegable **«+ Cobrar equipo del ticket»**: trae la descripción y el precio del catálogo ya
+puestos, y los puedes cambiar antes de generar la factura.
+
+> Los equipos **retirados** no aparecen en ese desplegable. No se le cobra al cliente lo que se
+> le recogió.
+>
+> Si el ticket está marcado **Sin cobro al cliente**, los equipos se siguen cargando y
+> descontando del inventario —son gasto de la empresa—, pero el ticket no admite cargos.
+
+### 14.2.1 El ciclo de vida del ticket
+
+**Ya no se elige el estado de una lista.** Antes se podía pasar de un ticket recién recibido a
+«Cerrado» de un clic, sin causa, sin acción y sin resultado. Ahora el ticket **avanza por
+pasos**, y en el bloque **Ciclo de vida** sólo aparecen los que caben desde donde está.
+
+Los pasos son los del acuerdo con CNO:
+
+> **Radicado → En clasificación → En diagnóstico remoto → Asignado → Visita programada →
+> En intervención → Servicio restablecido → En observación → Cerrado**
+
+La **visita programada** y la **observación** se pueden saltar. Y se puede volver atrás dentro
+del trabajo: si el técnico llega y descubre que la falla era remota, el ticket vuelve a
+diagnóstico.
+
+Además hay **estados de espera**, para cuando el trabajo se detiene por algo ajeno: *pendiente
+del cliente, de material, de tercero, de infraestructura*, *no fue posible contactar*,
+*asociado a incidente masivo*, *duplicado* y *solución temporal*. Se entra en ellos desde
+cualquier punto del trabajo y se vuelve cuando la espera termina.
+
+> **«Servicio restablecido» no es «Cerrado».** Restablecido es el momento en que vuelve la
+> conectividad. Cerrado significa que la causa, la acción y el resultado quedaron documentados.
+> Son dos fechas distintas y el sistema guarda las dos.
+
+### 14.2.2 Registrar una intervención
+
+Una intervención es cada vez que alguien **atiende** el ticket: una visita al domicilio o una
+atención remota. Un ticket puede tener las que hagan falta.
+
+En el detalle del ticket, bloque **Intervenciones** → **+ Registrar intervención**:
+
+| Campo | Qué poner |
+|---|---|
+| **Tipo** | Presencial si hubo desplazamiento; Remota si se atendió desde la oficina |
+| **Inicio** | Cuándo empezó la atención |
+| **Técnico responsable** | Quien atendió. Sólo aparece personal de tu operador |
+| **Acompañante** | Opcional, si fueron dos |
+| **Hallazgo** | Qué se encontró al llegar |
+| **Acción realizada** | Qué se hizo |
+| **Resultado** | Cómo terminó |
+| **Próximo paso** | Qué queda pendiente, si algo |
+
+Si la atención ya terminó, marca **«Marcar como finalizada al guardar»** e indica la hora de
+fin. Si sigue en curso, déjala abierta y ciérrala después con el botón **Finalizar**.
+
+Las intervenciones se numeran solas: 1, 2, 3… dentro de cada ticket.
+
+### 14.2.3 Corregir una intervención ya finalizada
+
+**Una intervención finalizada no se puede editar.** No es un fallo de la pantalla: es
+deliberado. La intervención es la constancia de que alguien fue y actuó, y si pudiera
+modificarse sin dejar rastro dejaría de servir como evidencia.
+
+Tampoco se puede **borrar**. No hay botón de eliminar en ninguna parte.
+
+Para corregirla:
+
+1. Pulsa **Reabrir** en la intervención.
+2. Escribe el motivo (entre 10 y 500 caracteres). Es obligatorio.
+3. La intervención vuelve a quedar editable.
+4. Corrige lo que haga falta y vuelve a finalizarla.
+
+Todo eso queda en el **Historial** del ticket: quién reabrió, cuándo y por qué. La versión
+anterior no se pierde ni se sobrescribe en silencio.
+
+> **Un ticket archivado no admite intervenciones.** Si necesitas registrar una, restaura el
+> expediente primero.
+
+### 14.2.4 Evidencia de la visita
+
+Las fotos y archivos se suben como siempre, desde **Archivos Adjuntos** del ticket. Después
+puedes decir de qué intervención salió cada uno, para que el expediente muestre la evidencia
+junto a la visita que la produjo.
+
+El archivo **no se duplica**: es el mismo adjunto, sólo que ahora se sabe a qué visita
+pertenece.
+
+> **¿No ves el bloque de Intervenciones o no puedes registrar ninguna?** Necesitas el permiso
+> *«Tickets · registrar intervenciones técnicas»*. Quien ya podía adjuntar evidencia lo
+> recibió automáticamente; si te falta, pídeselo a quien administre los roles.
+
+### 14.2.5 Registrar pruebas técnicas
+
+Las pruebas son las mediciones del servicio: señal, latencia, potencia óptica, estado del
+PPPoE… Sirven para dos cosas: dejar por escrito **cómo estaba** el servicio y **cómo quedó**.
+
+En el detalle del ticket, bloque **Pruebas técnicas** → **+ Registrar medición**:
+
+| Campo | Qué poner |
+|---|---|
+| **Tipo de prueba** | Qué se midió. Campo libre, con sugerencias del documento del cliente |
+| **Resultado** | El valor. Admite números (`-76`, `93`) y texto (`conectado`) |
+| **Unidad** | `dBm`, `%`, `ms`… Se deja vacía si no aplica |
+| **Fecha y hora** | Cuándo se tomó, que no siempre es cuándo se registra |
+| **Origen** | De dónde salió: CPE, OLT, RADIUS, medición manual |
+| **Fase** | **Inicial**, **Seguimiento** o **Final** |
+| **Intervención** | De qué visita salió, si salió de una. Puede quedar en «Ninguna» |
+
+La tabla de arriba del bloque compara **Inicial → Seguimiento → Final** por cada tipo de
+prueba, para ver de un vistazo si el servicio mejoró.
+
+> **Sugerencias, no lista cerrada.** El tipo de prueba es un campo libre. Las sugerencias
+> salen del documento del cliente y están agrupadas por tecnología (común, radio, FTTH), pero
+> puedes escribir cualquier otra.
+
+### 14.2.6 Para cerrar hace falta una prueba final
+
+Desde ahora, **un ticket no se cierra sin medición final** — o sin explicar por qué no fue
+posible tomarla. Es una regla del documento del cliente, no una decisión de la herramienta.
+
+El aviso aparece en dos sitios, siempre **antes** de intentar cerrar:
+
+- En el bloque de Pruebas técnicas, si todavía no hay ninguna final.
+- En la lista de «requisitos que faltan» del panel de gestión del ticket.
+
+Si no pudiste medir, al proponer o cerrar el ticket la pantalla te pedirá dos cosas:
+
+1. **Una razón**, de una lista: el cliente no permitió continuar · no fue posible contactarlo ·
+   equipo apagado o sin energía · pendiente de un tercero · otro.
+2. **Una justificación** escrita, entre 10 y 500 caracteres. Es obligatoria siempre, no sólo
+   con «otro»: la razón dice *qué* pasó, la justificación dice *qué pasó en este ticket*.
+
+Las dos quedan en el historial con tu nombre y la fecha.
+
+### 14.2.7 Corregir una medición
+
+Una medición **no se borra**. Si tecleaste mal un valor, pulsa **Corregir** y arréglalo: el
+historial guarda el valor anterior y el nuevo.
+
+Sólo se puede mientras el ticket siga abierto. Una vez cerrado, el expediente no se retoca —
+si de verdad hace falta, primero hay que reabrir el ticket, y eso también queda registrado.
+
+> **¿No ves el bloque o no puedes registrar?** Necesitas el permiso *«Tickets · registrar
+> intervenciones técnicas»*, el mismo que las visitas.
+
+### 14.3 Cerrar y reabrir un ticket
+
+**Proponer el cierre.** Cuando el técnico termina, pulsa **Proponer cierre**. Esto **no cierra**
+el ticket: lo deja *En observación*, esperando al supervisor, con la acción, el resultado y una
+observación técnica obligatoria. Sirve para separar a quien hizo el trabajo de quien acredita
+que está bien hecho.
+
+**Cerrar.** Sólo con el permiso *Cerrar ticket*. El sistema exige que el expediente tenga:
+
+1. **Causa confirmada**
+2. **Acción o solución registrada**
+3. **Resultado técnico**
+
+Si falta algo, el bloque **Ciclo de vida** te lo dice **antes** de abrir el cuadro de cierre, con
+la lista de lo que falta. Cerrar **no borra nada**: la causa sospechada, las notas, los adjuntos
+y los estados anteriores se quedan.
+
+**Cierre especial.** Para cuando hay que cerrar sin uno de esos requisitos. Exige permiso aparte,
+un motivo de al menos 10 caracteres, y deja en el historial **cuál requisito faltó** y quién lo
+autorizó. No es un cierre normal con otro nombre: se distingue en la bitácora. Si no falta nada,
+el sistema lo rechaza y te manda al cierre normal.
+
+**Reabrir.** Si la falla reaparece. Exige permiso propio y un motivo de al menos 10 caracteres.
+El ticket vuelve al estado *Reabierto* y sigue el flujo desde ahí. **La fecha del cierre anterior
+no se borra**: queda como parte del histórico.
+
+> **¿No ves el botón «Reabrir» en un ticket cerrado?** El bloque **Ciclo de vida** te dice por
+> qué. Si dice que hace falta el permiso **«Tickets · reabrir»**, pídeselo a quien administre los
+> roles: **Configuración → Roles**, marcar esa casilla en el rol correspondiente.
+>
+> Los roles **Administrador** lo reciben automáticamente al actualizar. Staff, Técnico y
+> Contabilidad **no**: reabrir revierte una decisión de cierre, y esa autoridad está en el
+> supervisor. Un ISP que quiera dársela a otro rol lo hace desde esa misma pantalla.
+
+> Un ticket **archivado** no se mueve, ni se cierra, ni se reabre. Primero hay que restaurarlo
+> (ver 14.4).
+
+### 14.4 Archivar un ticket
+
+**Un ticket no se puede eliminar.** Es el expediente oficial del caso y su historial tiene que
+poder consultarse siempre. Lo que sí puede hacer un **Administrador** es **archivarlo**: el
+ticket sale de los listados, de las estadísticas y de la API, pero **no se borra nada** — ni
+notas, ni adjuntos, ni cargos, ni el historial. Y se puede restaurar cuando quieras.
+
+**Cómo se archiva.** En el detalle del ticket, botón **Archivar**. Te pedirá dos cosas:
+
+1. Un **motivo** de al menos 10 caracteres. Queda firmado con tu nombre en el historial.
+2. **Escribir el número del ticket**. Es a propósito: obliga a mirar cuál estás archivando.
+
+**Un ticket abierto o en progreso pide más.** Tiene trabajo en curso, así que sólo se archiva
+si es un **duplicado** o un **error de registro**, y hay que marcar una casilla de confirmación.
+Si el trabajo simplemente terminó, **ciérralo** en vez de archivarlo: así sigue contando en las
+estadísticas, que es donde debe estar.
+
+**Un ticket con un cargo sin anular no se puede archivar.** Primero hay que anular la factura.
+Si el cargo se sigue cobrando, su expediente no puede desaparecer de la vista.
+
+**Cómo se restaura.** En **Soporte → Ver archivados** tienes el listado, con el motivo y quién
+archivó cada uno. El botón **Restaurar** pide también un motivo, y el ticket vuelve con el mismo
+estado que tenía.
+
+> La vista de archivados y los dos botones **sólo aparecen si tu rol es Administrador**.
+
+### 14.5 Estadísticas
 
 **Soporte → Estadísticas** muestra tickets por estado, por prioridad y por categoría.
+Los tickets archivados **no** cuentan en estas cifras.
+
+Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificación* cuentan como
+**abiertos**; *Asignado*, *En intervención* y las esperas, como **en progreso**.
 
 ---
 
@@ -1508,10 +2106,25 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
 - **Por cantidad** — RJ45, cable, platos, cinta. No se registra uno por uno: se lleva un saldo
   ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida: unidad, metro, rollo.
 
-Esto no se puede cambiar a la ligera una vez el modelo tiene existencias, porque las dos formas
-de contar no se mezclan.
+Esto **no se puede cambiar** una vez el modelo tiene existencias, porque las dos formas de contar
+no se mezclan. Si lo intentas, el sistema te lo impide y te dice cuántas existencias hay que mover
+primero. No es un capricho: al cambiarlo, lo que ya estaba registrado dejaría de contarse en
+ningún lado — no se borraría, simplemente nadie lo volvería a ver.
 
-### 15.2 Entregar equipos a un técnico
+Para cambiarlo, primero deja el modelo en cero (dando de baja o traspasando lo que tenga).
+
+### 15.2 Material sin custodio
+
+Si borras una sucursal o un usuario que tenía material por cantidad, **ese material no se borra**.
+Sería peor: desaparecerían existencias sin que nadie se entere.
+
+Lo que pasa es que queda sin dueño, y lo verás en un aviso amarillo arriba de **Movimientos**:
+*"Material sin custodio"*, con qué es, cuánto hay y dónde estaba. El botón **Traspasar** te deja
+pasárselo a una sucursal o a una persona actual, y con eso vuelve a estar contado.
+
+Vale la pena revisar ese aviso después de borrar una sucursal o dar de baja a un técnico.
+
+### 15.3 Entregar equipos a un técnico
 
 **Inventarios → Entregas y traspasos.** Eliges de dónde sale (una bodega o una persona), marcas
 los equipos y escribes las cantidades de material, eliges a quién entra y registras.
@@ -1523,7 +2136,7 @@ para dar de alta consumibles comprados.
 **Nada se borra nunca.** Un movimiento equivocado se corrige con el movimiento contrario, y los
 dos quedan en el historial.
 
-### 15.3 Qué equipos puede usar cada quien
+### 15.4 Qué equipos puede usar cada quien
 
 Al llenar la hoja de una instalación, el técnico **sólo ve lo que tiene asignado**. No puede usar
 un equipo que carga otro técnico: primero se lo tienen que traspasar. Quien administre inventario
@@ -1535,7 +2148,7 @@ en el historial. Si te equivocaste, el botón **Devolver** lo regresa a su dueñ
 
 Un equipo instalado queda ligado al cliente y ya no aparece como disponible para nadie.
 
-### 15.4 Borrar un equipo de la lista
+### 15.5 Borrar un equipo de la lista
 
 **Un equipo que está instalado en casa de un cliente no se puede borrar.** Si lo intentas, el
 sistema te lo dice y no lo borra: si desapareciera, la instalación de ese cliente se quedaría
@@ -1554,6 +2167,13 @@ no para dar de baja lo que ya se usó.
 **Si al guardar te dice que el serial o la MAC ya están registrados**, es que ya tienes otro
 equipo tuyo con ese mismo dato: búscalo en la lista antes de volver a cargarlo. Los seriales de
 otras empresas no te bloquean; sólo cuentan los de tu propio inventario.
+
+Desde septiembre de 2026, **las mayúsculas no cuentan**: `SN-001` y `sn-001` son el mismo
+equipo para el sistema, y también lo son si sólo se diferencian en un espacio al final —lo
+típico al pegar el serial desde una hoja de cálculo—. Antes entraban como dos equipos
+distintos, y esas dos filas hacían fallar después la importación masiva sin que se entendiera
+por qué. El serial se guarda **tal como lo escribes**, para que coincida con la etiqueta del
+equipo; lo único que cambia es cómo se compara.
 
 Las cuatro tarjetas de arriba en **Lista de equipos** cuentan cada catálogo por separado:
 *Total dispositivos* son los equipos registrados, y *En stock*, *Proveedores* y *Sucursales*
@@ -1578,12 +2198,13 @@ aparecen en pantalla:
 
 | Grupo | Permisos |
 |---|---|
-| **Clientes** | Lista de Clientes · Agregar Clientes · Editar Servicio Internet · Activar y Desactivar Clientes · Editar Descuento · Editar Saldo Pendiente · Eliminar Instalaciones · Tráfico Clientes |
-| **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · Eliminar Factura · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
+| **Clientes** | Lista de Clientes · Agregar Clientes · Editar Servicio Internet · Activar y Desactivar Clientes · Editar Descuento y Cartera de Instalación · Editar Saldo Pendiente · Tráfico Clientes · Eliminar Clientes |
+| **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · **Anular Factura** · Eliminar Factura (sólo borradores) · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
 | **Contabilidad** | Lista de Gastos · Editar Gasto · Lista de Facturas · Registrar Pagos · Editar Fecha de Pago · Registrar Pago Mayor 3 Días · Agregar Transferencia · Eliminar Transferencia |
 | **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
-| **Inventario** | Ver Inventario |
-| **Soporte** | Ver Soporte Técnico |
+| **Inventario** | Ver Inventario · **Eliminar de Inventario** |
+| **Instalaciones** | Ver Costo de Instalación · Eliminar Instalaciones |
+| **Soporte** | Ver Soporte Técnico · los permisos de tickets (ver, crear, editar, asignar, diagnosticar, adjuntar, cerrar…) |
 | **Facturación** | Ver Facturación |
 | **Sistema** | Ver Personal · Gestionar Roles · Gestionar Configuración de Empresa · Gestionar Plantillas de Documentos · Ver Ajustes del Sistema · Ejecutar Acciones Masivas |
 
@@ -1592,14 +2213,39 @@ aparecen en pantalla:
 | Rol | Alcance |
 |---|---|
 | **Administrador** | Todo, sin excepción |
-| **Técnico** | Sólo clientes: verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones. **No ve dinero**: ni facturas, ni pagos, ni gastos |
+| **Técnico** | Sólo clientes: verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones. **No ve dinero**: ni facturas, ni pagos, ni gastos. Tampoco el valor de la instalación, salvo que le marques **Ver Costo de Instalación** |
 | **Contabilidad** | Todo lo de plata: facturas, pagos, gastos, transferencias y estadísticas. **No gestiona la red** ni el personal |
 | **Staff** | El operador de mostrador: clientes, planes, sectoriales, inventario, soporte, ver facturación y registrar pagos. **No borra facturas ni toca configuración** |
 | **Cliente** | Sin permisos de gestión. Es el rol de los clientes finales |
 
+> **Si un técnico no ve el valor de la instalación**, la casilla que busca es
+> **Instalaciones → Ver Costo de Instalación**. Abre el bloque *Información de Cartera*
+> del detalle de la orden —valor, adicionales, descuento, abono y saldo— en **modo
+> consulta**: el técnico ve cuánto hay que cobrar y cuánto queda debiendo, pero no puede
+> cambiar cifras ni dar por recibido un pago. Para eso hace falta **Editar Descuento y
+> Cartera de Instalación**, que es lo que emite o recalcula la factura.
+>
+> El rol **Técnico** no trae esa casilla de fábrica: cada empresa decide si su gente de
+> campo debe conocer el valor. Hay que marcarla a mano y pedirle al técnico que vuelva a
+> entrar. Ten en cuenta además que para llegar a la pantalla de *Instalaciones* el rol
+> necesita **Ver Soporte Técnico**; sin eso no hay orden que abrir.
+
 > **Ojo con "Activar y Desactivar Clientes":** ese permiso no sólo cambia un estado en pantalla,
 > **actúa sobre el router de verdad**. Es también el que habilita cargar clientes al equipo. No
 > se lo des a quien no deba tocar la red.
+
+> **"Eliminar de Inventario" se separó de "Ver Inventario".** Hasta ahora el mismo permiso que
+> abría la pantalla de inventario permitía **borrar** equipos, stock, proveedores y sucursales.
+> Desde la actualización del 11-sep-2026 son dos permisos distintos, y el de borrar sólo lo
+> reciben los roles de administrador.
+>
+> **Qué vas a notar:** a quien tenga «Ver Inventario» pero no el nuevo permiso le desaparece el
+> botón **Eliminar** en Inventario, Stock, Proveedores y Sucursales. Todo lo demás sigue igual:
+> puede consultar, crear, editar, entregar equipos y dar de baja. Si alguien de tu equipo
+> necesita borrar, márcale «Eliminar de Inventario» en **Roles**.
+>
+> Para sacar un equipo de circulación sin perder su historial, sigue siendo mejor **darlo de
+> baja** que borrarlo: la baja queda escrita en el kardex y el borrado no.
 
 > ⚠️ **Muy importante:** cuando el sistema estrena un permiso nuevo, **los roles que ya
 > existían no lo reciben solos**. Si tras una actualización una pestaña desaparece para los
@@ -1833,6 +2479,11 @@ avisar si los tenían; ya no.)
 > cláusulas) usa `<div>` en lugar de `<table>`: el texto fluye solo de una página a la siguiente.
 > Las tablas están bien para lo que son: filas de datos cortas.
 >
+> Desde el 2026-10-05 la **vista previa te avisa**: si una celda tiene mucho texto (más de
+> unos 2.500 caracteres), aparece en *Revisa…* con el comienzo de esa celda para que la
+> encuentres. El aviso no significa que ya se haya cortado. Compara el final de esa sección
+> en la vista previa, y si falta texto, pásalo a `<div>`.
+>
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
 > sí se respetan.
@@ -1896,6 +2547,11 @@ corresponde:
   la sección 17.5.1.
 - **Si eres del equipo de ISPWatch** (tenant operador) → la misma pestaña te muestra las
   integraciones de **todos los ISP**, sin límites. Es lo que se describe a continuación.
+
+> Si eres superadministrador y en **Configuración** ves el aviso *«La emisión centralizada de
+> llaves de API está apagada»*, el tenant operador está mal configurado y esa vista no le
+> aparece a nadie. Hasta que se corrija, solo funciona el auto-servicio (17.5.1). Se corrige
+> en la configuración del servidor (`API_KEYS_OPERATOR_TENANT_ID`), no desde el panel.
 
 **Qué puede hacer una llave — y qué no**
 
@@ -1996,8 +2652,10 @@ En la tabla de llaves, la columna **Estado** te dice de un vistazo si la llave e
 > **Sobre las IPs.** Es normal pelearse con un `403` al principio, y la tentación es
 > ensanchar la lista hasta que funcione. No lo hagas: esa lista es justamente lo que
 > hace que una llave filtrada no le sirva a nadie fuera de tu servidor. Si no sabes qué
-> IP poner, llama a `GET /api/v1/partner/ping` con la llave: la respuesta te dice desde
-> qué IP te está viendo el servidor.
+> IP poner, llama a `GET /api/v1/partner/ping` con la llave. Si la IP es la correcta,
+> responde con la IP desde la que te ve el servidor. Si no lo es, responde `403
+> ip_not_allowed` y el campo `your_ip` de esa misma respuesta trae la IP que hay que
+> autorizar.
 
 **Ver qué está pasando**
 
@@ -2019,6 +2677,15 @@ Es el primer dato que te va a pedir soporte. Sale del servidor, así que es el n
 —no uno guardado en tu navegador de la última vez que entraste—.
 
 Si dice `—`, es que no se pudo consultar en ese momento; recarga la página.
+
+**Estado del Sistema** (desde el 2026-10-05) comprueba de verdad que las tareas automáticas
+estén corriendo: facturas del mes, recordatorios y cortes.
+
+- **Operativo** (verde): están al día.
+- **Revisar** (ámbar): llevan varios minutos sin correr o no han arrancado desde la última
+  actualización. Durante una actualización puede verse ámbar unos minutos. Si sigue así,
+  avísale a soporte: mientras tanto no se generan facturas ni se corta a nadie.
+- **Sin datos** (gris): no se pudo consultar.
 
 ### 17.7 Auditoría
 
@@ -2104,7 +2771,7 @@ nadie exporte archivos a mano.
 | Puede | No puede |
 |---|---|
 | Leer clientes, servicios, cartera, tickets e instalaciones | **Escribir cualquier cosa**: no crea clientes, no registra pagos, no corta ni reconecta |
-| Recibir el listado de cambios (altas, cortes, reconexiones, cambios de plan) | Ver contraseñas PPPoE o de hotspot, ni direcciones MAC |
+| Recibir el listado de cambios (altas, cortes, reconexiones, cambios de plan, bajas, clientes eliminados, cambios de router, de IP y de usuario PPPoE) | Ver contraseñas PPPoE o de hotspot, ni direcciones MAC |
 | Ver **sólo** los datos de tu empresa | Ver los datos de otro ISP de la plataforma |
 
 Esto no es una limitación temporal: la API es de solo lectura por diseño. Si un integrador
@@ -2118,8 +2785,9 @@ Necesitas el permiso **Gestionar mis llaves de API**.
    llaves: pruebas, producción, y la nueva mientras se rota la vieja.
 2. **Pide la IP pública del integrador.** Es el error más común: no es la IP de su oficina
    ni la de su computador, sino la del **servidor** que va a llamar. Si hay dudas, que
-   consulte el chequeo de la API (`/ping`): la respuesta le dice con qué IP lo ve
-   ISPWatch. Esa es la que va en la lista.
+   llame al chequeo de la API (`/ping`) con la llave. Si su IP no está autorizada, el
+   rechazo (`ip_not_allowed`) trae en `your_ip` la IP con la que lo ve ISPWatch. Esa es la
+   que va en la lista.
 3. **Elige los permisos**, sólo los que necesite:
 
    | Permiso | Da acceso a |
@@ -2137,11 +2805,15 @@ Necesitas el permiso **Gestionar mis llaves de API**.
 que emitir la nueva y avisarle al integrador: el día del vencimiento su sistema deja de
 recibir datos.
 
+Una semana antes, el sistema manda **un correo de aviso** al *correo de contacto* de la
+integración. Por eso conviene llenarlo al registrarla. Si ya emitiste la llave nueva, el aviso
+de la vieja no llega.
+
 ### 19.3 El integrador reporta un error
 
 | Le dice | Qué es | Qué hacer |
 |---|---|---|
-| «IP no autorizada» | Llama desde una IP que no está en la lista | Que consulte `/ping` y te pase la IP que ve el servidor |
+| «IP no autorizada» | Llama desde una IP que no está en la lista | Que te pase el `your_ip` de esa respuesta de error (o búscala en *Ver peticiones*) |
 | «No tengo permiso» | A la llave le falta el ability de esa área | Emitir una llave nueva: **los permisos de una llave existente no se editan** |
 | «La llave no vale» | Vencida, revocada o mal copiada | Revisar en el panel si sigue activa y su fecha |
 | «Funcionaba y dejó de funcionar» | Casi siempre el vencimiento | Mirar la fecha antes que nada |
@@ -2157,6 +2829,11 @@ te ve el servidor**. Ese último dato es el que resuelve el error más común.
 
 El paso a paso completo —incluida la importación en Postman— está en
 **Manual → Integraciones y API → Probar la API**.
+
+Si el integrador conecta un **servidor de autenticación (RADIUS/AAA)** que decide con estos
+datos a quién deja navegar, entrégale además **Manual → Integraciones y API → «Guía técnica
+para integradores AAA: sincronizar sin perder cambios»**: qué campo decide el acceso, qué
+garantiza el listado de cambios y el procedimiento para sincronizar sin perder nada.
 
 > **Cuidado con dónde pega esa llave.** Si la mandas por chat, correo o un ticket para
 > pasársela a alguien, dala por comprometida: revócala y emite otra. Se muestra una sola vez

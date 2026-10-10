@@ -94,13 +94,33 @@ class Router extends Model
         'wg_private_key' => 'encrypted',
     ];
 
-    // NOTA: password_rb y vpn_password NO están en $hidden a propósito.
-    // El formulario de edición de router (resources/js/pages/RouterEdit.vue)
-    // prellena el campo con `data.password_rb` y lo reenvía tal cual al guardar;
-    // ocultarlo haría que el formulario cargara vacío y SOBRESCRIBIERA la
-    // credencial con una cadena vacía al primer guardado — pérdida de datos.
-    // Sacarlos de la respuesta exige antes cambiar el formulario a "dejar en
-    // blanco para conservar la contraseña actual". Anotado en MEJORAS_RECOMENDADAS.
+    /**
+     * Secretos que nunca salen en una respuesta JSON (P-2 / KAN-45).
+     *
+     * Dan acceso SSH/API a equipos de red del ISP y a su túnel con el CORE, y
+     * los serializaba el mismo proceso que atiende HTTP público. Se leen en el
+     * servidor como siempre (`$router->password_rb`); lo que cambia es que ya no
+     * viajan al navegador.
+     *
+     * El orden importó: RouterEdit.vue prellenaba la contraseña con lo que
+     * devolvía la API y la reenviaba al guardar. Ahora el campo arranca vacío,
+     * «en blanco = conservar», y sólo se envía si se escribe una nueva. Sin ese
+     * cambio previo, ocultarla habría borrado la credencial en la primera
+     * edición. Para saber si hay una guardada está `has_password_rb`.
+     */
+    protected $hidden = [
+        'password_rb',
+        'vpn_password',
+        'wg_private_key',
+    ];
+
+    protected $appends = ['has_password_rb'];
+
+    /** ¿Hay contraseña de gestión guardada? Lo que el formulario puede mostrar sin el secreto. */
+    public function getHasPasswordRbAttribute(): bool
+    {
+        return filled($this->password_rb);
+    }
 
 
     /** Transportes VPN admitidos entre el CORE y este router. */
@@ -151,6 +171,69 @@ class Router extends Model
     public function usesRadius(): bool
     {
         return (bool) $this->radius;
+    }
+
+    /**
+     * ¿Se puede gestionar este equipo, o no hay por dónde entrarle?
+     *
+     * Devuelve `null` cuando sí, y si no, la razón EN CASTELLANO y lista para
+     * enseñar: quien la lee es el cajero que acaba de recibir un pago, no un
+     * programador leyendo un log.
+     *
+     * POR QUÉ ESTO EXISTE
+     *
+     * Un router dado de alta a medias —con nombre y poco más— no se distingue
+     * de uno sano hasta que alguien intenta empujarle algo. Entonces el CORE
+     * marca una dirección que no existe, o entrega credenciales vacías, y la
+     * petición se queda esperando el tiempo de espera completo. Cuando eso
+     * ocurre DENTRO de una petición HTTP —registrar un pago, por ejemplo— el
+     * gateway la corta con un 504 y el cajero ve un error por algo que sí se
+     * guardó. Ahí nacen los cobros dobles: vuelve a cobrar «porque falló».
+     *
+     * La comprobación es de base de datos, sin red: o están los datos, o no.
+     *
+     * TRES CAMINOS VÁLIDOS, no uno:
+     *
+     *  1. RADIUS. El estado del abonado no vive en el equipo, así que no hay
+     *     nada que escribirle: gestionable por delegación.
+     *  2. Overlay VPN (lo normal): identidad en el túnel + credenciales.
+     *  3. Dirección alcanzable directa + credenciales, para el equipo que el
+     *     CORE ve sin pasar por el túnel.
+     */
+    public function manageabilityIssue(): ?string
+    {
+        if ($this->usesRadius()) {
+            return null;
+        }
+
+        $faltantes = [];
+
+        // Sin dirección NI identidad de túnel no hay a dónde marcar. Se piden
+        // «una de las dos» y no ambas: hay equipos que viven en el overlay y
+        // cuya IP la reescribe el resolver, y otros con dirección fija.
+        if (blank($this->ip) && blank($this->vpn_username)) {
+            $faltantes[] = 'no tiene dirección IP ni usuario de VPN';
+        }
+
+        if (blank($this->user_rb) || blank($this->password_rb)) {
+            $faltantes[] = 'le faltan el usuario y la contraseña del equipo';
+        }
+
+        if ($faltantes === []) {
+            return null;
+        }
+
+        $nombre = $this->name ?: "#{$this->id}";
+
+        return "El router «{$nombre}» " . implode(' y ', $faltantes)
+            . ', así que ISPWatch no puede configurarlo. Complétalo en Routers → Editar, '
+            . 'o márcalo como RADIUS si lo gestiona un AAA externo.';
+    }
+
+    /** Atajo legible del anterior. */
+    public function isManageable(): bool
+    {
+        return $this->manageabilityIssue() === null;
     }
 
     /**

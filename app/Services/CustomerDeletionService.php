@@ -175,6 +175,17 @@ class CustomerDeletionService
             return ['success' => true, 'skipped' => true, 'message' => 'El cliente no tenía router asignado.'];
         }
 
+        // En un router RADIUS ISPWatch no escribió nada que limpiar, y sus
+        // credenciales pueden ser de relleno (router lógico): intentar SSH sólo
+        // garantiza un timeout y un error falso en la respuesta (KAN-119).
+        if ($router->usesRadius()) {
+            return [
+                'success' => true,
+                'skipped' => true,
+                'message' => "El router {$router->name} lo gestiona un AAA externo: ISPWatch no escribe en ese equipo.",
+            ];
+        }
+
         if (!$router->user_rb || !$router->password_rb) {
             return [
                 'success' => false,

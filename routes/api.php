@@ -17,7 +17,10 @@ use App\Http\Controllers\SectorialNoteController;
 use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
+use App\Http\Controllers\TicketInterventionController;
+use App\Http\Controllers\TicketMeasurementController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\BillingController;
@@ -40,6 +43,7 @@ use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
 use App\Http\Controllers\InventoryMovementController;
 use App\Http\Controllers\InstallationEquipmentController;
+use App\Http\Controllers\InstallationPlanningController;
 use App\Http\Controllers\ExpenseController;
 use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
@@ -144,6 +148,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         ->middleware('permission:view_support');
     Route::get('/installations/customers', [CustomerInstallationController::class, 'customersForInstallation'])
         ->middleware('permission:view_support');
+    // Catálogo para PLANIFICAR la orden (productos + disponibilidad agregada).
+    // Sólo lectura, no reserva. Va antes de /installations/{installation}
+    // para que el comodín no se lo trague como un id.
+    Route::get('/installations/planning-catalog', [InstallationPlanningController::class, 'catalog'])
+        ->middleware('permission:view_support');
     Route::get('/installations/{installation}', [CustomerInstallationController::class, 'show'])
         ->middleware('permission:view_support,view_clients');
     Route::put('/installations/{installation}/prospect', [CustomerInstallationController::class, 'updateProspect'])
@@ -177,6 +186,36 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         ->middleware('permission:view_support');
     Route::delete('/installations/{installation}/equipment/{item}', [InstallationEquipmentController::class, 'destroy'])
         ->middleware('permission:view_support');
+
+    // Equipos y materiales de una visita de SOPORTE. Van aquí y no en el grupo
+    // `staff_profile` de más abajo por una razón operativa: ese grupo sólo deja
+    // pasar los códigos de rol `admin` y `staff`, y quien carga el equipo en la
+    // visita es el TÉCNICO DE CAMPO. Metidas allí, la sección existiría para
+    // todos menos para quien tiene que usarla — que es exactamente el motivo
+    // por el que las de instalación tampoco están dentro.
+    //
+    // UN SOLO PERMISO POR RUTA, Y A PROPÓSITO. `CheckPermission` tiene semántica
+    // **OR**: `permission:view_support,ticket_edit` deja pasar a quien tenga
+    // cualquiera de los dos, y `view_support` lo tiene todo el módulo. Gobernar
+    // así una escritura significa que un permiso de LECTURA autoriza descontar
+    // existencias y cambiar la custodia de un bien. Por eso aquí va
+    // `ticket_equipment` a secas, en lectura y en escritura.
+    //
+    // La regla de qué puede tomar cada quien —lo suyo, lo del técnico asignado,
+    // las bodegas sólo con permiso de inventario— la sigue aplicando
+    // InventoryLedger, no la ruta: la ruta dice QUIÉN entra, el ledger dice DE
+    // DÓNDE puede tomar.
+    Route::get('/support/{id}/equipment', [TicketEquipmentController::class, 'index'])
+        ->middleware('permission:ticket_equipment');
+    Route::get('/support/{id}/equipment/available', [TicketEquipmentController::class, 'available'])
+        ->middleware('permission:ticket_equipment');
+    Route::post('/support/{id}/equipment', [TicketEquipmentController::class, 'store'])
+        ->middleware('permission:ticket_equipment');
+    // No es un borrado: escribe una REVERSA auditada y deja las dos líneas a la
+    // vista. El verbo se conserva porque es el gesto de la papelera en la
+    // pantalla, pero nada desaparece. Ver TicketEquipment y el § 78.
+    Route::delete('/support/{id}/equipment/{item}', [TicketEquipmentController::class, 'destroy'])
+        ->middleware('permission:ticket_equipment');
 
     // ─── PROSPECTS ───
     // El alta de cliente lee el prospecto y lo marca como convertido, así que
@@ -273,8 +312,19 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::post('/billing/invoices', [BillingController::class, 'store']);
         Route::put('/billing/invoices/{id}', [BillingController::class, 'update']);
         Route::post('/billing/invoices/{id}/mark-unpaid', [BillingController::class, 'markUnpaid']);
+        // El borrado FÍSICO sigue enrutado, pero el controlador sólo lo deja
+        // pasar para un borrador sin número y sin ticket — que el sistema no
+        // genera nunca. Todo lo demás se anula. Quitar la ruta daría un 405
+        // escueto en vez de un mensaje que explica el camino correcto.
         Route::delete('/billing/invoices/{id}', [BillingController::class, 'destroy'])
             ->middleware('permission:delete_invoice');
+
+        // ANULAR: permiso propio y no `view_billing` ni `delete_invoice`.
+        // Hasta ahora se anulaba con un `PUT` de estado detrás de un permiso de
+        // LECTURA, sin motivo ni auditoría. Borrar y anular son operaciones
+        // distintas y dejan de compartir puerta.
+        Route::post('/billing/invoices/{id}/void', [BillingController::class, 'voidInvoice'])
+            ->middleware('permission:invoice_void');
         Route::post('/billing/invoices/{id}/items', [BillingController::class, 'addItems']);
         Route::get('/billing/invoices/{id}/pdf', [BillingController::class, 'downloadPdf']);
         Route::get('/billing/payments', [BillingController::class, 'getPayments']);
@@ -343,6 +393,13 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         Route::get('/billing/suspension-logs/stats',       [SuspensionActionLogController::class, 'stats']);
         Route::post('/billing/suspension-logs/{id}/retry', [SuspensionActionLogController::class, 'retry']);
         Route::post('/billing/suspension-logs/reconcile',  [SuspensionActionLogController::class, 'reconcile']);
+
+        // Reintento de reconexión por CLIENTE. Va aquí, y no con el resto de
+        // facturación, porque escribe en el RouterBoard: `register_payments`
+        // autoriza a cobrar, no a operar equipos. El caso "cliente sin router
+        // asignado" no tiene fila de log que reintentar, por eso se direcciona
+        // por cliente y no por log.
+        Route::post('/billing/customers/{customerId}/retry-reconnection', [BillingController::class, 'retryReconnection']);
     });
 
     // ─── BITÁCORA DE AUDITORÍA (quién movió plata y cuándo) ───
@@ -359,13 +416,50 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     });
 
     // ─── SUPPORT (requires staff profile) ───
+    //
+    // PR B · Estas rutas NO tenían ningún `permission:`: sólo `staff_profile`,
+    // que comprueba el CÓDIGO DE ROL (`admin`/`staff`), no una capacidad. Se
+    // les añade el permiso concreto encima. `staff_profile` se conserva porque
+    // sigue siendo un requisito distinto —tener ficha de personal— y quitarlo
+    // ampliaría el acceso, no lo reduciría.
     Route::middleware(['staff_profile'])->group(function () {
-        Route::get('/support/statistics', [SupportTicketController::class, 'statistics']);
-        Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage']);
-        Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage']);
-        Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage']);
-        Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus']);
-        // Ticket charges
+        Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
+            ->middleware('permission:ticket_export');
+
+        Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage'])
+            ->middleware('permission:ticket_note');
+        Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage'])
+            ->middleware('permission:ticket_note');
+        Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage'])
+            ->middleware('permission:ticket_note');
+
+        // ── Workflow formal (Solicitud Maestra §7, §15, §18) ──
+        //
+        // El estado SALIÓ del `PUT` genérico: moverlo es una transición con
+        // estado origen válido. Y cerrar, proponer cerrar y reabrir tienen cada
+        // uno su ruta, su permiso y sus requisitos — el requerimiento los
+        // distingue y compartir endpoint los volvía indistinguibles.
+        Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
+            ->middleware('permission:ticket_transition');
+
+        // Propuesta de cierre: §18 se la da al Técnico de campo. NO cierra.
+        Route::post('/support/{id}/propose-closure', [SupportTicketController::class, 'proposeClosure'])
+            ->middleware('permission:ticket_transition');
+
+        // Cierre ordinario y cierre especial. §18 los da al Supervisor.
+        Route::post('/support/{id}/close', [SupportTicketController::class, 'close'])
+            ->middleware('permission:ticket_close');
+        Route::post('/support/{id}/close-exception', [SupportTicketController::class, 'closeException'])
+            ->middleware('permission:ticket_close_override');
+
+        Route::post('/support/{id}/reopen', [SupportTicketController::class, 'reopen'])
+            ->middleware('permission:ticket_reopen');
+
+        // Los CARGOS se quedan como estaban, con `staff_profile` a secas. Son
+        // facturación, no operación del ticket: no aparecen en la matriz de
+        // permisos del requerimiento y atarlos a uno de facturación —
+        // `view_billing`— se lo quitaría a roles que hoy sí pueden. Queda
+        // documentado como pendiente, fuera del alcance de este PR.
         Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge']);
         Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges']);
     });
@@ -382,6 +476,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
 
     Route::middleware('permission:view_sectorials,view_support')->group(function () {
         Route::get('/sectorials/{sectorial}/photos',  [SectorialPhotoController::class, 'index']);
+        // Entrega autenticada de la foto: misma puerta que el listado (P-40).
+        Route::get('/sectorials/{sectorial}/photos/{photo}', [SectorialPhotoController::class, 'show']);
         Route::get('/sectorials/{sectorial}/notes',   [SectorialNoteController::class, 'index']);
         Route::get('/sectorials/{sectorial}/history', [SectorialHistoryController::class, 'index']);
         Route::get('/sectorials/{sectorial}/tickets', [SectorialHistoryController::class, 'tickets']);
@@ -405,9 +501,9 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     | `view_sectorials` ni `manage_routers`. La ESCRITURA sí exige el permiso
     | dueño del módulo, a secas.
     |
-    | Nota: no existe un permiso `delete_clients` en App\Constants\Permissions.
-    | El borrado de cliente se apoya en `edit_internet_service` para no inventar
-    | un permiso nuevo que ningún rol sembrado tendría (ver MEJORAS_RECOMENDADAS).
+    | El borrado de cliente tiene permiso propio, `delete_customers` (P-1,
+    | migración 2026_08_31_000001): sólo lo tienen los roles admin. Ya no se
+    | apoya en `edit_internet_service`.
     |
     */
 
@@ -462,7 +558,19 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     });
 
     // Soporte
-    Route::middleware('permission:view_support')->group(function () {
+    //
+    // PR B · Cada ruta exige ahora la CAPACIDAD concreta en vez del
+    // `view_support` paraguas. `view_support` no desaparece: sigue gobernando
+    // instalaciones, sectoriales e inventario, y la migración
+    // 2026_09_11_000001 repartió a cada rol exactamente lo que ya podía
+    // ejercer, así que nadie gana ni pierde nada con el despliegue.
+    //
+    // `PUT /support/{id}` se queda con `ticket_view` como puerta mínima —hay
+    // que poder ver un ticket para tocarlo— y la autorización fina va POR CAMPO
+    // dentro del controlador: ese endpoint edita contenido, asigna técnico,
+    // cambia prioridad y categoría, registra diagnóstico y sube adjuntos, y
+    // cada cosa tiene su permiso.
+    Route::middleware('permission:ticket_view')->group(function () {
         // Adjuntos. Van ANTES del apiResource porque `support/{support}` casaría
         // con `support/{id}/attachments/...` si se declararan después.
         //
@@ -470,21 +578,87 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // —cualquiera con la ruta leía el adjunto de otro ISP— y además no
         // funciona en App Platform, que no ejecuta `storage:link` y tiene disco
         // efímero. Ver SupportTicketAttachmentController.
-        Route::get('/support/{ticket}/attachments/{attachment}', [SupportTicketAttachmentController::class, 'show']);
-        Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download']);
+        Route::get('/support/{ticket}/attachments/{attachment}', [SupportTicketAttachmentController::class, 'show'])
+            ->middleware('permission:ticket_view_evidence');
+        Route::get('/support/{ticket}/attachments/{attachment}/download', [SupportTicketAttachmentController::class, 'download'])
+            ->middleware('permission:ticket_view_evidence');
+
+        // PR F1 · Intervenciones tecnicas (seccion 14). Antes del apiResource,
+        // por lo mismo que los adjuntos: `support/{support}` casaria con
+        // `support/{id}/interventions` si fueran despues.
+        //
+        // NO HAY RUTA DE BORRADO, y no es un olvido. Una intervencion no se
+        // borra: si esta mal se reabre con motivo y se corrige, y la correccion
+        // queda en el historial. El modelo bloquea ademas `deleting`.
+        Route::get('/support/{ticket}/interventions', [TicketInterventionController::class, 'index']);
+        Route::get('/support/{ticket}/measurements', [TicketMeasurementController::class, 'index']);
+
+        Route::middleware('permission:ticket_intervene')->group(function () {
+            Route::post('/support/{ticket}/interventions', [TicketInterventionController::class, 'store']);
+            Route::put('/support/{ticket}/interventions/{intervention}', [TicketInterventionController::class, 'update']);
+            Route::post('/support/{ticket}/interventions/{intervention}/reopen', [TicketInterventionController::class, 'reopen']);
+            Route::post('/support/{ticket}/interventions/{intervention}/evidence', [TicketInterventionController::class, 'linkEvidence']);
+
+            // PR F2 - mediciones tecnicas (secciones 12 y 13). Mismo permiso que
+            // las intervenciones: la seccion 18 le da al Tecnico de campo
+            // «visita, evidencias, materiales, equipos, pruebas finales» en una
+            // sola frase, asi que separarlas en dos permisos partiria una
+            // capacidad que el documento describe como una.
+            //
+            // NO HAY RUTA DE BORRADO: una medicion es la constancia de lo que se
+            // leyo, y el parrafo 15.5 la hace requisito de cierre.
+            Route::post('/support/{ticket}/measurements', [TicketMeasurementController::class, 'store']);
+            Route::put('/support/{ticket}/measurements/{measurement}', [TicketMeasurementController::class, 'update']);
+        });
 
         // PR #3 · Historial inalterable (F1-17). Sólo lectura: no hay ruta de
         // edición ni de borrado, y el modelo lanza si alguien lo intenta por
         // código. El requerimiento exige que la auditoría no sea editable
         // desde la operación ordinaria, y eso empieza por no ofrecer la puerta.
-        Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history']);
+        Route::get('/support/{ticket}/history', [SupportTicketController::class, 'history'])
+            ->middleware('permission:ticket_view_history');
+
+        // Qué puede hacer AHORA quien pide, con este ticket. La interfaz lo lee
+        // en vez de mantener su propia copia de la matriz de transiciones: una
+        // segunda copia en JavaScript se desincroniza el día que alguien toca la
+        // primera, y entonces el panel ofrece botones que la API rechaza.
+        //
+        // Sólo `ticket_view`: saber qué acciones existen no es poder hacerlas —
+        // la respuesta ya dice cuáles están permitidas para este usuario.
+        Route::get('/support/{ticket}/transitions', [SupportTicketController::class, 'transitions']);
+
+        // PR C · Archivado y restauración. Sustituyen definitivamente a la
+        // noción de borrar un ticket: CNO aprobó el 2026-09-11 un archivado
+        // reversible y auditado «para Administradores y Propietarios».
+        //
+        // El listado va ANTES del apiResource por lo mismo que los adjuntos:
+        // `support/{support}` casaría con `support/archived` y el detalle
+        // intentaría buscar un ticket con id «archived».
+        //
+        // Semántica OR a propósito: quien puede archivar o restaurar puede ver
+        // el listado. No se creó un `ticket_view_archived` aparte porque el
+        // cliente pidió simplicidad y hoy los dos permisos van al mismo rol;
+        // separarlo es trivial si el PR E necesita un Auditor que mire sin
+        // tocar (supuesto S-3 del diseño).
+        Route::get('/support/archived', [SupportTicketController::class, 'archived'])
+            ->middleware('permission:ticket_archive,ticket_restore');
+
+        Route::post('/support/{ticket}/archive', [SupportTicketController::class, 'archive'])
+            ->middleware('permission:ticket_archive');
+        Route::post('/support/{ticket}/restore', [SupportTicketController::class, 'restore'])
+            ->middleware('permission:ticket_restore');
 
         // `destroy` sigue enrutado A PROPÓSITO, pero ya no borra nada: responde
         // 403 explicando por qué. Quitar la ruta daría un 405 escueto que
         // cualquiera leería como un fallo del servidor. Ver el comentario de
         // SupportTicketController::destroy(), el guard de SupportTicket y la
         // clave foránea RESTRICT de support_ticket_history.
-        Route::apiResource('support', SupportTicketController::class);
+        // `store` exige además `ticket_create`: ver un ticket y abrir uno nuevo
+        // no son la misma capacidad. `update` y `destroy` se quedan con
+        // `ticket_view` — el primero porque autoriza por campo dentro del
+        // controlador, el segundo porque ya responde 403 pase quien pase.
+        Route::apiResource('support', SupportTicketController::class)
+            ->middlewareFor('store', 'permission:ticket_create');
     });
 
     // Inventario. La lectura se abre a view_support porque la pantalla de
@@ -499,6 +673,9 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::middleware('permission:view_inventory')->group(function () {
         Route::get('/inventory/movements', [InventoryMovementController::class, 'index']);
         Route::get('/inventory/holdings', [InventoryMovementController::class, 'holdings']);
+        // Material cuyo custodio se borró. Va acá arriba, entre las literales:
+        // debajo del comodin /inventory/{inventory} se lo tragaria como un id.
+        Route::get('/inventory/orphan-balances', [InventoryMovementController::class, 'orphanBalances']);
         Route::post('/inventory/transfers', [InventoryMovementController::class, 'store']);
         Route::post('/inventory/{inventory}/retire', [InventoryMovementController::class, 'retire']);
     });
@@ -509,14 +686,28 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     Route::middleware('permission:view_inventory')->group(function () {
         Route::post('/inventory', [InventoryDeviceController::class, 'store']);
         Route::match(['put', 'patch'], '/inventory/{inventory}', [InventoryDeviceController::class, 'update']);
+
+        Route::apiResource('inventory-stock', InventoryStockController::class)
+            ->only(['store', 'update']);
+        Route::apiResource('inventory-providers', InventoryProviderController::class)
+            ->only(['store', 'update']);
+        Route::apiResource('inventory-branches', InventoryBranchController::class)
+            ->only(['store', 'update']);
+    });
+    // Borrar exige permiso propio: `view_inventory` es de LECTURA y autorizaba
+    // los cuatro `destroy` de aquí abajo. Mientras nada los expusiera el agujero
+    // era teórico; KAN-98 añadió el botón Eliminar en la tarjeta de equipo y lo
+    // dejó a un clic de cualquiera que pudiera ver el inventario, `Staff`
+    // incluido. Mismo patrón que `delete_customers` (ver KAN-99 y P-43).
+    Route::middleware('permission:delete_inventory')->group(function () {
         Route::delete('/inventory/{inventory}', [InventoryDeviceController::class, 'destroy']);
 
         Route::apiResource('inventory-stock', InventoryStockController::class)
-            ->only(['store', 'update', 'destroy']);
+            ->only(['destroy']);
         Route::apiResource('inventory-providers', InventoryProviderController::class)
-            ->only(['store', 'update', 'destroy']);
+            ->only(['destroy']);
         Route::apiResource('inventory-branches', InventoryBranchController::class)
-            ->only(['store', 'update', 'destroy']);
+            ->only(['destroy']);
     });
 
     // ─── STAFF ───
@@ -551,7 +742,13 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     // Catálogos del ticket (estados, prioridades, categorías). Sin permiso
     // propio, como el resto de este grupo: son datos de referencia que la
     // pantalla de soporte necesita para pintar cualquier ticket.
-    Route::get('/catalogs/ticket',          [CatalogController::class, 'ticketCatalogs']);
+    // PR B · Antes no exigía ningún permiso: cualquier usuario autenticado del
+    // panel podía leer el vocabulario completo. Ahora pide `ticket_view`, que
+    // es coherente — quien no puede listar tickets tampoco necesita su
+    // catálogo— y no quita nada usable: la pantalla que lo consume ya exigía
+    // ese mismo permiso para traer los tickets.
+    Route::get('/catalogs/ticket',          [CatalogController::class, 'ticketCatalogs'])
+        ->middleware('permission:ticket_view');
 
     Route::get('/roles/permissions', [RoleController::class, 'permissions'])
         ->middleware('permission:manage_roles');
@@ -608,6 +805,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     // primero que pregunta soporte, y exigir `view_settings` se lo negaría
     // justamente a quien está llamando a pedir ayuda.
     Route::get('/system/version', [SettingsController::class, 'version']);
+    // Estado real del tile «Estado del Sistema» (P-33): el latido del planificador.
+    Route::get('/system/status', [SettingsController::class, 'status']);
 
     // ─── HELP CENTER / MANUAL ───
     // La LECTURA queda abierta a cualquier autenticado: es el manual del
@@ -747,3 +946,59 @@ Route::prefix('v1/partner')
             Route::get('/installations', [PartnerSupportController::class, 'installations']);
         });
     });
+
+/*
+|--------------------------------------------------------------------------
+| Ruta inexistente bajo /api  (KAN-97 · P-41)
+|--------------------------------------------------------------------------
+|
+| Antes de esto, `GET /api/lo-que-sea` no casaba con ninguna ruta de este
+| archivo y terminaba en el catch-all del SPA de routes/web.php: 200 con el
+| HTML de la aplicación. Un integrador —o el propio frontend tras renombrar un
+| endpoint— recibía un éxito con un cuerpo que no es JSON, y el error aparecía
+| mucho más lejos, al intentar leerlo.
+|
+| Se registra con `Route::any(...)->fallback()` y no con `Route::fallback()`:
+| el helper del framework sólo declara GET, y entonces un POST a una URL que no
+| existe encontraba la ruta pero no el verbo y respondía 405 «método no
+| permitido». Un 405 afirma que el endpoint existe —manda al integrador a
+| cambiar el verbo— cuando el problema es que la URL está mal.
+|
+| `->fallback()` es lo que la deja de última: una ruta marcada así sólo se
+| considera cuando ninguna otra casó, sin importar el orden de registro.
+|
+*/
+Route::any('{ispwatchApiFallback}', function () {
+    $request = request();
+    $partner = $request->is('api/v1/partner*');
+
+    // ¿La URL SÍ existe, pero bajo otro verbo? Entonces el problema no es la
+    // ruta sino el método, y hay que decirlo con 405 y su cabecera `Allow`.
+    // No es un matiz: la API pública es de SOLO LECTURA y ese 405 es la forma
+    // en que se lo dice a quien intenta escribir —hay un test que lo fija—.
+    // Un 404 ahí mandaría al integrador a buscar una URL que sí tiene.
+    $allowed = collect(Route::getRoutes()->getRoutes())
+        ->reject(fn ($route) => $route->isFallback)
+        ->filter(fn ($route) => $route->matches($request, false))
+        ->flatMap(fn ($route) => $route->methods())
+        ->unique()
+        ->values();
+
+    if ($allowed->isNotEmpty()) {
+        $message = 'El método ' . $request->method() . ' no está permitido en este recurso.';
+
+        return response()->json(
+            $partner
+                ? ['error' => 'method_not_allowed', 'message' => $message]
+                : ['success' => false, 'message' => $message],
+            405
+        )->header('Allow', $allowed->implode(', '));
+    }
+
+    return response()->json(
+        $partner
+            ? ['error' => 'not_found', 'message' => 'Este recurso no existe en la API pública de ISPWatch.']
+            : ['success' => false, 'message' => 'El recurso solicitado no existe en la API de ISPWatch.'],
+        404
+    );
+})->where('ispwatchApiFallback', '.*')->fallback();

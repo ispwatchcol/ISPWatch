@@ -244,6 +244,78 @@ class TicketCatalogs
             $columnas[] = 'tenant_id';
         }
 
+        // Sólo `ticket_status` las tiene: son del flujo de la Solicitud
+        // Maestra, no del vocabulario genérico de un catálogo.
+        if ($tabla === self::STATUS) {
+            $columnas = array_merge($columnas, [
+                'flow_category', 'legacy_code', 'is_initial', 'is_terminal',
+                // Qué timestamp estampa entrar en este estado. Es el catálogo
+                // —y no el controlador— quien decide cuándo se sella
+                // `resolved_at` y `closed_at`, para que añadir un estado nuevo
+                // no exija tocar código.
+                'stamps_resolved_at', 'stamps_closed_at',
+            ]);
+        }
+
         return $this->cargados[$tabla] ??= DB::table($tabla)->select($columnas)->get();
+    }
+
+    /**
+     * Código de uno de los cuatro estados viejos al que equivale `$code`.
+     *
+     * Es lo que mantiene congelado el contrato del integrador —que compara
+     * contra `open`— y lo que permite que las estadísticas sigan contando
+     * «abiertos» cuando el ticket está en `en_clasificacion`.
+     *
+     * Devuelve el propio código si no hay equivalencia declarada: una fila
+     * añadida a mano después no debe desaparecer de los conteos.
+     */
+    public function estadoLegacy(?string $code): ?string
+    {
+        if ($code === null) {
+            return null;
+        }
+
+        $fila = $this->filas(self::STATUS)->firstWhere('code', $code);
+
+        return $fila?->legacy_code ?: $code;
+    }
+
+    /**
+     * Todos los códigos de estado que equivalen a uno de los cuatro viejos.
+     *
+     * Para consultar por clave foránea sin tener que enumerar a mano los
+     * dieciocho estados nuevos cada vez que alguien cuenta «abiertos».
+     *
+     * @return array<int, string>
+     */
+    public function codigosEquivalentesA(string $legacy): array
+    {
+        return $this->filas(self::STATUS)
+            ->filter(fn ($f) => ($f->legacy_code ?: $f->code) === $legacy)
+            ->pluck('code')
+            ->all();
+    }
+
+    /** Ids de estado que equivalen a uno de los cuatro viejos. */
+    public function idsEquivalentesA(string $legacy): array
+    {
+        return $this->filas(self::STATUS)
+            ->filter(fn ($f) => ($f->legacy_code ?: $f->code) === $legacy)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    /** El código del estado marcado como inicial en el catálogo. */
+    public function estadoInicial(): ?string
+    {
+        return $this->vigentes(self::STATUS)->firstWhere('is_initial', true)?->code;
+    }
+
+    /** La fila completa de un estado, para leer sus flags. */
+    public function estado(?string $code): ?object
+    {
+        return $code === null ? null : $this->filas(self::STATUS)->firstWhere('code', $code);
     }
 }

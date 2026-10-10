@@ -30,6 +30,7 @@ class InventoryMovement extends Model
         'to_type',
         'to_id',
         'installation_id',
+        'support_ticket_id',
         'customer_id',
         'notes',
         'created_by',
@@ -68,6 +69,15 @@ class InventoryMovement extends Model
     public function installation()
     {
         return $this->belongsTo(CustomerInstallation::class, 'installation_id');
+    }
+
+    /**
+     * Ticket que originó el movimiento. withTrashed porque un ticket archivado
+     * no deja de ser la causa de la salida: el kardex tiene que poder nombrarla.
+     */
+    public function supportTicket()
+    {
+        return $this->belongsTo(SupportTicket::class, 'support_ticket_id')->withTrashed();
     }
 
     public function creator()

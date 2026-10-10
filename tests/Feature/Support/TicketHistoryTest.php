@@ -83,6 +83,21 @@ class TicketHistoryTest extends TestCase
         ] + $extra);
     }
 
+    /**
+     * Mueve el estado por la TRANSICION, no por el PUT.
+     *
+     * El formulario de edicion dejo de mover el estado con el workflow formal:
+     * un cambio de estado valida el origen contra la matriz y tiene su propio
+     * endpoint. Estos tests auditan el HISTORIAL, no la puerta por la que se
+     * entra, asi que se limitan a usar la puerta correcta.
+     */
+    private function transicionar(SupportTicket $ticket, string $estado): void
+    {
+        $this->actingAs($this->staff)
+            ->patchJson("/api/support/{$ticket->id}/status", ['status' => $estado])
+            ->assertOk();
+    }
+
     /** @return \Illuminate\Database\Eloquent\Collection<int, SupportTicketHistory> */
     private function eventosDe(SupportTicket $ticket)
     {
@@ -137,12 +152,15 @@ class TicketHistoryTest extends TestCase
     {
         $ticket = $this->ticket();
 
+        // El estado por su endpoint; prioridad y categoria siguen en el PUT.
+        $this->transicionar($ticket, 'en_clasificacion');
+
         $this->actingAs($this->staff)->putJson("/api/support/{$ticket->id}", [
-            'status' => 'in_progress', 'priority' => 'high', 'category' => 'billing',
+            'priority' => 'high', 'category' => 'billing',
         ])->assertOk();
 
         $esperado = [
-            SupportTicketHistory::STATUS   => ['status', 'open', 'in_progress'],
+            SupportTicketHistory::STATUS   => ['status', 'open', 'en_clasificacion'],
             SupportTicketHistory::PRIORITY => ['priority', 'medium', 'high'],
             SupportTicketHistory::CATEGORY => ['category', 'technical', 'billing'],
         ];
@@ -163,8 +181,7 @@ class TicketHistoryTest extends TestCase
     {
         $ticket = $this->ticket();
 
-        $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'resolved'])->assertOk();
+        $this->transicionar($ticket, 'en_clasificacion');
 
         $evento = $this->ultimoDe($ticket, SupportTicketHistory::STATUS);
 
@@ -172,7 +189,7 @@ class TicketHistoryTest extends TestCase
         // etiquetas son editables por diseño (R1), así que se congelan aquí:
         // reetiquetar un catálogo no puede reescribir el pasado.
         $this->assertSame('Abierto', $evento->metadata['old_label']);
-        $this->assertSame('Resuelto', $evento->metadata['new_label']);
+        $this->assertSame('En clasificación', $evento->metadata['new_label']);
     }
 
     #[Test]
@@ -329,8 +346,7 @@ class TicketHistoryTest extends TestCase
     {
         $ticket = $this->ticket();
 
-        $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'closed'])->assertOk();
+        $this->transicionar($ticket, 'en_clasificacion');
 
         $evento = $this->ultimoDe($ticket, SupportTicketHistory::STATUS);
 
@@ -346,9 +362,11 @@ class TicketHistoryTest extends TestCase
         $otro = User::factory()->create(['tenant_id' => $this->tenant->id]);
         $ticket = $this->ticket();
 
-        $this->actingAs($this->staff)->putJson("/api/support/{$ticket->id}", [
-            'status'  => 'resolved',
-            'user_id' => $otro->id,
+        // El payload intenta firmar en nombre de otro por las dos puertas: la
+        // transicion y el formulario. Ninguna debe hacerle caso.
+        $this->actingAs($this->staff)->patchJson("/api/support/{$ticket->id}/status", [
+            'status'        => 'en_clasificacion',
+            'user_id'       => $otro->id,
             'actor_user_id' => $otro->id,
         ])->assertOk();
 
@@ -385,11 +403,17 @@ class TicketHistoryTest extends TestCase
         $ticket = $this->ticket();
         $antes = $this->eventosDe($ticket)->count();
 
+        // La prioridad y la categoria se reenvian IGUALES: el observer mira el
+        // cambio real, no el payload, asi que no deben dejar evento.
         $this->actingAs($this->staff)->putJson("/api/support/{$ticket->id}", [
-            'status'   => 'in_progress',
             'priority' => 'medium',
             'category' => 'technical',
         ])->assertOk();
+
+        $this->assertSame($antes, $this->eventosDe($ticket)->count(), 'Reenviar lo mismo no audita nada.');
+
+        // Y el estado, que si cambia, deja exactamente uno.
+        $this->transicionar($ticket, 'en_clasificacion');
 
         $eventos = $this->eventosDe($ticket);
 
@@ -469,10 +493,8 @@ class TicketHistoryTest extends TestCase
     {
         $ticket = $this->ticket();
 
-        $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'in_progress'])->assertOk();
-        $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'resolved'])->assertOk();
+        $this->transicionar($ticket, 'en_clasificacion');
+        $this->transicionar($ticket, 'asignado');
 
         $datos = $this->actingAs($this->staff)
             ->getJson("/api/support/{$ticket->id}/history")->assertOk()->json();
@@ -481,7 +503,7 @@ class TicketHistoryTest extends TestCase
 
         $this->assertSame(SupportTicketHistory::STATUS, $tipos[0]);
         $this->assertSame(SupportTicketHistory::CREATED, end($tipos));
-        $this->assertSame('resolved', $datos['data'][0]['new_value']);
+        $this->assertSame('asignado', $datos['data'][0]['new_value']);
         $this->assertArrayHasKey('current_page', $datos, 'Debe venir paginado.');
     }
 
@@ -490,8 +512,7 @@ class TicketHistoryTest extends TestCase
     {
         $ticket = $this->ticket();
 
-        $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'closed'])->assertOk();
+        $this->transicionar($ticket, 'en_clasificacion');
 
         $primero = $this->actingAs($this->staff)
             ->getJson("/api/support/{$ticket->id}/history")->assertOk()->json('data.0');
@@ -595,14 +616,14 @@ class TicketHistoryTest extends TestCase
 
         // Y desde ahora sí se audita.
         $this->actingAs($this->staff)
-            ->putJson("/api/support/{$id}", ['status' => 'resolved'])->assertOk();
+            ->patchJson("/api/support/{$id}/status", ['status' => 'en_clasificacion'])->assertOk();
 
         $datos = $this->actingAs($this->staff)
             ->getJson("/api/support/{$id}/history")->assertOk()->json('data');
 
         $this->assertCount(1, $datos);
         $this->assertSame('open', $datos[0]['old_value']);
-        $this->assertSame('resolved', $datos[0]['new_value']);
+        $this->assertSame('en_clasificacion', $datos[0]['new_value']);
     }
 
     #[Test]
@@ -630,7 +651,9 @@ class TicketHistoryTest extends TestCase
         $this->assertSame('S02', $detalle['diagnosis']['symptom']['code']);
         $this->assertCount(1, $detalle['messages']);
         $this->assertCount(1, $detalle['attachments']);
-        $this->assertSame('open', $detalle['status']);
+        // Creado por la API: nace en el estado inicial del catálogo, que con el
+        // workflow formal es `radicado`.
+        $this->assertSame('radicado', $detalle['status']);
     }
 
     #[Test]
@@ -654,8 +677,7 @@ class TicketHistoryTest extends TestCase
         $token->accessToken->forceFill(['allowed_ips' => ['127.0.0.1']])->save();
 
         $ticket = $this->ticket();
-        $this->actingAs($this->staff)
-            ->putJson("/api/support/{$ticket->id}", ['status' => 'resolved'])->assertOk();
+        $this->transicionar($ticket, 'en_clasificacion');
 
         $this->app['auth']->forgetGuards();
 

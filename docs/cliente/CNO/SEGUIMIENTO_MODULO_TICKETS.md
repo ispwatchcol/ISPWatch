@@ -93,12 +93,19 @@ Concretamente, **no** debe reportarse como cumplido:
   cinco campos se capturan en el alta y la edición, se validan contra el catálogo vigente
   y se leen con código y etiqueta. Queda como decisión aparte si se exponen al integrador
   (**D-07**), que no forma parte del criterio de F1-03.
-- **F1-04** por existir `resolved_at` y `closed_at`. El criterio exige estados,
-  transiciones **e historial**.
+- ~~**F1-04** por existir `resolved_at` y `closed_at`. El criterio exige estados,
+  transiciones **e historial**.~~ **Resuelto por el PR #4**: los 9 estados del flujo y los 9
+  auxiliares de la §7 están sembrados, las transiciones se validan contra una matriz explícita
+  y cada movimiento deja evento con actor, estado anterior/nuevo y motivo. `resolved_at` y
+  `closed_at` quedan separados, que es lo que el documento exige.
 - **F1-11** por existir la tabla de adjuntos. La **protección de acceso ya está resuelta**
   (endpoint autenticado con verificación de tenant, disco privado), pero **siguen faltando
   el hash de integridad y la política de retención**, así que el criterio no se cumple.
-- **F1-17** por tener ya la auditoría. El PR #3 resuelve la **mitad de auditoría** —historial
+- **F1-17** por tener ya la auditoría y los permisos separados. El PR #3 resuelve la auditoría
+  y el PR B entrega las 20 capacidades, pero **el criterio exige el modelo de roles** de la
+  sección 18, y ése sigue sin confirmarse (**D-09**). Tener la herramienta no es tener la
+  configuración.
+- *(detalle del PR #3)* El PR #3 resuelve la **mitad de auditoría** —historial
   inalterable con actor, campo, valor anterior y valor nuevo—, pero el criterio exige además
   el **modelo de roles** de la sección 18 (Recepción/N1, N2, Técnico de campo, Supervisor,
   Auditor/gerencia), y hoy sólo existe `view_support`.
@@ -125,20 +132,20 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-01** | Ticket asociado a cliente **y servicio específico** | 🔴 Bloqueado | `support_ticket.user_id`; `customer_profile` con PK = `user_id` | Definir modelo de servicio | **Decisión D-01** |
 | **F1-02** | Alcance exclusivo soporte; excluir facturación | ⚠️ **Contradicción** | `routes/api.php:368-369` — `POST /support/{id}/charge` | No tocar; escalar | **Decisión D-02** |
 | **F1-03** | Síntoma, causa sospechada, causa confirmada, acción y resultado | 🟢 **Cumplido** | 5 columnas en `support_ticket`; catálogos del Anexo A (16+7+20+15); **captura en alta y edición**, validación por catálogo y por tenant, y lectura con código y etiqueta en el detalle y en la API del panel | — | Subcausas sin código: **D-06**. Exposición a socios: **D-07** (no forma parte de F1-03) |
-| **F1-04** | Estados y transiciones con timestamps e historial | 🟡 Parcial | 4 estados vs 9 + 9 auxiliares (Maestra L139-149); `resolved_at`, `closed_at` | **PR #4** | **Decisión D-03** |
+| **F1-04** | Estados y transiciones con timestamps e historial | ✅ **Cumplido** | 9 del flujo + 9 auxiliares sembrados; matriz explícita de transiciones; evento por movimiento; `resolved_at` ≠ `closed_at` | **PR #4** | — |
 | **F1-05** | Campos condicionales radio / FTTH | ⚪ Pendiente | No existe | Diseño posterior | Tras PR #2 |
 | **F1-06** | Asociación zona, nodo, AP/OLT, PON, CPE/ONU | 🟡 Parcial | `support_ticket.sectorial_id` | Ampliar jerarquía | — |
 | **F1-07** | Snapshot histórico de infraestructura | ⚪ Pendiente | `sectorial_id` es FK viva, no snapshot | Diseño posterior | Tras F1-06 |
-| **F1-08** | Varias intervenciones por ticket | ⚪ Pendiente | `support_ticket_message` son comentarios | **PR #5** | — |
-| **F1-09** | Pruebas iniciales y finales estructuradas | ⚪ Pendiente | No existe | Tras PR #5 | — |
-| **F1-10** | Reglas de cierre y excepciones auditadas | ⚪ Pendiente | Cualquier transición permitida | **PR #4** | **Decisión D-03** |
+| **F1-08** | Varias intervenciones por ticket | 🟢 **Cumplido** | `ticket_intervention`: N visitas por ticket con numero correlativo, tipo remoto/presencial, tecnico y acompanante con nombre congelado, inicio/fin, hallazgo, accion, resultado y proximo paso. Evidencia enlazada a su visita. **Sin borrado**: corregir una finalizada exige reabrirla con motivo | — | **PR F1** |
+| **F1-09** | Pruebas iniciales y finales estructuradas | 🟢 **Cumplido** | `ticket_measurement` con los seis campos del § 12; comparación inicial/seguimiento/final del § 13; la regla 5 del § 15 es exigible en propuesta y cierre | — | **PR F2** · lista de razones: **D-16** |
+| **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido; se exigen **3 de las 10 reglas** del §15 (causa confirmada, acción, resultado). Las otras necesitan campos que el ticket aún no captura | **PR #4** + PR #5 | — |
 | **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
-| **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones | **PR #5** | — |
+| **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones. **No se reutiliza**: su `installation_id` es NOT NULL con CASCADE y un ticket no tiene instalacion | **PR F3** | **D-14** y **P-55** |
 | **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
 | **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`; `router_outage_events` es base parcial | **PR #6** | — |
 | **F1-16** | Servicios afectados y minutos-cliente (P1) | ⚪ Pendiente | No existe | Tras PR #6 | — |
-| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**: `support_ticket_history` inalterable con actor, campo, valor anterior/nuevo, origen y fecha; visible en el detalle. **Falta el modelo de roles** de la sección 18: sólo existe `view_support` | Roles N1/N2/campo/supervisor/auditor | Depende de **D-09** |
+| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**. **Permisos separados (PR B)**: 20 capacidades `ticket_*`, una por acción, y ninguna ruta de ticket queda sin permiso. **Sigue faltando el MODELO DE ROLES** de la sección 18: los permisos existen, pero el reparto en Recepción/N1, N2, Técnico de campo, Supervisor y Auditor está sin confirmar | Aplicar la matriz de roles | Depende de **D-09** |
 | **F1-18** | Exportación completa y filtros por infraestructura | ⚪ Pendiente | Sin export de tickets | **PR #7** | Tras F1-06 |
 | **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟡 Parcial | Sólo `avg_resolution_time` (`SupportTicketController.php:411`); 0 percentiles | **PR #7** | — |
 | **F1-20** | Zona horaria America/Bogota | 🟡 Parcial | `config/app.php:70` → `UTC` (almacenamiento correcto); presentación sin fijar | **PR #7** | — |
@@ -533,30 +540,282 @@ La retención sigue siendo **D-05**.
 su histórico de facturación, incluidos los cargos de ticket. Es contabilidad, no expediente
 del ticket, y merece su propio análisis (**P-43**).
 
+### PR B · Permisos granulares de ticket
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Separar `view_support` en capacidades por acción, sin cambiar lo que nadie podía hacer |
+| **Cubre** | Avanza **F1-17**, que **sigue parcial**: entrega los permisos, no el modelo de roles |
+| **Migraciones** | `2026_09_11_000001_backfill_granular_ticket_permissions` (sólo datos) |
+| **Pruebas** | `tests/Feature/Support/TicketGranularPermissionsTest.php` — 24 pruebas |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**El problema.** `view_support` era un permiso-paraguas: quien lo tenía podía listar, crear,
+editar, asignar, cambiar prioridad y categoría, diagnosticar, adjuntar, ver evidencia y leer el
+historial. Y siete rutas más —notas, transiciones, cargos, estadísticas— **no tenían ningún
+`permission:`**: sólo `staff_profile`, que comprueba el código de rol, no una capacidad. El
+endpoint de catálogos no tenía ni eso.
+
+**Qué cambia.** 20 permisos `ticket_*`, uno por acción. `PUT /support/{id}` —que hace seis
+cosas distintas— autoriza **por campo**, y sólo cuando el valor cambia, para que la pantalla de
+edición siga funcionando al reenviar el formulario entero.
+
+**Nadie gana ni pierde nada.** El backfill deduce el reparto de las dos puertas que gobernaban
+antes: quien tenía `view_support` recibe las 11 capacidades que ese permiso abría; quien además
+es `admin` o `staff` recibe las 4 que abría `staff_profile`. Verificado rol por rol en SQLite y
+en PostgreSQL.
+
+**No se concede a nadie** `ticket_close_override`, `ticket_reopen`, `ticket_archive`,
+`ticket_restore` ni `ticket_manage_catalogs`: esas acciones todavía no existen.
+
+**Los roles definitivos NO se configuran aquí.** La matriz de la sección 18 es **D-09** y sigue
+pendiente del cliente. Este PR entrega la herramienta; el reparto es otra conversación.
+
+**Queda fuera:** los cargos del ticket siguen con `staff_profile` a secas. Son facturación, no
+operación del ticket, y no aparecen en la matriz del requerimiento.
+
+### PR C · Archivar y restaurar expedientes
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Sustituir definitivamente la noción de eliminar un ticket por archivado reversible y auditado |
+| **Fuente** | **Confirmación de CNO por chat — 11/09/2026** (resuelve **D-10**) |
+| **Cubre** | Cierra el hueco que el PR A dejó a propósito. Refuerza **F1-17** (auditoría de la retirada) |
+| **Migraciones** | `2026_09_13_000001_add_archiving_to_support_ticket` (esquema) · `2026_09_13_000002_grant_ticket_archiving_to_admin_roles` (datos) |
+| **Pruebas** | `tests/Feature/Support/TicketArchivingTest.php` — 30 pruebas (1 sólo PostgreSQL) |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Qué hace.** `POST /api/support/{id}/archive` retira el expediente de la operación y
+`POST /api/support/{id}/restore` lo devuelve. La interfaz dice **Archivar** y **Restaurar**;
+la palabra «eliminar» no aparece en ninguna parte, ni siquiera en el JSON — `deleted_at` va
+oculto y el contrato expone `archived_at` e `is_archived`.
+
+**No se borra nada.** Notas, adjuntos, cargos e historial siguen intactos, y **ningún archivo
+del bucket se toca** — CNO dejó instrucción expresa de no purgar (**D-05** sigue abierta en su
+mitad de retención).
+
+**Cuatro barreras, todas en el servidor:**
+
+1. **Motivo obligatorio** de 10 a 500 caracteres, firmado con el nombre de quien archiva.
+2. **Escribir el número del ticket.** Era un requisito de interfaz; se subió al backend porque
+   una barrera que sólo vive en el navegador la salta un `curl`.
+3. **Trabajo vivo bloqueado.** Un ticket `open` o `in_progress` sólo se archiva por
+   **duplicado** o **error de registro**, y con una confirmación adicional. Cualquier otro
+   motivo describe un ticket que hay que **cerrar**, no esconder.
+4. **Cargos vivos bloqueados.** Con una factura sin anular (`draft`, `issued`, `paid`,
+   `partial`, `overdue`) no se archiva: el cargo se seguiría cobrando y su expediente habría
+   desaparecido de la vista.
+
+**Auditoría.** Eventos append-only `ticket_archived` y `ticket_restored` en
+`support_ticket_history`, con el motivo en `metadata` y el actor resuelto del servidor.
+Restaurar conserva en el evento el motivo del archivado anterior, que la fila del ticket pierde.
+
+**Quién puede.** Sólo los roles con `code = 'admin'`, más el superadministrador global.
+⚠️ **CNO aprobó el archivado para «Administradores y Propietarios», y en ISPWatch no existe un
+rol Propietario** — supuesto **S-1**, pendiente de confirmar.
+
+**Qué desaparece y qué no.** Un archivado sale de listados, estadísticas y `/v1/partner`
+—este último con un `whereNull` explícito además del scope, y un test que lo fija— y deja de
+admitir edición, notas y transiciones (404). Siguen consultables su detalle, historial, cargos
+y adjuntos, **sólo** para quien puede restaurarlo; para el resto también son 404, no 403.
+
+**El borrado físico no se reabre.** La ruta `DELETE` sigue respondiendo 403, el modelo sigue
+lanzando ante `forceDelete()` y la clave foránea del historial **sigue en `RESTRICT`** —
+verificado en PostgreSQL, no revertido.
+
+**El PR D se absorbió aquí.** Se había separado cuando el archivado podía no llegar a existir;
+aprobado, entregar el backend sin interfaz habría dejado una capacidad inalcanzable para quien
+tiene que usarla, y la doble confirmación —que era el corazón del PR D— es una barrera de
+seguridad, no un adorno que pueda esperar a otro despliegue.
+
 ### PR #4 · Ciclo de vida y reglas de cierre
 
 | Campo | Detalle |
 |---|---|
 | **Objetivo** | Estados reales del cliente y cierre controlado |
-| **Cubre** | F1-04, F1-10 |
-| **Alcance** | Ampliar `ticket_status` a los 9 estados + auxiliares; tabla de transiciones; enforcement en `updateStatus()`; reglas de cierre; `restablecido_en` ≠ `cerrado_en` |
-| **Dependencias** | **PR #3** (las excepciones deben quedar auditadas) · **Decisión D-03** |
-| **Pruebas** | No se cierra sin causa confirmada, acción y resultado; la transición inválida se rechaza; la excepción queda auditada |
-| **Aceptación** | El cierre incompleto queda bloqueado o exige excepción registrada |
-| **Estado** | 🔒 Bloqueado por D-03 |
-| **Riesgo** | **Medio** — cambia comportamiento vigente en producción |
+| **Fuente** | Solicitud Maestra §7, §15 y §18 · **Confirmación de CNO por chat — 11/09/2026** |
+| **Cubre** | **F1-04 cumplido** · **F1-10 parcial** (ver abajo) |
+| **Migraciones** | `2026_09_19_000003_extend_ticket_status_to_master_workflow` (esquema + datos) |
+| **Pruebas** | `tests/Feature/Support/TicketWorkflowTest.php` — 52 pruebas, con matriz de transiciones por proveedor de datos |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
 
-### PR #5 · Intervenciones
+**Los estados salen literales del documento.** Los nueve del flujo del diagrama de la §7 y los
+nueve del bloque «Estados auxiliares requeridos» que va debajo. El documento **no asigna código
+técnico** a ninguno, así que se derivan del nombre en snake_case sin tildes y quedan cotejables
+uno a uno en `BASE_DATOS.md`. Mismo criterio que con las subcausas del Anexo A: no se inventa
+vocabulario, se deriva de la única fuente que hay y se deja escrito.
+
+**Los cuatro estados viejos no se tocan.** Siguen en el catálogo marcados como `legacy`, porque
+los 27 tickets de producción apuntan a ellos y porque el **contrato del integrador está
+congelado**. Cada estado nuevo declara a cuál de los cuatro equivale (`legacy_code`), y eso es
+lo que sale por `/v1/partner` y lo que cuentan las estadísticas.
+
+**Las transiciones se validan contra una matriz explícita.** Ya no se puede saltar de recién
+radicado a cerrado. Las vueltas atrás dentro del tramo operativo sí se permiten —un técnico que
+llega a la visita y descubre que la falla era remota tiene que poder devolver el ticket a
+diagnóstico— pero de un estado terminal sólo se sale reabriendo.
+
+**Cuatro operaciones con nombre propio**, cada una con su permiso:
+
+| Operación | Permiso | Qué hace |
+|---|---|---|
+| Proponer cierre | `ticket_transition` | **No cierra.** Deja el ticket en «En observación» con acción, resultado y observación técnica |
+| Cerrar | `ticket_close` | Exige causa confirmada, acción y resultado. Sella `closed_at` sin tocar `resolved_at` |
+| Cierre especial | `ticket_close_override` | Autoriza sin un requisito. Registra **cuál faltó** y deja evento propio |
+| Reabrir | `ticket_reopen` | Deja el ticket en «Reabierto». **No borra `closed_at`** |
+
+**Por qué F1-10 queda PARCIAL y no cumplido.** El §15 enumera **diez** reglas obligatorias de
+cierre. Se exigen tres —causa confirmada, acción y resultado— y una cuarta se cumple por
+construcción (el sellado de `resolved_at` lo hace el catálogo). Las otras seis necesitan campos
+de captura que el ticket todavía no tiene:
+
+| Regla §15 | Por qué no se exige aún |
+|---|---|
+| 5 · «prueba final o justificación de por qué no fue posible» | No existe el campo de pruebas finales |
+| 6 · «infraestructura afectada o clasificación red interna / no aplica» | `sectorial_id` no admite «no aplica» ni «red interna del cliente» |
+| 7 · «validación del cliente separada de la restauración técnica» | No existe el campo |
+| 8 · «"Otro" siempre debe requerir explicación» | Depende de marcar qué códigos de catálogo son «Otro» |
+| 9 · «solución temporal, pendiente de tercero y no resuelto → seguimiento o autorización» | **Parcial**: la solución temporal obliga a pasar por el cierre especial, que ES la autorización |
+| 10 · «el cierre no debe borrar causa sospechada, intervenciones ni estados anteriores» | ✅ Se cumple: el cierre no escribe ningún campo del diagnóstico |
+
+Los campos que faltan son el alcance del **PR #5 (intervenciones)** y de la captura de pruebas
+finales. Hasta entonces, declarar F1-10 cumplido sería decir que se exigen diez reglas cuando se
+exigen tres.
+
+**D-03 deja de bloquear.** Preguntaba quién puede cerrar sin causa confirmada. CNO delegó la
+definición operativa el 11/09/2026 y la §18 ya lo decía: el **Supervisor** («excepciones, cierre
+especial»). Se implementa como el permiso `ticket_close_override`, que **no se concede a nadie
+por migración** — asignarlo es configuración del cliente.
+
+### PR #4b · Correctivo · Habilitar la reapertura
 
 | Campo | Detalle |
 |---|---|
-| **Objetivo** | Registrar N intervenciones por ticket con materiales y equipos |
-| **Cubre** | F1-08, F1-12, F1-09 (base) |
-| **Alcance** | Tabla de intervenciones (tipo, técnico, inicio/fin, hallazgo, acción, resultado, próximo paso) y equipos retirados/instalados |
-| **Dependencias** | PR #3 |
-| **Pruebas** | Un ticket admite varias intervenciones; cada una conserva su evidencia |
-| **Aceptación** | Se registra una visita con técnico, hallazgo, acción, materiales y resultado |
+| **Objetivo** | Cerrar el hueco que el humo del PR #4 encontró: la reapertura era inalcanzable |
+| **Migraciones** | `2026_09_21_000002_grant_ticket_reopen_to_admin_roles` (sólo datos) |
+| **Pruebas** | `tests/Feature/Support/TicketReopenTest.php` — 15 pruebas |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**Qué pasó.** El ticket #39 se cerró bien y el historial mostraba las transiciones y los
+timestamps, pero un Administrador no encontraba el botón «Reabrir».
+
+**Causa raíz.** El PR #4 declaró el endpoint, el permiso y la matriz, pero **no repartió
+`ticket_reopen` a ningún rol**. Medido en la base antes de corregir: los cinco roles `admin`
+tenían **17 de los 20** permisos `ticket_*`, y faltaban exactamente los tres que ninguna
+migración llegó a repartir — `ticket_reopen`, `ticket_close_override` y
+`ticket_manage_catalogs`.
+
+No era un fallo de interfaz: la pantalla hacía lo correcto —no ofrecer lo que la API va a
+rechazar con 403— pero sin decir por qué. Y el bypass de superadministrador no salvaba el caso,
+porque sólo aplica a `role_id == 1` y los administradores de cada ISP tienen otro id.
+
+**Qué se corrigió.**
+
+1. **Migración idempotente** que concede `ticket_reopen` a los roles `code = 'admin'`. No a
+   `staff` ni a `technician`, y sin tocar los roles con comodín.
+2. **La reapertura queda explícita en la matriz**, en una tabla propia
+   (`TicketWorkflow::REAPERTURA`) y **no** en la matriz general: si `cerrado → reabierto`
+   estuviera ahí, `PATCH .../status` la aceptaría y cualquiera con `ticket_transition` reabriría
+   sin permiso y sin motivo. La transición genérica ahora rechaza ese destino con un mensaje que
+   dirige al endpoint correcto.
+3. **`GET .../transitions` dice por qué no se puede reabrir** (`reopen_blocked_by`:
+   `permission` / `not_closed` / `archived`), y la pantalla lo muestra en vez de esconder la
+   tarjeta entera. Es lo que habría convertido este fallo en un aviso legible en lugar de en un
+   botón ausente.
+
+**`ticket_close_override` NO se reparte, a conciencia.** Autoriza cerrar **incumpliendo** las
+reglas del §15; repartirlo por migración sería tomar por el cliente una decisión que el §18 le
+asigna al Supervisor. Queda anotado como **P-52**: hay que asignarlo desde la pantalla de roles
+a quien el ISP designe, o el cierre especial sigue inalcanzable.
+
+**Lo que no cambia:** ni los estados, ni la matriz general, ni el contrato del integrador
+—`reabierto` equivale a `in_progress`—, ni los timestamps. `closed_at` **se conserva** al
+reabrir, porque el §19.5 pide que los timestamps no se sobrescriban y la fecha de aquel cierre
+sigue siendo un hecho.
+
+### PR #5 · Intervenciones — dividido en F1 / F2 / F3
+
+El alcance original («intervenciones con materiales y equipos» en un solo PR) se partió en
+tres tras el análisis de diseño del 2026-09-23. La razón: **materiales y equipos son el único
+bloque capaz de desincronizar el inventario físico**, y dependen de una decisión sin tomar
+(**D-14**). Mezclarlos con la funcionalidad base habría obligado a revertir las intervenciones
+si algo fallaba en el inventario.
+
+#### PR F1 · Intervenciones y evidencia enlazada — **implementado**
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Registrar N visitas o atenciones remotas por ticket, con su evidencia |
+| **Cubre** | **F1-08 (cumplido)** |
+| **Alcance** | Tabla `ticket_intervention` (número correlativo, tipo remoto/presencial, técnico y acompañante con nombre congelado, inicio/fin, hallazgo, acción, resultado, próximo paso). Tres columnas sobre `support_ticket_attachment` para enlazar la evidencia. Permiso `ticket_intervene` con backfill. Componente `TicketInterventions.vue` |
+| **Migraciones** | 3 · tabla, columnas de evidencia con FK compuesta, backfill de permiso |
+| **Pruebas** | `tests/Feature/Support/TicketInterventionTest.php` — 38 pruebas |
+| **Aceptación** | Se registran dos visitas con técnico, tiempos, hallazgo, acción, resultado y próximo paso; cada una conserva su evidencia; el historial dice quién y cuándo |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**La regla que gobierna el diseño.** El § 15.10 dice que «el cierre no debe borrar la causa
+sospechada, **las intervenciones** ni los estados anteriores». Por eso `ticket_intervention`
+**no tiene `deleted_at`**, no hay endpoint de borrado, el cliente de API no tiene método y la
+pantalla no tiene botón. El modelo además bloquea `deleting`.
+
+Corregir una visita finalizada exige **reabrirla** con motivo de 10 a 500 caracteres, lo que
+deja `intervention_reopened` en el historial con actor, fecha y motivo. Es la contrapartida de
+no poder borrar: sin una vía de corrección auditada, la inmutabilidad sería inutilizable.
+
+**No toca** workflow, cierre, mediciones, materiales, equipos, inventario, routers, facturas
+ni `/v1/partner`. El cierre **no** exige intervenciones (**D-15**): ninguna de las diez reglas
+del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita.
+
+#### PR F2 · Pruebas técnicas estructuradas — **implementado**
+
+| Campo | Detalle |
+|---|---|
+| **Objetivo** | Registrar mediciones con estructura, comparar antes/después y hacer exigible la regla 5 del § 15 |
+| **Cubre** | **F1-09 (cumplido)** · cierra la regla 5 de **P-50** |
+| **Alcance** | Tabla `ticket_measurement` con los seis campos del § 12 (tipo, resultado, unidad, fecha/hora, origen, fase) más la intervención de la que salió. Dos columnas en `support_ticket` para la razón y la justificación del § 13. Comparación inicial/seguimiento/final. Componente `TicketMeasurements.vue` |
+| **Migraciones** | 2 · tabla de mediciones, columnas de justificación |
+| **Permiso** | **Ninguno nuevo**: `ticket_intervene`, el mismo de las visitas |
+| **Pruebas** | `tests/Feature/Support/TicketMeasurementTest.php` — 41 pruebas |
+| **Aceptación** | Se registra una medición inicial y una final con los seis datos; la comparación las enfrenta; sin final el cierre exige razón **y** justificación |
+| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+
+**La regla 5 ya es exigible.** El § 15.5 pide «prueba final **o** justificación de por qué no
+fue posible». Es la única de las diez con una **O**: se cumple con una medición de fase
+`final`, o con la pareja razón + justificación. Se aplica en la **propuesta** y en el
+**cierre**, y el endpoint de transiciones la anuncia para que la pantalla avise antes de abrir
+el modal. El cierre excepcional sigue pudiendo saltársela, dejando constancia.
+
+**`test_type` es texto libre** (decisión **S-4**). El § 12 enumera las métricas en prosa por
+tecnología sin asignarles código, igual que el Anexo A.2 con las subcausas — criterio que el
+cliente cerró en **D-06**. Las listas del documento viajan como sugerencias, no como valores
+seleccionables.
+
+**Sin permiso nuevo.** El § 18 le da al Técnico de campo «visita, evidencias, materiales,
+equipos, **pruebas finales**» en una sola frase: partirlo separaría una capacidad que el
+documento describe como una.
+
+**No se borra una medición.** Es la constancia de lo que se leyó, y la regla 5 la convierte en
+requisito de cierre: poder esconderla equivaldría a poder saltarse el requisito sin que
+constara. Se puede **corregir** mientras el ticket siga abierto, y la corrección queda en el
+historial con el valor anterior y el nuevo.
+
+**La lista de razones la define el equipo** (**D-16**, nueva). El § 13 pide «seleccionar» —es
+decir, lista cerrada— pero no la enumera en ninguna sección. Se compuso con vocabulario que el
+documento ya usa; queda pendiente de que el cliente la confirme.
+
+#### PR F3 · Materiales y equipos — pendiente
+
+| Campo | Detalle |
+|---|---|
+| **Cubre** | F1-12 |
+| **Alcance** | Registro **declarativo** de equipos instalados/retirados y materiales, con snapshot de marca, modelo, serial, MAC, condición y propiedad |
+| **Dependencias** | PR F1 + **D-14** |
 | **Estado** | ⚪ Pendiente |
+
+**No moverá el kardex** sin decisión posterior (**D-14**). Y antes de implementarlo hay que
+resolver **P-55**: el `unique(device_id)` de `installation_equipment` —«un equipo físico no
+puede estar instalado en dos casas a la vez»— quedaría con un agujero si se registran equipos
+instalados fuera de esa tabla.
 
 ### PR #6 · Incidentes, duplicados y tickets relacionados
 
@@ -586,7 +845,13 @@ del ticket, y merece su propio análisis (**P-43**).
 
 ## Decisiones pendientes del cliente
 
-Ninguna debe resolverse por iniciativa propia.
+> **Actualizado el 2026-09-11** con la *Confirmación de CNO por chat — 11/09/2026*. El cliente
+> resolvió D-06 y D-10, **delegó en el equipo** D-09, D-11, D-12 y D-13, y dejó **D-05 abierta
+> en su mitad de retención**, con instrucción explícita de **no purgar ni borrar
+> automáticamente**.
+>
+> «Delegada» no es «resuelta»: la decisión pasa a ser nuestra, pero sigue habiendo que tomarla
+> y escribirla. Las delegadas se mantienen en la tabla con el estado cambiado, no se borran.
 
 | ID | Decisión | Por qué no la tomamos | Bloquea |
 |---|---|---|---|
@@ -594,15 +859,18 @@ Ninguna debe resolverse por iniciativa propia.
 | **D-02** | **Separación soporte / facturación.** El módulo excluye facturación pero hoy el ticket genera facturas | Funcionalidad viva que otros tenants podrían usar; retirarla es decisión de producto | F1-02 |
 | **D-03** | **Autoridad para excepciones de cierre.** Quién puede cerrar sin causa confirmada y bajo qué registro | Es una regla operativa y de responsabilidad, no técnica | F1-10, PR #4 |
 | **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
-| **D-05** | **Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 (disco privado `s3`, endpoint autenticado por tenant y ticket). Sigue sin definirse cuánto se conservan y si llevan hash de integridad | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
-| **D-06** | **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
+| **D-05** | 🟡 **Parcial · Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 y **CNO lo confirmó el 2026-09-11** («evidencias accesibles para quienes manejan tickets»). **La retención sigue sin definir**, con instrucción expresa de **no purgar ni borrar automáticamente** | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
+| **D-06** | ✅ **CERRADA el 2026-09-11.** CNO confirmó **mantener las subcausas sólo como texto de referencia y no crear códigos individuales** — exactamente lo que el PR #1 hizo. *Enunciado original:* **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
 | **D-07** | **¿Se expone al integrador?** Abarca ya tres cosas: los catálogos (PR #1), los cinco campos de diagnóstico (PR #2) y el historial del ticket (PR #3). Los tres viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
-| **D-09** | **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
-| **D-10** | **¿Debe existir el archivado de tickets?** El documento no lo pide en ninguna parte; al contrario, trata el ticket como un expediente que se revisa «sin alterar». El PR A retiró el borrado físico; falta decidir si se sustituye por archivado reversible o por nada | Requiere confirmar quién archiva y quién restaura | PR C y PR D del diseño |
-| **D-11** | **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
-| **D-12** | **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
-| **D-13** | **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
+| **D-09** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11**: «definirlos según la Solicitud Maestra, buscando simplicidad y permitiendo cambios posteriores». Sigue sin implementarse. *Enunciado original:* **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
+| **D-10** | ✅ **RESUELTA el 2026-09-11.** CNO aprobó **archivado reversible y auditado para Administradores y Propietarios**. Advertencia registrada: **en ISPWatch no existe un rol «Propietario»** (los `code` reales son `admin`/`staff`/`technician`/`accounting`/`client`); se implementó como `admin` + superadministrador global — supuesto **S-1** del diseño | — | Desbloqueó el **PR C** |
+| **D-11** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («cierre… según la Solicitud Maestra»). *Enunciado original:* **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
+| **D-12** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («reapertura… según la Solicitud Maestra»). *Enunciado original:* **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
+| **D-13** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** (va dentro de «roles y permisos»). *Enunciado original:* **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
+| **D-14** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿Instalar o retirar un equipo desde un ticket debe mover el kardex de inventario? El documento no lo dice | **Por defecto: NO.** El PR F3 registrara de forma declarativa. Moverlo exige permiso propio y resolver el choque con `unique(device_id)` (**P-55**) | PR F3, F1-12 |
+| **D-15** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿El cierre debe exigir al menos una intervencion? | **Por defecto: NO.** Ninguna de las diez reglas del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita. Exigirlas bloquearia tickets legitimos | PR #4, PR F1 |
+| **D-16** | **Lista de razones para cerrar sin medicion final.** El § 13 pide «seleccionar una razon» —lista cerrada— pero no la enumera en ninguna seccion | El equipo la compuso con vocabulario que el documento YA usa: R14, R15, S09, § 7 y la familia NF del Anexo A.2, mas `otro` (§ 15.8). **Falta que el cliente la confirme o la sustituya.** Cambiarla es barato: es lista cerrada, no codigo inmutable de catalogo | F1-09, regla 5 del § 15 |
 
 ---
 
@@ -633,6 +901,13 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-25 | De notas, adjuntos y cargos se guarda **referencia, no copia** | La nota es editable, el importe cambia y la ruta del adjunto es interna | Evita dos versiones divergentes y no filtra rutas del bucket | ✅ Aplicada (PR #3) |
 | 2026-08-25 | **Tabla propia** en vez de `audit_logs` | `audit_logs` guarda JSON del modelo, está tras `view_audit_log` y no tiene FK al ticket | Consulta por campo sin recorrer JSON y visible para quien atiende el ticket | ✅ Aplicada (PR #3) |
 | 2026-08-25 | **No se reconstruye historial retroactivo** | No existen los datos de lo ocurrido antes | Inventar eventos pasados sería falsificar una auditoría | ✅ Aplicada (PR #3) |
+| 2026-09-11 | **El archivado de tickets existe**: reversible y auditado, para Administradores y Propietarios | **Confirmación de CNO por chat — 11/09/2026** | Resuelve D-10 y desbloquea el PR C | ✅ Aplicada (PR C) |
+| 2026-09-11 | **Las subcausas se quedan como texto de referencia**; no se crean códigos individuales | **Confirmación de CNO por chat — 11/09/2026** | **Cierra D-06.** Ratifica lo que el PR #1 ya hizo | ✅ Ratificada |
+| 2026-09-11 | **Los estados y transiciones de la Solicitud Maestra quedan confirmados** | **Confirmación de CNO por chat — 11/09/2026** | Desbloquea el PR #4 (ciclo de vida) | ⚪ Sin implementar |
+| 2026-09-11 | **Las evidencias son accesibles para quienes manejan tickets** | **Confirmación de CNO por chat — 11/09/2026** | Ratifica el modelo del endurecimiento posterior al PR #2 | ✅ Ya vigente |
+| 2026-09-11 | **Roles, permisos, cierre, reapertura, servicio e incidentes se delegan en el equipo**, según la Solicitud Maestra, con simplicidad y reversibilidad | **Confirmación de CNO por chat — 11/09/2026** | D-09, D-11, D-12 y D-13 pasan de bloqueantes a delegadas | 🔓 Delegadas |
+| 2026-09-11 | **No se purga ni se borra evidencia automáticamente**; la retención sigue sin definir | **Confirmación de CNO por chat — 11/09/2026** | Archivar un ticket **no toca ningún archivo del bucket**. D-05 sigue abierta | ✅ Aplicada (PR C) |
+| 2026-09-11 | **«Propietario» se implementa como `admin` + superadministrador global**, porque ese rol no existe en ISPWatch | Decisión del equipo (**S-1**), verificada contra la base | Si CNO designaba otra figura, es un rol nuevo y entra por el PR E | ⚠️ **Supuesto, pendiente de confirmar** |
 
 ---
 
@@ -682,6 +957,9 @@ Ninguna debe resolverse por iniciativa propia.
 | Contrato OpenAPI entregado | *(pendiente)* | | ⚪ No enviado |
 | Códigos del Anexo A confirmados | *(pendiente)* | | ⚪ No solicitado |
 | Reunión de la sección 40 | *(pendiente)* | | ⚪ No agendada |
+| **Decisiones operativas (roles, cierre, archivado, subcausas, evidencias)** | 2026-09-11 | **2026-09-11** | ✅ **Respondida por chat** — ver *Registro de decisiones* |
+| Confirmación de que «Propietario» = rol `admin` (**S-1**) | *(pendiente)* | | ⚠️ **No solicitada** — asunción del equipo |
+| Retención de evidencias (**D-05**) | 2026-09-11 | **2026-09-11** | 🟡 **Sin definir**, con instrucción de no purgar |
 
 ---
 
@@ -704,3 +982,10 @@ Ninguna debe resolverse por iniciativa propia.
 | 2026-08-27 | **PR A implementado**: retirado el borrado físico de tickets (ruta 403, guard en el modelo y clave foránea `RESTRICT` en el historial); corregidos H-3 y H-4; botón «Eliminar» retirado de la interfaz. **H-6 queda abierto** (borrar un cliente destruye notas y adjuntos de sus tickets) como **P-42** | — | *(PR abierto)* |
 | 2026-08-29 | **PR A mergeado y desplegado** (PR #254). Borrado físico de tickets bloqueado y FK del historial en `RESTRICT`, validado en producción | David Gómez | PR #254 |
 | 2026-08-29 | **H-6 corregido**: `support_ticket_message.user_id` y `support_ticket_attachment.user_id` pasan de `CASCADE` a `SET NULL`; se añade `author_name` con el nombre congelado del autor. Dar de baja a un cliente ya no vacía el expediente. **Queda abierto `invoices.customer_id`** (P-43), que sigue borrando el histórico de facturación | — | *(PR abierto)* |
+| 2026-09-11 | **PR B implementado**: 20 permisos `ticket_*`, una capacidad por acción; autorización por campo en el `PUT`; siete rutas que no tenían ningún permiso ahora lo exigen; el endpoint de catálogos deja de ser abierto. Backfill que preserva exactamente lo que cada rol podía hacer. **F1-17 sigue parcial**: falta el modelo de roles de la sección 18 (**D-09**) | — | *(PR abierto)* |
+| 2026-09-11 | **Confirmación de CNO por chat.** Aprobado el **archivado reversible y auditado** (D-10) para Administradores y Propietarios; **cerrada D-06** (subcausas sólo como texto); **confirmados** estados y transiciones; **delegadas** en el equipo D-09, D-11, D-12 y D-13; **evidencias accesibles** ratificado; **retención sin definir**, con instrucción de no purgar (D-05 sigue parcial). Registrado el supuesto **S-1**: en ISPWatch **no existe el rol «Propietario»** | David Gómez | *(rama `david-tickets-archivar-expedientes`)* |
+| 2026-09-13 | **PR C implementado**: archivado reversible y auditado de tickets (`deleted_at` + `archived_by` + `archived_reason`), con motivo obligatorio, doble confirmación escribiendo el número, bloqueo de tickets activos salvo duplicado/error de registro y bloqueo con cargos sin anular. Eventos `ticket_archived` / `ticket_restored`. Listado de archivados y restauración desde la interfaz. **El PR D queda absorbido**. Detectada y anotada la deuda **P-48** | David Gómez | *(PR abierto)* |
+| 2026-09-19 | **PR #4 implementado**: workflow formal de tickets. 9 estados del flujo + 9 auxiliares de la §7 sembrados literales; matriz explícita de transiciones; el `PUT` deja de mover el estado; propuesta de cierre, cierre con requisitos del §15, cierre especial auditado y reapertura, cada uno con su permiso. Los cuatro estados viejos se conservan como `legacy` con equivalencia, así que **el contrato del integrador no cambia**. **F1-04 pasa a cumplido; F1-10 queda parcial** (3 de las 10 reglas de cierre son exigibles con el modelo actual). **D-03 deja de bloquear** | David Gómez | *(PR abierto)* |
+| 2026-09-21 | **Correctivo de reapertura**: el humo del PR #4 encontró que un Administrador no podía reabrir el ticket #39. Causa raíz: `ticket_reopen` nunca se repartió —los roles `admin` tenían 17 de 20 permisos `ticket_*`—. Migración idempotente para `code = 'admin'`; la pareja `cerrado → reabierto` queda explícita en `TicketWorkflow::REAPERTURA` sin abrir la transición genérica; `GET .../transitions` ahora dice **por qué** una acción no está disponible. `ticket_close_override` sigue sin repartir a conciencia (**P-52**) | David Gómez | *(PR abierto)* |
+| 2026-09-23 | **PR F1 implementado**: intervenciones tecnicas del § 14 con numero correlativo, tecnico y acompanante congelados, cerrojo de edicion por `finished_at` y reapertura auditada con motivo. Evidencia enlazada sin duplicar archivos, con FK compuesta que impide el cruce entre tickets. Permiso `ticket_intervene` con backfill compatible. **F1-08 pasa a cumplido.** El PR #5 se dividio en F1/F2/F3; nuevas decisiones D-14 y D-15, nueva deuda P-55 y P-56 | — | *(PR abierto)* |
+| 2026-09-25 | **PR F2 implementado**: mediciones tecnicas estructuradas con los seis campos del § 12, comparacion inicial/seguimiento/final del § 13 y la **regla 5 del § 15 ya exigible** en propuesta y cierre —medicion final O razon de lista cerrada mas justificacion—. **F1-09 pasa a cumplido.** Sin permiso nuevo: reutiliza `ticket_intervene`. Nueva decision **D-16** (la lista de razones la define el equipo y falta confirmacion del cliente). Nueve pruebas del workflow se actualizaron porque el cierre cambio de contrato, sin debilitar la regla | — | *(PR abierto)* |

@@ -133,6 +133,11 @@ class AuthController extends Controller
                     // y no comparando el tenant en el front: son dos fuentes de
                     // verdad que se desincronizarían al cambiar el operador.
                     'is_api_key_operator' => (int) $user->tenant_id === (int) config('api_keys.operator_tenant_id'),
+                    // Sólo para el superadmin: un tenant operador inexistente
+                    // no falla, hace desaparecer la emisión centralizada (P-35).
+                    'api_key_operator_issue' => ($user->is_superadmin ?? false)
+                        ? \App\Support\ApiKeyOperator::configurationIssue()
+                        : null,
                     // Interruptor del auto-servicio. Viaja aparte del permiso
                     // porque son cosas distintas: el permiso dice si ESTE
                     // usuario puede emitir, y esto dice si la plataforma lo
@@ -262,6 +267,9 @@ class AuthController extends Controller
                 'has_staff_profile' => $user->staffProfile !== null,
                 'is_superadmin'    => $user->is_superadmin ?? false,
                 'is_api_key_operator' => (int) $user->tenant_id === (int) config('api_keys.operator_tenant_id'),
+                'api_key_operator_issue' => ($user->is_superadmin ?? false)
+                    ? \App\Support\ApiKeyOperator::configurationIssue()
+                    : null,
                 'self_service_api_keys' => (bool) config('api_keys.self_service.enabled'),
             ],
         ]);

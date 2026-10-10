@@ -39,7 +39,20 @@
             class="text-[10px] uppercase bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 rounded">
             Pre-venta
           </span>
+          <span v-if="installation.no_charge"
+            class="text-[10px] uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded">
+            Sin cobro
+          </span>
         </h2>
+
+        <!-- El técnico sin permiso de cartera NO ve el bloque de dinero, y es
+             justo a él a quien hay que decírselo: es el que está en la casa del
+             cliente decidiendo si le pide plata. -->
+        <p v-if="installation.no_charge"
+          class="mb-4 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+          Esta orden es <strong>sin cobro al cliente</strong>: no cobres nada en sitio ni se le genera factura.
+          <span v-if="installation.no_charge_reason"> Motivo: {{ installation.no_charge_reason }}.</span>
+        </p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
           <div>
             <p class="text-xs text-gray-500 dark:text-gray-400 uppercase">{{ installation.is_prospect ? 'Prospecto' : 'Cliente' }}</p>
@@ -71,7 +84,17 @@
           </div>
           <div class="sm:col-span-2">
             <p class="text-xs text-gray-500 dark:text-gray-400 uppercase">Equipo / Materiales previstos</p>
-            <p class="text-gray-800 dark:text-gray-200">{{ installation.equipment || '—' }}</p>
+            <ul v-if="installation.planned_items?.length" class="mt-1 space-y-0.5">
+              <li v-for="p in installation.planned_items" :key="p.id" class="text-gray-800 dark:text-gray-200">
+                {{ fmtQty(p.quantity) }}{{ p.unit ? ` ${p.unit}` : '' }} · {{ p.label }}
+                <span v-if="p.notes" class="text-xs text-gray-500 dark:text-gray-400">— {{ p.notes }}</span>
+              </li>
+            </ul>
+            <p v-if="installation.equipment" class="text-gray-800 dark:text-gray-200"
+              :class="{ 'mt-1 text-xs text-gray-500 dark:text-gray-400': installation.planned_items?.length }">
+              {{ installation.equipment }}
+            </p>
+            <p v-if="!installation.planned_items?.length && !installation.equipment" class="text-gray-800 dark:text-gray-200">—</p>
           </div>
           <div class="sm:col-span-2" v-if="installation.notes">
             <p class="text-xs text-gray-500 dark:text-gray-400 uppercase">Observaciones</p>
@@ -230,6 +253,57 @@
             </span>
           </div>
 
+          <!-- Orden firmada o cancelada: se ve lo usado, no se toca. -->
+          <p v-if="equipmentLock.is_locked"
+            class="mb-3 text-xs text-gray-700 dark:text-gray-300 bg-white/70 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2">
+            🔒 {{ equipmentLock.message }}
+          </p>
+
+          <!-- Plan de la orden frente a lo usado. Planificar no descuenta: esto
+               sólo ayuda a cargar lo previsto sin buscarlo en la lista. -->
+          <div v-if="plannedVsUsed.length" class="mb-3">
+            <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Previsto en la orden</p>
+            <ul class="space-y-1.5">
+              <li v-for="p in plannedVsUsed" :key="p.id"
+                class="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-700 dark:text-gray-300">
+                <span class="min-w-0">
+                  {{ p.label }}: previsto {{ fmtQty(p.quantity) }}{{ p.unitText }},
+                  usado {{ fmtQty(p.used) }}{{ p.unitText }}
+                  <span v-if="p.used >= p.quantity" class="text-emerald-600 dark:text-emerald-400">✓</span>
+                  <!-- Lo que ESTE usuario puede registrar, no lo que hay en la
+                       empresa: sale de /equipment/available, que ya filtra
+                       por las fuentes que tiene autorizadas. -->
+                  <span v-if="equipmentLoaded && !equipmentLock.is_locked && p.used < p.quantity && p.stock_id"
+                    class="block text-[11px] text-gray-500 dark:text-gray-400">
+                    <template v-if="p.is_serialized && p.reachableUnits > 0">
+                      Para que tú registres la entrega: {{ p.reachableUnits }} unidad(es) con serial a tu alcance.
+                      El serial concreto se elige al registrarla.
+                    </template>
+                    <template v-else-if="p.is_serialized">
+                      Para que tú registres la entrega: ninguna unidad de este modelo a tu alcance.
+                    </template>
+                    <template v-else>
+                      Para que tú registres el uso: {{ fmtQty(p.reachableQty) }}{{ p.unitText }} a tu alcance.
+                    </template>
+                  </span>
+                </span>
+                <template v-if="!equipmentLock.is_locked && p.used < p.quantity">
+                  <!-- Elegir serial sólo filtra y lleva al selector; registrar
+                       sigue siendo el botón «Agregar» de allí. -->
+                  <button v-if="p.is_serialized && p.stock_id" type="button" @click="chooseSerialFor(p)" :disabled="equipmentBusy"
+                    class="text-[11px] font-medium text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 px-2 py-0.5 rounded transition disabled:opacity-50">
+                    Elegir serial
+                  </button>
+                  <button v-else-if="!p.is_serialized && p.source" type="button" @click="useFromPlan(p)" :disabled="equipmentBusy"
+                    class="text-[11px] font-medium text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 px-2 py-0.5 rounded transition disabled:opacity-50">
+                    Preparar {{ fmtQty(p.quantity - p.used) }}{{ p.unitText }}
+                  </button>
+                  <span v-else-if="!p.is_serialized" class="text-[11px] text-gray-500 dark:text-gray-400">sin saldo a tu alcance</span>
+                </template>
+              </li>
+            </ul>
+          </div>
+
           <!-- Lo ya descargado -->
           <ul v-if="equipmentItems.length" class="space-y-2 mb-3">
             <li v-for="item in equipmentItems" :key="item.id"
@@ -237,60 +311,89 @@
               <div class="min-w-0">
                 <p class="text-sm text-gray-800 dark:text-white truncate">
                   <span v-if="!item.is_device" class="font-semibold">{{ fmtQty(item.quantity) }}{{ item.unit ? ` ${item.unit}` : '' }} ·</span>
-                  {{ item.label }}
+                  {{ item.is_device ? deviceModelText(item) : item.label }}
                 </p>
                 <p class="text-[11px] text-gray-500 dark:text-gray-400">
-                  {{ item.is_device ? 'Equipo con serial' : 'Material' }}
+                  {{ item.is_device ? `Equipo con serial · ${deviceIdsText(item)}` : 'Material' }}
                   <span v-if="item.unit_price"> · {{ fmtMoney(item.unit_price * item.quantity) }}</span>
+                  <span v-if="chargedLineIds.has(item.id)" class="text-indigo-600 dark:text-indigo-400"> · en el cobro</span>
                 </p>
               </div>
-              <button @click="removeEquipment(item)" :disabled="equipmentBusy" type="button" title="Devolver al inventario"
-                class="shrink-0 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
-                Devolver
-              </button>
+              <div class="shrink-0 flex items-center gap-1">
+                <!-- Cobrar NO descuenta: copia descripción y precio a la cartera. -->
+                <button v-if="canChargeLines && !chargedLineIds.has(item.id)" @click="chargeLine(item)" type="button"
+                  title="Pasar esta línea al cobro (no vuelve a descontar inventario)"
+                  class="text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-2.5 py-1.5 rounded-lg transition">
+                  Cobrar
+                </button>
+                <button v-if="!equipmentLock.is_locked" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
+                  title="Deshace una captura equivocada antes de firmar. No es devolución de material gastado."
+                  class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
+                  Quitar
+                </button>
+              </div>
             </li>
           </ul>
           <p v-else class="text-xs text-blue-600 dark:text-blue-400 mb-3">
             Todavía no has cargado equipos a esta instalación.
           </p>
 
-          <!-- Agregar equipo con serial -->
-          <div class="space-y-2">
-            <select v-if="availableDevices.length" v-model.number="devicePick" @change="addDevice"
-              :disabled="equipmentBusy"
-              class="w-full bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
-              <option :value="null">+ Agregar equipo con serial…</option>
-              <optgroup v-for="group in devicesBySource" :key="group.key" :label="group.label">
-                <option v-for="d in group.items" :key="d.id" :value="d.id">{{ availableDeviceLabel(d) }}</option>
-              </optgroup>
-            </select>
-            <p v-else-if="equipmentLoaded" class="text-xs text-blue-600 dark:text-blue-400">
-              No tienes equipos con serial disponibles. Pide que te los entreguen en
-              <RouterLink to="/inventory/transfers" class="underline font-medium">Inventario → Entregas</RouterLink>.
-            </p>
+          <!-- Agregar equipo con serial. Se ve SIEMPRE, aunque no haya
+               unidades: vacío, explica por qué y cuál es el siguiente paso. -->
+          <div v-if="!equipmentLock.is_locked" class="space-y-3">
+            <SerialDevicePicker ref="serialPicker" v-model:model="serialModelFilter"
+              :devices="availableDevices" :known-models="plannedSerialModels"
+              :loaded="equipmentLoaded" :busy="equipmentBusy"
+              action-label="Agregar" context="esta orden" @pick="addDevice" />
 
-            <!-- Agregar material por cantidad -->
-            <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
-              <select v-model="materialPick" :disabled="equipmentBusy"
-                class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
-                <option :value="null">+ Agregar material por cantidad…</option>
-                <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
-                  {{ materialLabel(m) }}
-                </option>
-              </select>
-              <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
-                :disabled="equipmentBusy"
-                class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
-              <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
-                class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
-                Agregar
-              </button>
+            <!-- Agregar material por cantidad. La sección se muestra SIEMPRE:
+                 si no hay nada que ofrecer, se explica por qué en vez de
+                 desaparecer. -->
+            <div ref="materialRow">
+              <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Materiales por cantidad (cable, conectores…)</p>
+              <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
+                <select v-model="materialPick" :disabled="equipmentBusy"
+                  class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
+                  <option :value="null">+ Agregar material por cantidad…</option>
+                  <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
+                    {{ materialLabel(m) }}
+                  </option>
+                </select>
+                <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
+                  :disabled="equipmentBusy"
+                  class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
+                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                  class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
+                  Agregar
+                </button>
+              </div>
+              <p v-else-if="equipmentLoaded"
+                class="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                No hay materiales que puedas usar en esta orden.
+                {{ materialsStatus.message || '' }}
+              </p>
             </div>
           </div>
 
           <p class="mt-2 text-[11px] text-blue-600 dark:text-blue-400">
             Sólo aparece lo que tienes asignado{{ technicianSourceName ? ` y lo de ${technicianSourceName}` : '' }}.
-            Cada línea se descuenta del inventario y queda registrada en el historial del equipo.
+            Cada línea se descuenta del inventario una sola vez y queda registrada en el historial del equipo.
+          </p>
+          <p v-if="!equipmentLock.is_locked && equipmentItems.length" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            «Quitar» sólo corrige una captura equivocada antes de firmar: la existencia vuelve a quien la aportó como
+            si no se hubiera usado. No sirve para devolver material ya gastado; esa corrección todavía no existe.
+          </p>
+          <p v-if="equipmentItems.length" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+            <template v-if="canChargeLines">
+              Para cobrar una línea usa «Cobrar» (o «Cobrar equipo de la instalación» en Cartera): pasa la descripción
+              y el precio al cobro sin volver a descontar inventario.
+            </template>
+            <template v-else-if="!installation.no_charge">
+              El cobro de estas líneas lo registra quien tiene permiso de cartera, sin volver a descontar inventario.
+            </template>
+          </p>
+          <p v-if="installation.no_charge" class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+            Esta orden es sin cobro: lo que cargues aquí sale igual de la bodega y lo asume la empresa.
           </p>
         </div>
 
@@ -408,13 +511,22 @@
         </div>
       </div>
 
-      <!-- Información de Cartera (solo admin / staff / accounting) -->
-      <div v-if="showBillingSection"
+      <!-- Información de Cartera. Dos modos: edición (edit_discount) y consulta
+           (view_installation_cost, pensado para el técnico que va a cobrar). -->
+      <div v-if="showBillingSection" ref="billingCard"
         class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
           Información de Cartera
           <span class="text-[10px] uppercase bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded">
             Facturación
+          </span>
+          <span v-if="!canEditBilling"
+            class="text-[10px] uppercase bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded">
+            Solo lectura
+          </span>
+          <span v-if="billing.no_charge"
+            class="text-[10px] uppercase bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded">
+            Sin cobro
           </span>
         </h2>
 
@@ -429,14 +541,17 @@
               Estado: <span :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
             </p>
           </div>
-          <RouterLink :to="`/billing/invoices/${installation.invoice_id}`"
+          <!-- El detalle de factura vive en el módulo de facturación y exige sus
+               propios permisos: a quien sólo consulta la cartera el enlace le
+               llevaría a una pantalla que su rol no puede abrir. -->
+          <RouterLink v-if="canEditBilling" :to="`/billing/invoices/${installation.invoice_id}`"
             class="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-200 underline whitespace-nowrap">
             Ver factura
           </RouterLink>
         </div>
 
         <!-- Advertencia de recálculo cuando ya existe factura -->
-        <div v-if="installation.invoice_id"
+        <div v-if="installation.invoice_id && canEditBilling"
           class="mb-4 flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
           <svg class="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -447,7 +562,33 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div v-if="canEditBilling" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+          <!-- Sin cobro al cliente. Va ARRIBA del todo y no al final: es la
+               pregunta que decide si el resto del bloque tiene sentido. -->
+          <div class="sm:col-span-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input v-model="billing.no_charge" @change="onNoChargeToggle" type="checkbox"
+                class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+              <span>
+                <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+                <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                  Mantenimiento o garantía. Los equipos se descuentan igual del inventario y siguen siendo
+                  gasto de la empresa, pero esta orden no genera factura.
+                </span>
+              </span>
+            </label>
+            <input v-if="billing.no_charge" v-model="billing.no_charge_reason" type="text" maxlength="255"
+              placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+              class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <p v-if="billingErrors.no_charge" class="mt-2 text-xs text-red-600 dark:text-red-400">
+              {{ billingErrors.no_charge[0] }}
+            </p>
+            <p v-if="billing.no_charge && equipmentTotal > 0" class="mt-2 text-xs text-amber-800 dark:text-amber-300">
+              Costo interno de esta visita: <strong>{{ fmtMoney(equipmentTotal) }}</strong> en equipos y materiales.
+              No se le factura al cliente.
+            </p>
+          </div>
 
           <!-- Acuerdo de pago -->
           <div class="sm:col-span-2">
@@ -461,8 +602,9 @@
           <!-- Valor de instalación -->
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Valor de instalación</label>
-            <input v-model="billing.installation_cost" type="number" min="0" step="0.01" placeholder="0"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+            <input v-model="billing.installation_cost" type="number" min="0" step="0.01"
+              :disabled="billing.no_charge" :placeholder="billing.no_charge ? 'Sin cobro' : '0'"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{ 'border-red-400 dark:border-red-500': billingErrors.installation_cost }" />
             <p v-if="billingErrors.installation_cost" class="mt-1 text-xs text-red-500">{{ billingErrors.installation_cost[0] }}</p>
           </div>
@@ -471,12 +613,18 @@
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Adicionales (concepto y precio)</label>
 
-            <div v-if="!billing.additional_items.length"
+            <div v-if="billing.no_charge"
+              class="text-xs text-amber-700 dark:text-amber-300 border border-dashed border-amber-300 dark:border-amber-700 rounded-lg px-3 py-3 mb-2">
+              Orden sin cobro: no se le facturan adicionales al cliente. Los equipos que cargues en la hoja
+              salen igual del inventario.
+            </div>
+
+            <div v-else-if="!billing.additional_items.length"
               class="text-xs text-gray-400 dark:text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-3 py-3 mb-2">
               Sin adicionales. Agrega por ejemplo un router adicional con su precio.
             </div>
 
-            <div v-for="(item, idx) in billing.additional_items" :key="idx" class="flex gap-2 mb-2">
+            <div v-for="(item, idx) in billing.no_charge ? [] : billing.additional_items" :key="idx" class="flex gap-2 mb-2">
               <input v-model="item.description" type="text" placeholder="Ej: Router adicional TP-Link"
                 class="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
                 :class="{ 'border-red-400 dark:border-red-500': billingErrors[`additional_items.${idx}.description`] }" />
@@ -489,26 +637,31 @@
               </button>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2">
+            <div v-if="!billing.no_charge" class="flex flex-wrap items-center gap-2">
               <button @click="addChargeRow" type="button"
                 class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 px-3 py-1.5 rounded-lg transition">
                 + Agregar adicional
               </button>
-              <select v-if="equipmentItems.length" v-model.number="chargePick" @change="addChargeFromInventory"
+              <select v-if="chargeableLines.length" v-model.number="chargePick" @change="addChargeFromInventory"
                 class="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-gray-200">
                 <option :value="null">+ Cobrar equipo de la instalación</option>
-                <option v-for="it in equipmentItems" :key="it.id" :value="it.id">
-                  {{ it.label }}{{ it.unit_price != null ? ` — ${fmtMoney(it.unit_price * it.quantity)}` : '' }}
+                <option v-for="it in chargeableLines" :key="it.id" :value="it.id">
+                  {{ it.is_device ? '' : `${fmtQty(it.quantity)}${it.unit ? ` ${it.unit}` : ''} · ` }}{{ it.label }}{{ it.unit_price != null ? ` — ${fmtMoney(it.unit_price * it.quantity)}` : '' }}
                 </option>
               </select>
             </div>
+            <p v-if="!billing.no_charge && equipmentItems.length" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              «Cobrar equipo de la instalación» trae una línea ya usada con su precio: no vuelve a descontar inventario.
+              Los servicios (visita, mano de obra) se agregan como adicional manual.
+            </p>
           </div>
 
           <!-- Descuento -->
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Descuento</label>
-            <input v-model="billing.discount" type="number" min="0" step="0.01" placeholder="0"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+            <input v-model="billing.discount" type="number" min="0" step="0.01"
+              :disabled="billing.no_charge" :placeholder="billing.no_charge ? 'Sin cobro' : '0'"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               :class="{ 'border-red-400 dark:border-red-500': billingErrors.discount }" />
             <p v-if="billingErrors.discount" class="mt-1 text-xs text-red-500">{{ billingErrors.discount[0] }}</p>
           </div>
@@ -589,6 +742,34 @@
 
         </div>
 
+        <!-- Modo consulta: lo que no cabe en el resumen, como texto plano.
+             Nada de inputs deshabilitados: quien no puede guardar tampoco
+             debería ver un formulario que parece editable. -->
+        <div v-if="!canEditBilling" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div v-if="billing.additional_items.length" class="sm:col-span-2">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Adicionales</p>
+            <ul class="space-y-1">
+              <li v-for="(item, i) in billing.additional_items" :key="i"
+                class="flex justify-between text-sm text-gray-700 dark:text-gray-300">
+                <span>{{ item.description || 'Sin concepto' }}</span>
+                <span>{{ fmtMoney(item.amount) }}</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="billing.payment_method">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Forma de pago</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300">{{ billing.payment_method }}</p>
+          </div>
+          <div v-if="billing.payment_agreement">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Acuerdo de pago</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300">Sí</p>
+          </div>
+          <div v-if="billing.payment_notes" class="sm:col-span-2">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones del pago</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line">{{ billing.payment_notes }}</p>
+          </div>
+        </div>
+
         <!-- Resumen: por cuánto salió todo -->
         <div class="mt-4 p-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg">
           <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300">
@@ -618,7 +799,7 @@
           </div>
         </div>
 
-        <button @click="saveBilling" :disabled="savingBilling"
+        <button v-if="canEditBilling" @click="saveBilling" :disabled="savingBilling"
           class="mt-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
           {{ savingBilling ? 'Guardando...' : 'Guardar cartera' }}
         </button>
@@ -754,6 +935,8 @@ import installationEquipmentApi from '@/services/api/installation-equipment'
 import { compressImage } from '@/utils/image'
 import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
+import SerialDevicePicker from '@/components/SerialDevicePicker.vue'
+import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 
 const route  = useRoute()
 const router = useRouter()
@@ -790,6 +973,8 @@ const sheet = ref({
 const savingSheet = ref(false)
 
 const billing = ref({
+  no_charge:          false,
+  no_charge_reason:   '',
   payment_agreement:  false,
   installation_cost:  null,
   additional_items:   [],
@@ -815,10 +1000,102 @@ const availableMaterials = ref([])
 const equipmentSources = ref([])
 const equipmentLoaded = ref(false)
 const equipmentBusy = ref(false)
-const devicePick = ref(null)
+// Filtro de modelo del selector de unidades con serial. «Elegir serial» en el
+// plan sólo lo fija y lleva la vista allí: nunca registra nada.
+const serialModelFilter = ref(null)
+const serialPicker = ref(null)
 const materialPick = ref(null)
 const materialQty = ref(1)
 const chargePick = ref(null)
+// Lo decide el servidor en /equipment/available: firmada o cancelada, no se
+// cargan ni se quitan líneas.
+const equipmentLock = ref({ is_locked: false, reason: null, message: null })
+// Por qué la lista de materiales puede venir vacía (sin productos por
+// cantidad, sin saldo, o saldo en manos de quien no se puede tomar).
+const materialsStatus = ref({ code: 'ok', message: null })
+const billingCard = ref(null)
+const materialRow = ref(null)
+
+/**
+ * Plan de la orden frente a lo ya usado, por producto. Sólo informa y ayuda a
+ * preparar la carga: usar lo previsto sigue pasando por «Agregar», que es lo
+ * que descuenta y lo que el servidor valida.
+ */
+const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).map(p => {
+  const used = equipmentItems.value
+    .filter(it => p.stock_id && it.stock_id === p.stock_id)
+    .reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+  // De dónde se podría tomar: el renglón accesible con más saldo.
+  const source = availableMaterials.value
+    .filter(m => p.stock_id && m.stock_id === p.stock_id)
+    .sort((a, b) => Number(b.quantity) - Number(a.quantity))[0] ?? null
+  const unit = p.unit || (p.is_serialized ? 'und.' : '')
+  // «A tu alcance» sale de las listas de /equipment/available, que sólo traen
+  // lo que este usuario puede tomar: no es la existencia de la empresa.
+  const reachableUnits = p.is_serialized
+    ? availableDevices.value.filter(d => p.stock_id && d.stock_id === p.stock_id).length
+    : 0
+  const reachableQty = p.is_serialized
+    ? 0
+    : availableMaterials.value
+      .filter(m => p.stock_id && m.stock_id === p.stock_id)
+      .reduce((sum, m) => sum + (Number(m.quantity) || 0), 0)
+  return { ...p, used, source, reachableUnits, reachableQty, unitText: unit ? ` ${unit}` : '' }
+}))
+
+// Nombres de los modelos por serial del plan, para que el selector los nombre
+// aunque no haya ninguna unidad a mano.
+const plannedSerialModels = computed(() => (installation.value?.planned_items ?? [])
+  .filter(p => p.is_serialized && p.stock_id)
+  .map(p => ({ stock_id: p.stock_id, label: p.label })))
+
+const chooseSerialFor = (p) => {
+  serialModelFilter.value = p.stock_id
+  serialPicker.value?.focus()
+}
+
+const useFromPlan = (p) => {
+  if (!p.source) return
+  const pendiente = Math.max(0, Number(p.quantity) - Number(p.used))
+  const saldo = Number(p.source.quantity) || 0
+  materialPick.value = p.source
+  // Se precarga lo que falta, sin pasar del saldo de la fuente: pedir más
+  // sólo serviría para que el servidor lo rechace.
+  materialQty.value = Math.min(pendiente, saldo)
+  if (saldo < pendiente) {
+    toast.value?.info('Saldo insuficiente', `Faltan ${fmtQty(pendiente)}${p.unitText} y ${p.source.source_label} tiene ${fmtQty(saldo)}${p.unitText}.`)
+  }
+  materialRow.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+// ─── Del uso al cobro ───
+// Cobrar una línea NO descuenta inventario: copia su descripción y su precio
+// congelado a los adicionales de la cartera. Se marca la línea para no
+// ofrecerla dos veces en el MISMO formulario; entre cargos distintos no hay
+// enlace todavía (P-70) y la marca se pierde al recargar.
+const canChargeLines = computed(() => canEditBilling.value && !billing.value.no_charge)
+const chargedLineIds = computed(() => new Set(
+  billing.value.additional_items.filter(it => it.source_line_id).map(it => it.source_line_id)
+))
+const chargeableLines = computed(() => equipmentItems.value.filter(it => !chargedLineIds.value.has(it.id)))
+
+const pushChargeFromLine = (item) => {
+  billing.value.additional_items.push({
+    description: item.is_device
+      ? item.label
+      : `${fmtQty(item.quantity)}${item.unit ? ` ${item.unit}` : ''} · ${item.label}`,
+    amount: item.unit_price != null ? Number(item.unit_price) * Number(item.quantity) : null,
+    source_line_id: item.id,
+  })
+}
+
+const chargeLine = async (item) => {
+  if (!canChargeLines.value || chargedLineIds.value.has(item.id)) return
+  pushChargeFromLine(item)
+  await nextTick()
+  billingCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  toast.value?.info('Agregado al cobro', 'Revisa el precio y guarda la cartera. El inventario no se vuelve a descontar.')
+}
 
 const equipmentTotal = computed(() =>
   equipmentItems.value.reduce((sum, it) => sum + (Number(it.unit_price) || 0) * (Number(it.quantity) || 0), 0)
@@ -828,25 +1105,6 @@ const technicianSourceName = computed(() => {
   const tech = equipmentSources.value.find(s => s.type === 'user' && s.label !== 'Mis equipos')
   return tech?.label ?? ''
 })
-
-// Los equipos se agrupan por custodio para que el técnico vea de un vistazo si
-// está tomando de su mochila o de la bodega.
-const devicesBySource = computed(() => {
-  const groups = new Map()
-  for (const d of availableDevices.value) {
-    const key = `${d.source_type}:${d.source_id}`
-    if (!groups.has(key)) groups.set(key, { key, label: d.source_label || 'Inventario', items: [] })
-    groups.get(key).items.push(d)
-  }
-  return [...groups.values()]
-})
-
-const availableDeviceLabel = (d) => {
-  const parts = [`${d.brand ?? ''} ${d.model ?? ''}`.trim() || 'Equipo']
-  if (d.serial) parts.push(`S/N ${d.serial}`)
-  if (d.mac)    parts.push(`MAC ${d.mac}`)
-  return parts.join(' · ')
-}
 
 const materialLabel = (m) => {
   const name = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
@@ -871,6 +1129,8 @@ const loadAvailableEquipment = async () => {
     availableDevices.value   = data?.devices   ?? []
     availableMaterials.value = data?.materials ?? []
     equipmentSources.value   = data?.sources   ?? []
+    materialsStatus.value    = data?.materials_status ?? { code: 'ok', message: null }
+    equipmentLock.value      = data?.locked ?? { is_locked: false, reason: null, message: null }
     equipmentLoaded.value = true
   } catch { /* non-blocking: sin permiso de inventario se digita manual */ }
 }
@@ -888,9 +1148,8 @@ const applyDeviceToSheet = (device) => {
   if (!sheet.value.onu_serial  && device.serial) sheet.value.onu_serial  = device.serial
 }
 
-const addDevice = async () => {
-  const device = availableDevices.value.find(d => d.id === devicePick.value)
-  devicePick.value = null
+/** Registra la unidad elegida en el selector (el botón «Agregar» de allí). */
+const addDevice = async (device) => {
   if (!device) return
 
   equipmentBusy.value = true
@@ -899,7 +1158,7 @@ const addDevice = async () => {
     equipmentItems.value = data.equipment ?? equipmentItems.value
     applyDeviceToSheet(device)
     await loadAvailableEquipment()
-    toast.value?.success('Equipo cargado', 'Descontado del inventario y registrado en el historial.')
+    toast.value?.success('Equipo cargado', `${deviceFullLabel(device)}: descontado del inventario y registrado en el historial.`)
   } catch (e) {
     toast.value?.error('Error', firstError(e) || 'No se pudo cargar el equipo.')
   } finally {
@@ -937,15 +1196,29 @@ const addMaterial = async () => {
   }
 }
 
+/**
+ * Quita una línea capturada por error. NO es la devolución de un material
+ * gastado: deshace la captura como si nunca se hubiera usado. Por eso se
+ * pregunta antes, y por eso el servidor lo impide una vez firmada la orden.
+ */
 const removeEquipment = async (item) => {
+  const ok = window.confirm(
+    `¿Quitar «${item.label}»?\n\n`
+    + 'Úsalo sólo si la línea se capturó por error: la existencia vuelve a quien la aportó '
+    + 'como si no se hubiera usado. Si el material sí se gastó, no lo quites.'
+  )
+  if (!ok) return
+
   equipmentBusy.value = true
   try {
     const { data } = await installationEquipmentApi.remove(installationId.value, item.id)
     equipmentItems.value = data.equipment ?? []
+    // Si esa línea estaba en el formulario de cobro, deja de estarlo.
+    billing.value.additional_items = billing.value.additional_items.filter(it => it.source_line_id !== item.id)
     await loadAvailableEquipment()
-    toast.value?.success('Devuelto', 'La existencia volvió a quien la aportó.')
+    toast.value?.success('Línea quitada', data.message || 'La captura se deshizo.')
   } catch (e) {
-    toast.value?.error('Error', firstError(e) || 'No se pudo devolver el equipo.')
+    toast.value?.error('Error', firstError(e) || 'No se pudo quitar la línea.')
   } finally {
     equipmentBusy.value = false
   }
@@ -994,15 +1267,10 @@ const removeChargeRow = (idx) => {
  * mismo hecho, o la factura acaba diciendo algo distinto que el acta.
  */
 const addChargeFromInventory = () => {
-  const item = equipmentItems.value.find(x => x.id === chargePick.value)
+  const item = chargeableLines.value.find(x => x.id === chargePick.value)
   chargePick.value = null
   if (!item) return
-  billing.value.additional_items.push({
-    description: item.is_device
-      ? item.label
-      : `${fmtQty(item.quantity)}${item.unit ? ` ${item.unit}` : ''} · ${item.label}`,
-    amount: item.unit_price != null ? Number(item.unit_price) * Number(item.quantity) : null,
-  })
+  pushChargeFromLine(item)
 }
 
 const additionalTotal = computed(() =>
@@ -1036,7 +1304,12 @@ const selectedRouter = computed(() => routers.value.find(r => r.id === sheet.val
 const selectedPlan   = computed(() => plans.value.find(p => p.id === sheet.value.plan_id))
 const isPppoeRouter  = computed(() => !!selectedRouter.value?.pppoe)
 const planLocalAddress    = computed(() => selectedPlan.value?.local_address || selectedPlan.value?.pppoe_pool || '')
-const showBillingSection  = computed(() => installation.value?.can_edit_billing === true)
+// Ver la cartera y poder cambiarla son dos permisos distintos:
+// `view_installation_cost` abre el bloque en consulta, `edit_discount` lo abre
+// editable. El `??` cubre respuestas de una API anterior al cambio, donde
+// `can_view_billing` todavía no existe.
+const showBillingSection  = computed(() => (installation.value?.can_view_billing ?? installation.value?.can_edit_billing) === true)
+const canEditBilling      = computed(() => installation.value?.can_edit_billing === true)
 const discountIsPositive  = computed(() => Number(billing.value.discount) > 0)
 
 const photos = ref([])
@@ -1068,7 +1341,7 @@ const loadInstallation = async ({ silent = false } = {}) => {
   try {
     const { data } = await api.customers.getInstallation(installationId.value)
     installation.value = data
-    if (data.can_edit_billing) {
+    if (data.can_view_billing ?? data.can_edit_billing) {
       // Compatibilidad: instalaciones viejas solo tienen el monto agregado
       // additional_charges — se muestra como una fila editable.
       const items = Array.isArray(data.additional_items) && data.additional_items.length
@@ -1077,6 +1350,8 @@ const loadInstallation = async ({ silent = false } = {}) => {
             ? [{ description: 'Cargos adicionales', amount: Number(data.additional_charges) }]
             : [])
       billing.value = {
+        no_charge:          !!data.no_charge,
+        no_charge_reason:   data.no_charge_reason   ?? '',
         payment_agreement:  data.payment_agreement  ?? false,
         installation_cost:  data.installation_cost  ?? null,
         additional_items:   items,
@@ -1205,6 +1480,23 @@ const saveSheet = async () => {
   }
 }
 
+/**
+ * Al marcar «sin cobro» se limpian los precios delante de quien lo marca, para
+ * que no quede una cifra colgada que el servidor acabaría rechazando.
+ *
+ * `payment_received` NO se toca a propósito: eso es plata que el cliente ya
+ * entregó. Si la hay, el guardado falla con un mensaje que lo explica, y quien
+ * marca la orden tiene que decidir qué hace con ese dinero — devolverlo o
+ * dejarlo como saldo a favor— en vez de verlo desaparecer de la pantalla.
+ */
+const onNoChargeToggle = () => {
+  if (!billing.value.no_charge) return
+  billing.value.installation_cost = null
+  billing.value.additional_items  = []
+  billing.value.discount          = null
+  billing.value.discount_reason   = ''
+}
+
 const saveBilling = async () => {
   savingBilling.value = true
   billingErrors.value = {}
@@ -1214,6 +1506,8 @@ const saveBilling = async () => {
       .filter(it => (it.description ?? '').trim() !== '' || toNum(it.amount) !== null)
       .map(it => ({ description: (it.description ?? '').trim(), amount: Number(it.amount) || 0 }))
     const payload = {
+      no_charge:          billing.value.no_charge,
+      no_charge_reason:   billing.value.no_charge_reason || null,
       payment_agreement:  billing.value.payment_agreement,
       installation_cost:  toNum(billing.value.installation_cost),
       additional_items:   items,
@@ -1230,7 +1524,11 @@ const saveBilling = async () => {
     const { data } = await api.customers.updateInstallationBilling(installationId.value, payload)
     // Refresh installation with new invoice_id / invoice_number / invoice_status
     if (data.installation) installation.value = data.installation
-    if (data.invoice_warning) {
+    if (data.installation?.no_charge) {
+      // No es un fallo: es lo que se pidió. Pintarlo en rojo entrenaría a la
+      // gente a ignorar los avisos rojos que sí importan.
+      toast.value?.success('Cartera guardada', 'Orden sin cobro: no se generó factura.')
+    } else if (data.invoice_warning) {
       toast.value?.error('Sin factura', data.invoice_warning)
     } else if (data.invoice) {
       toast.value?.success('Cartera guardada', `Factura #${data.invoice.number} generada correctamente.`)
@@ -1439,7 +1737,8 @@ const sign = async () => {
     await api.customers.signInstallation(installationId.value, payload)
     toast.value?.success('Completada', 'Instalación firmada y orden cerrada.')
     clearSig('cust'); clearSig('tech')
-    await loadInstallation()
+    // La firma bloquea las líneas: se refresca para ocultar los controles.
+    await Promise.all([loadInstallation(), loadAvailableEquipment()])
   } catch (e) {
     toast.value?.error('Error', e.response?.data?.message || 'No se pudo firmar.')
   } finally {

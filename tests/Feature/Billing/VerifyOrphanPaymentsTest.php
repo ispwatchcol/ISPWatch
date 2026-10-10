@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Models\CustomerCredit;
 use App\Models\CustomerProfile;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -15,7 +16,19 @@ use Tests\TestCase;
 /**
  * billing:verify-orphan-payments — comprueba la invariante de caja:
  *
- *     todo peso que entró está aplicado a una factura, o está en el saldo a favor
+ *     todo peso que entró está aplicado a una factura, o se volvió saldo a favor
+ *
+ *     sum(payments) == sum(payment_allocations) + sum(credits earned − reversed)
+ *
+ * El tercer término es lo GANADO en el libro de saldo, no `credit_balance`.
+ * Comparar contra el saldo actual denunciaba a todo cliente que hubiera gastado
+ * su saldo: aplicarlo a una factura baja `balance_due` y baja el saldo sin dejar
+ * asignación, así que ese dinero desaparecía de los dos lados de la resta.
+ *
+ * Por eso los anticipos de estas pruebas se crean con `CustomerCredit::earn()` y
+ * no escribiendo `credit_balance` a pelo: un saldo sin movimientos detrás es un
+ * estado que el sistema no produce nunca, y montarlo a mano probaba una realidad
+ * que no existe.
  *
  * Nace de un caso real: se borró una mensualidad YA PAGADA para reemplazarla por
  * otra con otro precio; el borrado devolvió el dinero como saldo a favor y unos
@@ -34,6 +47,13 @@ class VerifyOrphanPaymentsTest extends TestCase
         $this->tenant = Tenant::factory()->create();
     }
 
+    /**
+     * Cliente con el saldo en cero. Para darle saldo a favor, usa `anticipo()`:
+     * el saldo tiene que nacer del libro, como en producción.
+     *
+     * `$creditBalance` sigue existiendo para los casos que simulan a propósito
+     * un saldo manipulado a mano (que es justo lo que el comando denuncia).
+     */
     private function customer(string $name, float $creditBalance = 0): User
     {
         $customer = User::factory()->create(['tenant_id' => $this->tenant->id]);
@@ -59,6 +79,12 @@ class VerifyOrphanPaymentsTest extends TestCase
             'method'       => 'Efectivo',
             'status'       => 'completed',
         ]);
+    }
+
+    /** Deja $amount del pago como saldo a favor, por el mismo camino que el sistema. */
+    private function anticipo(Payment $payment, float $amount): void
+    {
+        CustomerCredit::earn($payment, $amount, 'Anticipo de prueba');
     }
 
     private function invoice(User $customer, float $total, float $balance): Invoice
@@ -100,8 +126,8 @@ class VerifyOrphanPaymentsTest extends TestCase
     {
         // Un anticipo sin factura pendiente es legítimo: el dinero está, y está
         // localizable en el saldo del cliente.
-        $customer = $this->customer('Anticipo', 60000);
-        $this->payment($customer, 60000);
+        $customer = $this->customer('Anticipo');
+        $this->anticipo($this->payment($customer, 60000), 60000);
 
         $this->artisan('billing:verify-orphan-payments --no-mail')
             ->assertExitCode(0);
@@ -123,8 +149,8 @@ class VerifyOrphanPaymentsTest extends TestCase
     #[Test]
     public function el_saldo_parcial_solo_descuadra_por_la_diferencia(): void
     {
-        $customer = $this->customer('Parcial', 20000);
-        $this->payment($customer, 52500);
+        $customer = $this->customer('Parcial');
+        $this->anticipo($this->payment($customer, 52500), 20000);
 
         $filas = app(\App\Services\BillingService::class)->auditOrphanPayments();
 
@@ -137,8 +163,8 @@ class VerifyOrphanPaymentsTest extends TestCase
     #[Test]
     public function el_filtro_min_deja_pasar_los_descuadres_pequenos(): void
     {
-        $customer = $this->customer('Centavos', 52400);
-        $this->payment($customer, 52500);   // descuadre de 100
+        $customer = $this->customer('Centavos');
+        $this->anticipo($this->payment($customer, 52500), 52400);   // descuadre de 100
 
         $this->artisan('billing:verify-orphan-payments --no-mail --min=1000')
             ->assertExitCode(0);

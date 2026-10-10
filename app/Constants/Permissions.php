@@ -30,6 +30,40 @@ class Permissions
      */
     const DELETE_CUSTOMERS = 'delete_customers';
 
+    // Instalaciones permissions
+    /**
+     * Ver la cartera de una orden de instalación: valor de instalación,
+     * adicionales, descuento, forma de pago, abono recibido y saldo.
+     *
+     * POR QUÉ HACE FALTA UN PERMISO PROPIO
+     *
+     * Hasta ahora ese bloque —«Información de Cartera» en el detalle de la
+     * orden— estaba gobernado por `edit_discount`, un permiso cuya etiqueta
+     * decía «Editar Descuento» y que en la práctica es lo único que hoy
+     * gobierna. Quien administraba roles no tenía forma de adivinar que la
+     * casilla del descuento era la que mostraba el valor de la instalación, y
+     * el rol Técnico —que no la trae— no veía el apartado ni tenía casilla que
+     * marcar para verlo.
+     *
+     * LEER NO ES ESCRIBIR
+     *
+     * Éste es un permiso de LECTURA. Con él la orden muestra el resumen de
+     * cartera en modo consulta; los campos siguen siendo de sólo lectura y
+     * `PUT /installations/{id}/billing` sigue exigiendo `edit_discount`. Un
+     * técnico de campo necesita saber cuánto cobrar, que no es lo mismo que
+     * poder cambiar el precio, aplicar un descuento o dar por recibido un
+     * dinero que no entró.
+     *
+     * NO SE CONCEDE DE FÁBRICA AL ROL TÉCNICO
+     *
+     * Qué ve un técnico es una decisión de cada ISP, no del producto. La
+     * migración de relleno sólo se lo da a los roles que ya podían verlo
+     * (`edit_discount`) y a los `code = 'admin'`, para que el catálogo del
+     * administrador quede completo. Al rol Técnico se lo concede a mano quien
+     * administre los roles de su empresa.
+     */
+    const VIEW_INSTALLATION_COST = 'view_installation_cost';
+
     // Infraestructura permissions
     const MANAGE_ROUTERS = 'manage_routers';
     const VIEW_PLANS = 'view_plans';
@@ -38,8 +72,124 @@ class Permissions
     // Inventario permissions
     const VIEW_INVENTORY = 'view_inventory';
 
+    /**
+     * Eliminar equipos, stock, proveedores y sucursales del inventario.
+     *
+     * Permiso propio y no `view_inventory`, que es el que lo autorizaba hasta
+     * ahora: un permiso de LECTURA abría los cuatro `destroy` del grupo de
+     * rutas de inventario.
+     *
+     * El fallo era preexistente pero inalcanzable —ninguna pantalla exponía el
+     * borrado de equipos—. KAN-98 añadió el botón Eliminar en la tarjeta de
+     * equipo, y con él borrar pasó a estar a un clic de cualquiera que pudiera
+     * ver el inventario, el rol `Staff` incluido.
+     *
+     * Mismo tratamiento que `DELETE_CUSTOMERS`: se concede sólo a los roles con
+     * `code = 'admin'`, y no por arrastre desde `view_inventory` — retirar la
+     * capacidad es el objetivo, no un efecto colateral.
+     *
+     * NO cubre `store` ni `update`, que siguen bajo `view_inventory`. Es la
+     * misma clase de defecto y queda anotado como deuda en
+     * `docs/MEJORAS_RECOMENDADAS.md`; borrar es lo irreversible y es lo que
+     * esta tarjeta cierra.
+     */
+    const DELETE_INVENTORY = 'delete_inventory';
+
     // Soporte permissions
     const VIEW_SUPPORT = 'view_support';
+
+    /**
+     * PR B · Capacidades separadas de la operación de tickets.
+     *
+     * `view_support` era un permiso-paraguas: quien lo tenía podía listar,
+     * crear, editar, diagnosticar, adjuntar, ver evidencia y leer el historial.
+     * Y además gobierna —todavía— instalaciones, sectoriales e inventario, así
+     * que no se puede simplemente retirar.
+     *
+     * TRANSICIÓN, NO SUSTITUCIÓN. `view_support` se conserva y se sigue usando
+     * donde gobierna otros módulos. Lo que cambia es que las rutas de TICKETS
+     * pasan a exigir la capacidad concreta, y una migración reparte a cada rol
+     * exactamente las que ya podía ejercer — ni una más.
+     *
+     * LOS ROLES DEFINITIVOS NO SE CONFIGURAN AQUÍ. La matriz de la sección 18
+     * del requerimiento (Recepción/N1, N2, Técnico de campo, Supervisor,
+     * Auditor) está pendiente de confirmación del cliente: es la decisión
+     * **D-09**. Estos permisos son la herramienta; el reparto final es otra
+     * conversación.
+     */
+    const TICKET_VIEW            = 'ticket_view';
+    const TICKET_CREATE          = 'ticket_create';
+    const TICKET_EDIT            = 'ticket_edit';
+    const TICKET_ASSIGN          = 'ticket_assign';
+    const TICKET_SET_PRIORITY    = 'ticket_set_priority';
+    const TICKET_SET_CATEGORY    = 'ticket_set_category';
+    const TICKET_DIAGNOSE        = 'ticket_diagnose';
+    const TICKET_CONFIRM_CAUSE   = 'ticket_confirm_cause';
+    const TICKET_NOTE            = 'ticket_note';
+    const TICKET_ATTACH          = 'ticket_attach';
+    const TICKET_VIEW_EVIDENCE   = 'ticket_view_evidence';
+    const TICKET_VIEW_HISTORY    = 'ticket_view_history';
+    const TICKET_TRANSITION      = 'ticket_transition';
+    const TICKET_CLOSE           = 'ticket_close';
+    const TICKET_CLOSE_OVERRIDE  = 'ticket_close_override';
+    const TICKET_REOPEN          = 'ticket_reopen';
+    const TICKET_ARCHIVE         = 'ticket_archive';
+    const TICKET_RESTORE         = 'ticket_restore';
+    const TICKET_MANAGE_CATALOGS = 'ticket_manage_catalogs';
+    const TICKET_EXPORT          = 'ticket_export';
+    /**
+     * PR F1 · Registrar y gestionar intervenciones tecnicas del ticket.
+     *
+     * Permiso propio y no `ticket_edit` porque la seccion 18 le da la
+     * «visita» al Tecnico de campo, a quien la matriz de permisos NIEGA
+     * `ticket_edit`. Meterlo ahi le daria de paso editar asunto, categoria
+     * y asignacion, que es justo lo que ese rol no debe tocar.
+     */
+    const TICKET_INTERVENE       = 'ticket_intervene';
+
+    /**
+     * PR F3 - Entregar y retirar equipos y materiales desde un ticket.
+     *
+     * Permiso propio, y ninguno de los que ya habia servia:
+     *
+     *  - `ticket_edit` gobierna el CONTENIDO del expediente (asunto, categoria,
+     *    asignacion). La matriz de la seccion 3 se lo NIEGA al Tecnico de campo,
+     *    que es justo quien carga el equipo en la visita. Reusarlo dejaba la
+     *    seccion existiendo para todos menos para quien tiene que usarla.
+     *  - `ticket_intervene` describe registrar la VISITA. Mover un aparato es
+     *    otra capacidad: descuenta existencias, cambia la custodia de un bien y
+     *    escribe en el kardex. Un ISP puede querer que su tecnico relate la
+     *    visita sin autorizarle a sacar equipos de bodega.
+     *  - `view_support` es de LECTURA. Gobernar con el una escritura de
+     *    inventario es lo que hacian las rutas de instalacion, y por la
+     *    semantica OR de CheckPermission bastaba con el para mover existencias.
+     *
+     * Nace apagado y se reparte por backfill a quien ya tenga
+     * `ticket_intervene`: quien registra la visita es el candidato natural, y
+     * asi el permiso no llega vacio a ningun rol (leccion de P-52).
+     */
+    const TICKET_EQUIPMENT       = 'ticket_equipment';
+
+    /**
+     * Los que todavía NO gobiernan ninguna acción del sistema.
+     *
+     * Se declaran para que la matriz quede completa y el cliente pueda repartir
+     * roles sobre ella, pero hoy no hay endpoint que los exija: reabrir no
+     * existe (**D-12**), el cierre con excepción llega con las reglas de cierre
+     * del PR #4, y no hay pantalla de administración de catálogos (**D-13**).
+     *
+     * La migración de transición NO los concede a nadie: dar una capacidad que
+     * antes no se tenía sería justo lo contrario de una transición compatible.
+     *
+     * `ticket_archive` y `ticket_restore` SALIERON DE ESTA LISTA en el PR C.
+     * D-10 se resolvió —CNO aprobó el archivado el 2026-09-11— y las dos
+     * capacidades ya gobiernan endpoints reales, concedidas a `code = 'admin'`.
+     */
+    public const TICKET_SIN_ACCION_TODAVIA = [
+        self::TICKET_CLOSE_OVERRIDE,
+        self::TICKET_REOPEN,
+        self::TICKET_MANAGE_CATALOGS,
+    ];
 
     // Facturación permissions
     const VIEW_BILLING = 'view_billing';
@@ -69,7 +219,37 @@ class Permissions
     const SEARCH_INVOICES = 'search_invoices';
     const EDIT_TOTAL_TO_PAY = 'edit_total_to_pay';
     const REGISTER_PAYMENTS = 'register_payments';
+    /**
+     * Borrar FÍSICAMENTE una factura.
+     *
+     * Desde el PR de anulación este permiso ya casi no alcanza nada: sólo puede
+     * borrar un borrador sin número y sin ticket, y en la práctica el sistema
+     * no genera ninguno — toda ruta de creación asigna número y deja la factura
+     * en `issued`. Cualquier otra factura hay que ANULARLA, que conserva el
+     * número, los importes, el titular, el vínculo con el ticket y las fechas.
+     *
+     * No se retira porque la política de borradores podría cambiar y porque
+     * quitarlo de los roles ya sembrados no aportaría nada: lo que protege el
+     * histórico es el bloqueo del endpoint, no quién tiene la casilla marcada.
+     */
     const DELETE_INVOICE = 'delete_invoice';
+
+    /**
+     * ANULAR una factura: dejarla sin efecto conservándolo todo.
+     *
+     * Permiso propio y no `view_billing`, que es el que gobernaba el `PUT` con
+     * el que hasta ahora se podía poner una factura en `cancelled`: un permiso
+     * de lectura de facturación autorizaba sacar dinero de las cuentas, sin
+     * motivo, sin confirmación y sin dejar rastro en `audit_logs`.
+     *
+     * Tampoco se reutiliza `delete_invoice`: borrar y anular son operaciones
+     * distintas —una destruye y la otra conserva— y el objetivo es que dejen de
+     * confundirse. La migración de relleno se lo concede a quien ya tenía
+     * `delete_invoice`, para que nadie pierda la capacidad de retirar una
+     * factura; lo que cambia es CÓMO la retira.
+     */
+    const INVOICE_VOID = 'invoice_void';
+
     const MANAGE_PAYMENT_PROMISES = 'manage_payment_promises';
 
     // Contabilidad permissions
@@ -86,9 +266,8 @@ class Permissions
     {
         return [
             'Clientes' => [
-                self::EDIT_DISCOUNT => 'Editar Descuento',
+                self::EDIT_DISCOUNT => 'Editar Descuento y Cartera de Instalación',
                 self::ACTIVATE_DEACTIVATE_CLIENTS => 'Activar y Desactivar Clientes',
-                self::DELETE_INSTALLATIONS => 'Eliminar Instalaciones',
                 self::EDIT_PENDING_BALANCE => 'Editar Saldo Pendiente',
                 self::VIEW_CLIENTS => 'Lista de Clientes',
                 self::EDIT_INTERNET_SERVICE => 'Editar Servicio Internet',
@@ -102,7 +281,8 @@ class Permissions
                 self::SEARCH_INVOICES => 'Buscar Facturas',
                 self::EDIT_TOTAL_TO_PAY => 'Editar Total a Pagar',
                 self::REGISTER_PAYMENTS => 'Registrar Pagos',
-                self::DELETE_INVOICE => 'Eliminar Factura',
+                self::DELETE_INVOICE => 'Eliminar Factura (sólo borradores)',
+                self::INVOICE_VOID => 'Anular Factura (conserva número e importes)',
                 self::MANAGE_PAYMENT_PROMISES => 'Promesas de Pago',
             ],
             'Contabilidad' => [
@@ -122,8 +302,35 @@ class Permissions
             ],
             'Inventario' => [
                 self::VIEW_INVENTORY => 'Ver Inventario',
+                self::DELETE_INVENTORY => 'Eliminar de Inventario (equipos, stock, proveedores, sucursales)',
+            ],
+            'Instalaciones' => [
+                self::VIEW_INSTALLATION_COST => 'Ver Costo de Instalación (valor, abonos y saldo)',
+                self::DELETE_INSTALLATIONS => 'Eliminar Instalaciones',
             ],
             'Soporte' => [
+                self::TICKET_VIEW => 'Tickets · ver listado y detalle',
+                self::TICKET_CREATE => 'Tickets · crear',
+                self::TICKET_EDIT => 'Tickets · editar contenido',
+                self::TICKET_ASSIGN => 'Tickets · asignar o reasignar técnico',
+                self::TICKET_SET_PRIORITY => 'Tickets · cambiar prioridad',
+                self::TICKET_SET_CATEGORY => 'Tickets · cambiar categoría',
+                self::TICKET_DIAGNOSE => 'Tickets · registrar diagnóstico',
+                self::TICKET_CONFIRM_CAUSE => 'Tickets · confirmar causa',
+                self::TICKET_NOTE => 'Tickets · agregar notas',
+                self::TICKET_ATTACH => 'Tickets · adjuntar evidencia',
+                self::TICKET_VIEW_EVIDENCE => 'Tickets · ver y descargar evidencia',
+                self::TICKET_VIEW_HISTORY => 'Tickets · ver historial',
+                self::TICKET_TRANSITION => 'Tickets · cambiar estado',
+                self::TICKET_CLOSE => 'Tickets · cerrar',
+                self::TICKET_CLOSE_OVERRIDE => 'Tickets · cerrar con excepción (aún sin uso)',
+                self::TICKET_REOPEN => 'Tickets · reabrir (aún sin uso)',
+                self::TICKET_ARCHIVE => 'Tickets · archivar expediente',
+                self::TICKET_RESTORE => 'Tickets · restaurar expediente archivado',
+                self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar catálogos (aún sin uso)',
+                self::TICKET_INTERVENE => 'Tickets · registrar intervenciones técnicas',
+                self::TICKET_EQUIPMENT => 'Tickets · entregar y retirar equipos en la visita',
+                self::TICKET_EXPORT => 'Tickets · métricas y exportación',
                 self::VIEW_SUPPORT => 'Ver Soporte Técnico',
             ],
             'Facturación' => [
@@ -170,6 +377,7 @@ class Permissions
                 self::ADD_EXPENSE,
                 self::REGISTER_PAYMENTS,
                 self::DELETE_INVOICE,
+                self::INVOICE_VOID,
                 self::EDIT_EXPENSE,
                 self::REGISTER_PAYMENT_OVER_3_DAYS,
                 self::REGISTER_PAYMENTS_ACCOUNTING,

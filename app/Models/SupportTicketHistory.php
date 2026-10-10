@@ -46,6 +46,93 @@ class SupportTicketHistory extends Model
     public const ATTACHMENT_ADDED  = 'attachment_added';
     public const CHARGE_CREATED    = 'charge_created';
 
+    /**
+     * PR F3 · Movimiento de inventario hecho desde el ticket.
+     *
+     * Eventos propios y no `note_added`, aunque la nota fuera más barata: esto
+     * es un aparato que cambió de manos y que alguien tiene que poder rastrear
+     * sin leer el expediente entero.
+     *
+     * CUATRO TIPOS Y NO DOS, Y EL SENTIDO **NO** VIAJA EN `metadata`
+     *
+     * La primera versión tenía `equipment_added` / `equipment_removed` y metía
+     * entrega-o-retiro en `metadata.direction` y la baja en `metadata.scrapped`.
+     * Leerlo exigía abrir el JSON, y las tres preguntas que de verdad se le
+     * hacen a este historial —«qué se le entregó», «qué se le retiró», «qué
+     * se dio de baja»— no se podían responder con un `where` sobre
+     * `event_type`, que es el único campo indexado.
+     *
+     * Y sobre todo: `equipment_removed` nombraba mal lo que pasó. No se quitó
+     * un equipo del ticket —la línea sigue ahí—, se **revirtió** un movimiento.
+     * Un tipo que miente sobre el hecho es peor que uno que falta.
+     *
+     *   · `equipment_delivered` — salió de la bodega y quedó en casa del cliente.
+     *   · `equipment_returned`  — volvió del cliente al inventario.
+     *   · `equipment_scrapped`  — volvió quemado y no vuelve a circular.
+     *   · `equipment_reversed`  — alguien deshizo uno de los tres, con motivo.
+     *     En `metadata` van `of_event` (cuál se deshizo) y `reason`.
+     */
+    public const EQUIPMENT_DELIVERED = 'equipment_delivered';
+    public const EQUIPMENT_RETURNED  = 'equipment_returned';
+    public const EQUIPMENT_SCRAPPED  = 'equipment_scrapped';
+    public const EQUIPMENT_REVERSED  = 'equipment_reversed';
+
+    // PR C · Archivado. Los dos eventos que registran que un expediente salió
+    // de la operación ordinaria y que volvió. El motivo —obligatorio— viaja en
+    // `metadata`, no en `new_value`: es prosa de 10 a 500 caracteres, no un
+    // valor de campo, y meterlo ahí lo haría indistinguible de un cambio de
+    // dato en la pantalla de historial.
+    public const ARCHIVED          = 'ticket_archived';
+    public const RESTORED          = 'ticket_restored';
+
+    // Workflow formal · las cuatro decisiones del ciclo de vida.
+    //
+    // Van APARTE de `status_changed`, que el observer escribe solo al detectar
+    // el cambio de `status_id`. No son lo mismo: `status_changed` dice que el
+    // ticket se movió, y estos dicen QUÉ SE DECIDIÓ y por qué. Un cierre
+    // excepcional es un `status_changed` a `cerrado` idéntico al ordinario; lo
+    // que lo distingue —el requisito que faltaba y quién lo autorizó— sólo cabe
+    // en un evento propio.
+    public const CLOSURE_PROPOSED  = 'closure_proposed';
+    public const CLOSED            = 'ticket_closed';
+    public const CLOSED_EXCEPTION  = 'ticket_closed_exception';
+    public const REOPENED          = 'ticket_reopened';
+
+    /** Motivo escrito en una transición ordinaria, cuando quien la hace lo da. */
+    public const TRANSITION_NOTE   = 'transition_note';
+
+    /**
+     * Se decidió que la visita no se le cobra al cliente, o se deshizo esa
+     * decisión. Evento propio y no un `field_changed` cualquiera: es dinero
+     * perdonado, y tiene que poder buscarse sin leer el expediente entero.
+     */
+    public const NO_CHARGE         = 'no_charge_changed';
+
+    /**
+     * PR F1 - intervenciones tecnicas (seccion 14).
+     *
+     * `intervention_reopened` es el que sostiene la regla de preservacion:
+     * una intervencion finalizada no se edita, se REABRE con motivo. Sin
+     * este evento la correccion seria invisible y el registro dejaria de
+     * ser auditable, que es justo lo que se quiere evitar al no dar
+     * borrado.
+     */
+    public const INTERVENTION_STARTED  = 'intervention_started';
+    public const INTERVENTION_FINISHED = 'intervention_finished';
+    public const INTERVENTION_EDITED   = 'intervention_edited';
+    public const INTERVENTION_REOPENED = 'intervention_reopened';
+
+    /**
+     * PR F2 - mediciones tecnicas (secciones 12, 13 y 15.5).
+     *
+     * `final_test_waived` es el que sostiene la regla 5 del parrafo 15: cuando un
+     * ticket se cierra SIN medicion final, el expediente tiene que decir con que
+     * razon y con que justificacion. Sin este evento la excepcion seria invisible.
+     */
+    public const MEASUREMENT_RECORDED = 'measurement_recorded';
+    public const MEASUREMENT_UPDATED  = 'measurement_updated';
+    public const FINAL_TEST_WAIVED    = 'final_test_waived';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

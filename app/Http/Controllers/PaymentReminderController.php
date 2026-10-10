@@ -104,6 +104,15 @@ class PaymentReminderController extends Controller
 
     /**
      * Send bulk reminders for pending/overdue invoices
+     *
+     * A diferencia del envío individual —donde un agente abre UNA factura y
+     * decide sobre ESE caso—, aquí el operador marca casillas en el listado (o
+     * «seleccionar todo») y dispara sobre el lote. No hay una decisión por
+     * cliente, así que las preferencias del cliente SÍ mandan: quien pidió no
+     * recibir avisos de factura no puede recibir uno porque su factura entró en
+     * una selección masiva.
+     *
+     * El envío individual conserva su excepción a propósito (ver sendReminder).
      */
     public function sendBulkReminders(Request $request)
     {
@@ -115,9 +124,33 @@ class PaymentReminderController extends Controller
         $results = [];
         $successCount = 0;
         $failCount = 0;
+        $skippedCount = 0;
 
         foreach ($request->invoice_ids as $invoiceId) {
             try {
+                // Las preferencias se consultan JUSTO ANTES de enviar, sobre el
+                // estado actual del cliente: entre que el operador marcó la
+                // casilla y pulsó el botón, alguien pudo silenciarlo.
+                if ($motivo = $this->reminderOptOutReason($invoiceId)) {
+                    $skippedCount++;
+                    $results[$invoiceId] = [
+                        'success' => false,
+                        'skipped' => true,
+                        'reason'  => $motivo,
+                        'message' => self::OPT_OUT_MESSAGES[$motivo],
+                    ];
+
+                    // Trazabilidad del omitido, sin datos de contacto: basta el
+                    // id de la factura y el motivo normalizado para auditar por
+                    // qué ese cliente no recibió nada.
+                    Log::info('Bulk reminder skipped by customer preference', [
+                        'invoice_id' => $invoiceId,
+                        'reason'     => $motivo,
+                    ]);
+
+                    continue; // sin tocar last_reminder_sent: no se envió nada
+                }
+
                 $response = $this->sendReminder($request, $invoiceId);
                 $responseData = json_decode($response->getContent(), true);
 
@@ -141,16 +174,64 @@ class PaymentReminderController extends Controller
             }
         }
 
+        $partes = ["{$successCount} exitosos"];
+        if ($skippedCount > 0) {
+            // Se nombra aparte de los fallidos: un omitido no es un error que
+            // haya que ir a investigar, es la preferencia del cliente aplicada.
+            $partes[] = "{$skippedCount} omitidos por preferencia del cliente";
+        }
+        $partes[] = "{$failCount} fallidos";
+
         return response()->json([
-            'success' => $successCount > 0,
-            'message' => "Recordatorios enviados: {$successCount} exitosos, {$failCount} fallidos",
+            // Nada que fallara no es un fracaso: si el lote entero eran clientes
+            // silenciados, la operación hizo exactamente lo que debía.
+            'success' => $successCount > 0 || ($failCount === 0 && $skippedCount > 0),
+            'message' => 'Recordatorios enviados: ' . implode(', ', $partes),
             'summary' => [
                 'total' => count($request->invoice_ids),
                 'success' => $successCount,
+                'skipped' => $skippedCount,
                 'failed' => $failCount
             ],
             'results' => $results
         ]);
+    }
+
+    /** Motivos por los que un envío masivo se salta una factura. */
+    private const OPT_OUT_MESSAGES = [
+        'notify_invoice_disabled' => 'Omitido: el cliente pidió no recibir notificaciones de factura.',
+        'excluded_from_billing'   => 'Omitido: el cliente está marcado como «no facturar».',
+    ];
+
+    /**
+     * ¿Este cliente pidió que no se le avise? Devuelve el motivo normalizado, o
+     * null si se le puede escribir.
+     *
+     * Mismas dos banderas que respetan los envíos automáticos
+     * (BillingService::notifyInvoiceCreated y PaymentReminderService), para que
+     * el lote no sea una puerta trasera a lo que el ciclo automático respeta.
+     *
+     * La factura se relee dentro del scope de tenant: un id de otra sede no
+     * resuelve, y el envío propiamente dicho lo vuelve a comprobar.
+     */
+    private function reminderOptOutReason($invoiceId): ?string
+    {
+        $invoice = Invoice::with('customer.customerProfile')->find($invoiceId);
+        $profile = $invoice?->customer?->customerProfile;
+
+        if (!$profile) {
+            return null; // sin perfil no hay preferencia que respetar
+        }
+
+        if ($profile->exclude_from_billing) {
+            return 'excluded_from_billing';
+        }
+
+        if (!$profile->notify_invoice) {
+            return 'notify_invoice_disabled';
+        }
+
+        return null;
     }
 
     /**

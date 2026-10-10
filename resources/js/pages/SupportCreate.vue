@@ -119,14 +119,33 @@
                                 </div>
                                 <h2 class="text-lg font-bold text-gray-800 dark:text-white">Cargo Asociado</h2>
                             </div>
-                            <label class="relative inline-flex items-center cursor-pointer">
-                                <input v-model="addCharge" type="checkbox" class="sr-only peer" />
+                            <label class="relative inline-flex items-center" :class="noCharge ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'">
+                                <input v-model="addCharge" :disabled="noCharge" type="checkbox" class="sr-only peer" />
                                 <div class="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                             </label>
                         </div>
                         <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Activa esta opción si la visita requiere un cobro (visita técnica, materiales, etc.)</p>
 
-                        <div v-if="addCharge" class="space-y-3 animate-fadeIn">
+                        <!-- Sin cobro: no es «hoy no lo cobro», es «este ticket no
+                             se puede cobrar». Cierra también el cargo posterior. -->
+                        <div class="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+                            <label class="flex items-start gap-2 cursor-pointer">
+                                <input v-model="noCharge" @change="onNoChargeToggle" type="checkbox"
+                                    class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500" />
+                                <span>
+                                    <span class="text-sm font-medium text-amber-900 dark:text-amber-200">Sin cobro al cliente</span>
+                                    <span class="block text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                                        Mantenimiento o garantía. Los equipos que se entreguen salen igual del inventario
+                                        y son gasto de la empresa, pero este ticket no podrá generar cargos.
+                                    </span>
+                                </span>
+                            </label>
+                            <input v-if="noCharge" v-model="noChargeReason" type="text" maxlength="255"
+                                placeholder="Motivo (opcional): garantía, daño por rayo, retención…"
+                                class="mt-2 w-full bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                        </div>
+
+                        <div v-if="addCharge && !noCharge" class="space-y-3 animate-fadeIn">
                             <!-- Unidades sugeridas (el usuario también puede escribir una propia) -->
                             <datalist id="charge-unit-options">
                                 <option v-for="u in unitOptions" :key="u" :value="u" />
@@ -335,6 +354,14 @@ const toast = ref(null)
 
 // Cargo opcional
 const addCharge = ref(false)
+
+// Visita que no se le cobra al cliente. Apaga el cargo de este formulario y
+// deja el ticket cerrado a cargos futuros.
+const noCharge = ref(false)
+const noChargeReason = ref('')
+const onNoChargeToggle = () => {
+    if (noCharge.value) addCharge.value = false
+}
 // Unidades sugeridas para la cantidad (el usuario puede escribir otra).
 const unitOptions = ['Unidad', 'Metros', 'Horas', 'Kit', 'Servicio', 'Kg']
 const chargeItems = ref([{ description: '', quantity: 1, unit: 'Unidad', unit_price: 0 }])
@@ -400,12 +427,14 @@ const handleSubmit = async () => {
             staff_id: form.value.staff_id || null,
             subject: form.value.subject,
             description: form.value.description,
+            no_charge: noCharge.value,
+            no_charge_reason: noChargeReason.value || null,
             ...diagnosticoElegido,
         })
 
         const newTicketId = ticketRes.data?.id || ticketRes.data?.ticket?.id
 
-        if (addCharge.value && newTicketId) {
+        if (addCharge.value && !noCharge.value && newTicketId) {
             try {
                 await api.support.generateCharge(newTicketId, {
                     items: chargeItems.value.map(i => ({

@@ -508,7 +508,7 @@ class TicketNoteAndAttachmentTest extends TestCase
         $this->assertSame('Sin falla confirmada', $detalle['diagnosis']['confirmed_cause']['label']);
         $this->assertCount(1, $detalle['messages']);
         $this->assertCount(1, $detalle['attachments']);
-        $this->assertSame('open', $detalle['status']);
+        $this->assertSame('radicado', $detalle['status']);
     }
 
     #[Test]

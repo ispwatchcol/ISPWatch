@@ -268,6 +268,18 @@ class PcqManager
                 ];
             }
 
+            // El CORE llegó y el router rechazó la clave: tampoco corrió nada,
+            // pero la causa y el remedio son otros. Va ANTES del error genérico
+            // porque «authentication failure» hace match con la palabra
+            // «failure» y se reportaba como si el comando hubiera fallado.
+            if ($output && $this->isSshExecAuthFailure($output)) {
+                return [
+                    'success' => false,
+                    'method'  => 'CORE_SSH_DIRECT',
+                    'message' => $this->sshExecAuthFailureMessage($clientIp, $output, $clientSshPort),
+                ];
+            }
+
             // Empty stdout is not success: ssh-exec that times out or aborts
             // writes nothing, and calling that "sincronizado" leaves the router
             // untouched while the UI reports it worked.

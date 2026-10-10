@@ -111,6 +111,13 @@ Cuando ISPWatch corta a un cliente (manual o automáticamente por billing):
 
 **Tiempo de corte efectivo: segundos** (no minutos/horas como antes).
 
+**A quién toma el corte automático** (`OverdueSuspensionService::getEligibleCustomers`):
+clientes del router con `status = true`, sin `exclude_from_billing`, con al menos
+`overdue_invoices` facturas vencidas, y con `service_status` facturable (`activo`, `gratis`,
+`suspendido` o vacío). Desde 2026-09-30 (KAN-117) quedan fuera `retirado` y `cancelado` aunque
+tengan `status = true` por datos viejos: cortarlos los pasaba a `suspendido`, como si
+volvieran a ser clientes en mora.
+
 ---
 
 ## 5. Cómo se reactiva un cliente
@@ -146,7 +153,10 @@ desbloqueo real quedó pendiente. Lo delatan dos cosas:
 - el log `UNSUSPEND/failed`, reintentable desde **Acciones masivas**;
 - el mensaje rojo *"Pago registrado — revisar reconexión"* que ve el cajero.
 
-Nada lo reintenta solo todavía (**P-29** en `MEJORAS_RECOMENDADAS.md`): hay que mirarlo.
+Desde el 2026-10-05 `billing:reconcile-reconnections` lo reintenta solo cada hora, con el
+mismo backoff y tope de intentos que los cortes (**P-29**). Si agota los intentos queda como
+*agotado* en **Acciones masivas** y ahí sí hay que mirarlo. No reabre a quien se volvió a
+cortar después, ni a una ficha `retirado`/`cancelado`/`suspendido`, ni routers RADIUS.
 
 ### Clientes que quedaron atrapados
 
