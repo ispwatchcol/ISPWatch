@@ -9788,6 +9788,45 @@ contra qué medirlas:
 
 No se agregó Pest ni Deptrac: el test es PHPUnit puro, sin dependencias nuevas.
 
+## 104. El seeder del Centro de Ayuda deja de borrar lo escrito desde la UI (KAN-75, P-12) — 2026-10-05
+
+> Numeración: las §§ 90 a 103 todavía no están en main.
+
+### El problema
+
+`HelpCenterSeeder::run()` empezaba con `HelpArticle::query()->delete()` y
+`HelpCategory::query()->delete()`. Al re-sembrar se perdía cualquier artículo creado por un
+superadmin desde el editor.
+
+La otra mitad de P-12, que no hubiera un camino sancionado para publicar en producción, ya
+estaba resuelta desde el 2026-08-19: las migraciones de datos con huella md5 cumplen esa función.
+
+### Lo que se hizo
+
+- El seeder hace un upsert: `updateOrCreate` de la categoría por `name` y del artículo por
+  (`category_id`, `title`), todo dentro de una transacción.
+  - Lo que el seeder define se crea o se pone al día.
+  - Lo creado desde la UI no se toca.
+  - Sembrar dos veces no duplica.
+- Se verificó que el contenido actual no repite nombres de categoría ni títulos dentro de una
+  categoría: 12 categorías, 49 artículos.
+
+### Límite aceptado
+
+Si se renombra un artículo en el seeder, el viejo se queda, porque ya no se distingue de uno
+escrito a mano. Para retirar contenido, el camino es una migración de datos.
+
+### Pruebas
+
+`HelpCenterSeederIdempotencyTest` (3 casos):
+
+- sembrar dos veces no duplica;
+- un artículo y una categoría creados en la UI sobreviven;
+- el contenido del seeder se pone al día.
+
+Sin el arreglo fallan 2. El de no duplicar ya pasaba, porque borrar y recrear tampoco
+duplica. Las 13 pruebas existentes del Centro de Ayuda siguen en verde.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
