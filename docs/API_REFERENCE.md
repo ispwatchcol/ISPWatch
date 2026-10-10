@@ -2058,6 +2058,53 @@ también si está **cancelada**.
 Todas las escrituras pasan por `InventoryLedger`, así que **no existe forma de mover existencias
 sin dejar la línea de kardex**: el saldo y el historial se escriben en la misma transacción.
 
+### 15.3 Consumo por cantidad: precisión, reenvío y cable (2026-10-10)
+
+Vale igual para `POST /api/installations/{id}/equipment` y `POST /api/support/{id}/equipment`.
+
+**Precisión del producto.** `inventory_stock.quantity_decimals` (0, 1 o 2) decide cuántos
+decimales admite la cantidad. El ledger la exige en entradas y entregas
+(`POST /api/inventory/transfers`) y en el consumo de órdenes y tickets: `quantity` con más
+decimales responde `422` en `quantity` («se registra en cantidades enteras» / «admite hasta N
+decimal(es)»). `quantity <= 0` y `quantity` mayor que el saldo del custodio también son `422`,
+sin mover nada.
+
+**Clave de reenvío** (opcional, recomendada):
+
+```json
+{ "stock_id": 12, "quantity": 120, "source_type": "user", "source_id": 7,
+  "client_request_id": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed" }
+```
+
+| Respuesta | Cuándo |
+|---|---|
+| `201` + `replayed: false` | Primera vez con esa clave (o sin clave): se descontó y se creó la línea |
+| `200` + `replayed: true` | La clave ya existe **en esta misma orden o ticket**: devuelve la línea guardada, no descuenta ni registra historial otra vez |
+| `422` en `client_request_id` | La clave ya se usó en **otra** orden o ticket |
+
+Máximo 64 caracteres, única por tenant (índice `*_client_request_unique`). Dos peticiones
+simultáneas con la misma clave: una inserta y la otra revierte su transacción y responde como
+reenvío. El retiro (`direction: in`) no la usa: el estado del equipo ya impide repetirlo.
+
+**Campos nuevos en las respuestas:**
+
+| Endpoint | Campo | Qué es |
+|---|---|---|
+| `…/equipment/available` → `materials[]` | `decimals` | Precisión del producto (para el `step` del input) |
+| `…/equipment` (líneas) | `decimals` | Ídem, en cada línea |
+| `GET /api/inventory-stock` | `quantity_decimals` | Precisión configurada |
+| `GET /api/inventory-stock` | `available` | Existencia total del producto (equipos disponibles o suma de saldos). **Sólo** para quien administra inventario (`role_id = 1` o `view_inventory`); a quien sólo ve soporte no se le envía |
+| `GET /api/inventory/movements` | `support_ticket_id` | Ticket del movimiento, junto a `installation_id` |
+| `GET /api/inventory/holdings` | `materials[].decimals` | Precisión, para la entrega |
+
+`POST`/`PUT /api/inventory-stock` aceptan `quantity_decimals` (`0`–`2`). Bajarla con saldos que
+tienen más decimales responde `422` en `quantity_decimals`.
+
+**Hoja técnica sin «Cable utilizado».** `PUT /api/installations/{id}/sheet` y `…/sheet-preview`
+**ignoran** `sheet.cable_meters`: el cable usado es la suma de las líneas de material en metros.
+Si la orden ya tenía un valor guardado, se conserva tal cual (histórico); no se borra ni se
+reescribe. El campo sigue aceptándose en la validación para no romper clientes viejos.
+
 ---
 
 ## 16. Soporte

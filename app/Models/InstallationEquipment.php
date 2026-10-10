@@ -27,6 +27,7 @@ class InstallationEquipment extends Model
         'source_id',
         'notes',
         'created_by',
+        'client_request_id',
     ];
 
     protected $casts = [

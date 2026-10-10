@@ -621,7 +621,19 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
      no descuenta nada: la unidad se registra al pulsar **Agregar**, y en la línea queda su serial
      y su MAC.
    - **Materiales por cantidad** (amarres y RJ45 por unidades, cable por metros): eliges el
-     material y de quién sale, escribes la cantidad y pulsas **Agregar**.
+     material y de quién sale, escribes la cantidad y pulsas **Agregar**. Junto a la cantidad ves
+     la **unidad** del producto y cuánto hay disponible en esa fuente. Si escribes más de lo
+     disponible, o decimales en un producto que se cuenta entero (un conector), el botón se
+     desactiva y te dice por qué. Si la señal se cae y pulsas **Agregar** otra vez, el sistema
+     reconoce que es el mismo registro y **no descuenta dos veces**.
+   - **Cable utilizado** ya no se escribe a mano: es la **suma calculada** del cable que
+     registraste arriba en metros (por ejemplo «120 m · FIBRA ÓPTICA 120 m»). En órdenes antiguas
+     que tenían un valor escrito a mano, ese valor se sigue viendo como *Registro manual
+     anterior*: no se borra, pero tampoco cuenta como consumo de inventario.
+   - **Otros insumos no inventariados (nota)** es sólo una nota para lo que no se lleva en el
+     inventario (silicona, cinta). **No descuenta nada**: lo que esté en el inventario regístralo
+     arriba con su cantidad. Señal, marca, modelo, MAC, serial y observaciones siguen igual; marca,
+     modelo, MAC y serial se llenan solos con la unidad registrada si estaban vacíos.
    > Sólo aparece lo que **tú** puedes registrar: lo tuyo, lo del técnico de esa orden y —si
    > administras inventario— las bodegas. El apartado de equipos con serial **siempre se ve**; si
    > no tienes ninguna unidad a mano, te lo explica y te dice el siguiente paso: pedir que te la
@@ -2104,7 +2116,22 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
 - **Por serial** — antenas, routers, ONU. Cada unidad se registra aparte con su serial y su MAC,
   y el sistema sabe en todo momento quién la tiene.
 - **Por cantidad** — RJ45, cable, platos, cinta. No se registra uno por uno: se lleva un saldo
-  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida: unidad, metro, rollo.
+  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida (unidad, metro, rollo) y
+  la **precisión**: *sólo enteros* para piezas que no se parten (conectores, amarres) o *hasta 2
+  decimales* para lo que se mide (cable, fibra: 12,5 m). Al escribir una unidad de longitud se
+  sugiere 2 decimales. La precisión se exige en entradas, entregas, órdenes y tickets.
+
+Quien administra inventario ve además la **Existencia** de cada modelo. Un material *por
+cantidad* que muestra **0** está creado en el catálogo pero **no tiene entrada registrada**: por
+eso no aparece en órdenes ni tickets. Regístrala en *Entregas y traspasos → Entrada de material*.
+
+**Ejemplo: fibra óptica para los técnicos.** Creas «Fibra óptica», por cantidad, unidad *metro*,
+hasta 2 decimales. Registras la entrada de 9830 m a la *Bodega principal*. Un técnico sin permiso
+de inventario **no ve la bodega** en su orden —le aparece un aviso de que el saldo está donde él
+no puede tomar—: le entregas, por ejemplo, 500 m en *Entregas y traspasos* (sale de la bodega,
+entra al técnico). Desde ese momento ve «FIBRA ÓPTICA — 500 metro en Mis equipos» en sus órdenes y
+tickets; si usa 120 m, le quedan 380 y el movimiento queda en *Movimientos* con su orden o ticket.
+Quien administra inventario sí puede registrar el consumo directamente desde la bodega.
 
 Esto **no se puede cambiar** una vez el modelo tiene existencias, porque las dos formas de contar
 no se mezclan. Si lo intentas, el sistema te lo impide y te dice cuántas existencias hay que mover

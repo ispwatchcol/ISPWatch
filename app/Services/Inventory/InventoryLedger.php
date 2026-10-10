@@ -13,6 +13,8 @@ use App\Models\InventoryStock;
 use App\Models\SupportTicket;
 use App\Models\TicketEquipment;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -152,6 +154,8 @@ class InventoryLedger
             ]);
         }
 
+        $this->assertQuantityFor($stock, $quantity);
+
         // Sólo el destino: el origen puede ser un custodio ya borrado (rescate
         // de saldos huérfanos, P-19), y ahí manda que exista la fila de saldo
         // de ESTE tenant, que decrementBalance ya exige.
@@ -187,7 +191,8 @@ class InventoryLedger
         CustomerInstallation $installation,
         InventoryDevice $device,
         User $actor,
-        ?string $notes = null
+        ?string $notes = null,
+        ?string $requestId = null
     ): InstallationEquipment {
         if ($device->status === InventoryDevice::STATUS_INSTALLED) {
             throw ValidationException::withMessages([
@@ -204,7 +209,9 @@ class InventoryLedger
         $source = $this->currentHolderOf($device);
         $this->assertCanTakeFrom($actor, $source['type'], $source['id'], $installation);
 
-        return DB::transaction(function () use ($installation, $device, $actor, $source, $notes) {
+        return DB::transaction(function () use ($installation, $device, $actor, $source, $notes, $requestId) {
+            $this->assertDeviceStillAt($device, $source);
+
             $device->status      = InventoryDevice::STATUS_INSTALLED;
             $device->customer_id = $installation->customer_id;
             $device->save();
@@ -219,6 +226,7 @@ class InventoryLedger
                 'source_id'       => $source['id'],
                 'notes'           => $notes,
                 'created_by'      => $actor->id,
+                'client_request_id' => $requestId,
             ]);
             $item->tenant_id = $installation->tenant_id;
             $item->save();
@@ -252,7 +260,8 @@ class InventoryLedger
         string $sourceType,
         int $sourceId,
         User $actor,
-        ?string $notes = null
+        ?string $notes = null,
+        ?string $requestId = null
     ): InstallationEquipment {
         if ($quantity <= 0) {
             throw ValidationException::withMessages([
@@ -260,10 +269,12 @@ class InventoryLedger
             ]);
         }
 
+        $this->assertQuantityFor($stock, $quantity);
+
         $this->assertCustodioDelTenant($sourceType, $sourceId, (int) $installation->tenant_id, 'source');
         $this->assertCanTakeFrom($actor, $sourceType, $sourceId, $installation);
 
-        return DB::transaction(function () use ($installation, $stock, $quantity, $sourceType, $sourceId, $actor, $notes) {
+        return DB::transaction(function () use ($installation, $stock, $quantity, $sourceType, $sourceId, $actor, $notes, $requestId) {
             $this->decrementBalance($stock, $sourceType, $sourceId, $quantity);
 
             $item = new InstallationEquipment([
@@ -276,6 +287,7 @@ class InventoryLedger
                 'source_id'       => $sourceId,
                 'notes'           => $notes,
                 'created_by'      => $actor->id,
+                'client_request_id' => $requestId,
             ]);
             $item->tenant_id = $installation->tenant_id;
             $item->save();
@@ -304,6 +316,15 @@ class InventoryLedger
     public function releaseFromInstallation(InstallationEquipment $item, User $actor): void
     {
         DB::transaction(function () use ($item, $actor) {
+            // Dos «Quitar» simultáneos de la misma línea devolverían la
+            // existencia dos veces. La fila se relee bloqueada: el segundo
+            // espera, ya no la encuentra y no devuelve nada.
+            $item = $this->lockedForUpdate(InstallationEquipment::withoutTenantScope()->whereKey($item->id));
+
+            if (!$item) {
+                return;
+            }
+
             $installation = $item->installation;
             $backType     = $item->source_type ?? InventoryMovement::HOLDER_USER;
             $backId       = $item->source_id   ?? $actor->id;
@@ -379,7 +400,8 @@ class InventoryLedger
         SupportTicket $ticket,
         InventoryDevice $device,
         User $actor,
-        ?string $notes = null
+        ?string $notes = null,
+        ?string $requestId = null
     ): TicketEquipment {
         $customerId = $this->ticketCustomerId($ticket);
 
@@ -400,7 +422,9 @@ class InventoryLedger
         $source = $this->currentHolderOf($device);
         $this->assertCanTakeFrom($actor, $source['type'], $source['id'], $ticket);
 
-        return DB::transaction(function () use ($ticket, $device, $actor, $source, $notes, $customerId) {
+        return DB::transaction(function () use ($ticket, $device, $actor, $source, $notes, $customerId, $requestId) {
+            $this->assertDeviceStillAt($device, $source);
+
             $device->status      = InventoryDevice::STATUS_INSTALLED;
             $device->customer_id = $customerId;
             $device->save();
@@ -416,6 +440,7 @@ class InventoryLedger
                 'source_id'   => $source['id'],
                 'notes'       => $notes,
                 'created_by'  => $actor->id,
+                'client_request_id' => $requestId,
             ]);
             $item->tenant_id = $ticket->tenant_id;
             $item->save();
@@ -449,7 +474,8 @@ class InventoryLedger
         string $sourceType,
         int $sourceId,
         User $actor,
-        ?string $notes = null
+        ?string $notes = null,
+        ?string $requestId = null
     ): TicketEquipment {
         $customerId = $this->ticketCustomerId($ticket);
 
@@ -459,10 +485,12 @@ class InventoryLedger
             ]);
         }
 
+        $this->assertQuantityFor($stock, $quantity);
+
         $this->assertCustodioDelTenant($sourceType, $sourceId, (int) $ticket->tenant_id, 'source');
         $this->assertCanTakeFrom($actor, $sourceType, $sourceId, $ticket);
 
-        return DB::transaction(function () use ($ticket, $stock, $quantity, $sourceType, $sourceId, $actor, $notes, $customerId) {
+        return DB::transaction(function () use ($ticket, $stock, $quantity, $sourceType, $sourceId, $actor, $notes, $customerId, $requestId) {
             $this->decrementBalance($stock, $sourceType, $sourceId, $quantity);
 
             $item = new TicketEquipment([
@@ -476,6 +504,7 @@ class InventoryLedger
                 'source_id'   => $sourceId,
                 'notes'       => $notes,
                 'created_by'  => $actor->id,
+                'client_request_id' => $requestId,
             ]);
             $item->tenant_id = $ticket->tenant_id;
             $item->save();
@@ -1025,16 +1054,109 @@ class InventoryLedger
      */
     private function lockBalance(InventoryStock $stock, string $holderType, int $holderId): ?InventoryBalance
     {
-        $query = InventoryBalance::withoutTenantScope()
-            ->where('tenant_id', $stock->tenant_id)
-            ->where('stock_id', $stock->id)
-            ->heldBy($holderType, $holderId);
+        return $this->lockedForUpdate(
+            InventoryBalance::withoutTenantScope()
+                ->where('tenant_id', $stock->tenant_id)
+                ->where('stock_id', $stock->id)
+                ->heldBy($holderType, $holderId)
+        );
+    }
 
+    /** Primera fila de la consulta, bloqueada hasta el fin de la transacción (salvo en SQLite). */
+    private function lockedForUpdate($query): ?Model
+    {
         if (DB::connection()->getDriverName() !== 'sqlite') {
             $query->lockForUpdate();
         }
 
         return $query->first();
+    }
+
+    /**
+     * Relee el equipo BLOQUEADO dentro de la transacción y confirma que sigue
+     * donde estaba cuando se validó. Sin esto, dos registros simultáneos del
+     * mismo serial (dos pestañas, dos personas) pasan los dos la validación
+     * previa y el equipo queda en dos líneas.
+     */
+    private function assertDeviceStillAt(InventoryDevice $device, array $source): void
+    {
+        $fresh = $this->lockedForUpdate(InventoryDevice::withoutTenantScope()->whereKey($device->id));
+        $now   = $fresh ? $this->currentHolderOf($fresh) : null;
+
+        if (!$fresh || $now['type'] !== $source['type'] || (int) $now['id'] !== (int) $source['id']) {
+            throw ValidationException::withMessages([
+                'device_id' => "El equipo {$this->deviceName($device)} acaba de registrarse en otra parte. Actualiza la lista.",
+            ]);
+        }
+    }
+
+    /**
+     * La cantidad tiene que respetar la precisión del producto: un conector se
+     * gasta entero, un metro de fibra admite fracciones. Va en el ledger y no
+     * en cada formulario porque es la única puerta: entradas, traspasos y
+     * consumos de orden o ticket pasan todos por aquí.
+     */
+    private function assertQuantityFor(InventoryStock $stock, float $quantity, string $campo = 'quantity'): void
+    {
+        if ($stock->acceptsQuantity($quantity)) {
+            return;
+        }
+
+        $decimals = $stock->quantityDecimals();
+        $unit     = $stock->unit ?: 'unidad';
+
+        throw ValidationException::withMessages([
+            $campo => $decimals === 0
+                ? "{$stock->label()} se registra en cantidades enteras ({$unit}): no admite fracciones."
+                : "{$stock->label()} admite hasta {$decimals} decimal(es) por {$unit}.",
+        ]);
+    }
+
+    /**
+     * Escribe una línea de orden o ticket UNA sola vez por clave de
+     * idempotencia (`client_request_id`).
+     *
+     * Si la clave ya existe se devuelve la línea guardada sin mover nada. Si
+     * llegan dos a la vez, el índice único deja insertar a una; la otra
+     * revierte TODA su transacción —también el descuento del saldo— y aquí se
+     * resuelve con la línea de la primera. Sin clave, se escribe como siempre.
+     *
+     * @param  class-string<Model>  $lineClass  InstallationEquipment o TicketEquipment
+     * @param  string               $parentKey  installation_id / ticket_id
+     * @return array{0: Model, 1: bool}  [línea, true si se creó en esta petición]
+     */
+    public function once(string $lineClass, int $tenantId, string $parentKey, int $parentId, ?string $requestId, callable $write): array
+    {
+        if ($requestId === null || $requestId === '') {
+            return [$write(), true];
+        }
+
+        $find = fn () => $lineClass::withoutTenantScope()
+            ->where('tenant_id', $tenantId)
+            ->where('client_request_id', $requestId)
+            ->first();
+
+        $existing = $find();
+
+        if (!$existing) {
+            try {
+                return [$write(), true];
+            } catch (UniqueConstraintViolationException $e) {
+                $existing = $find();
+
+                if (!$existing) {
+                    throw $e;
+                }
+            }
+        }
+
+        if ((int) $existing->{$parentKey} !== $parentId) {
+            throw ValidationException::withMessages([
+                'client_request_id' => 'Esa clave de registro ya se usó en otra orden o ticket.',
+            ]);
+        }
+
+        return [$existing, false];
     }
 
     private function record(int $tenantId, array $attributes, ?User $actor): InventoryMovement

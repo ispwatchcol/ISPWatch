@@ -351,7 +351,8 @@
                  desaparecer. -->
             <div ref="materialRow">
               <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Materiales por cantidad (cable, conectores…)</p>
-              <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
+              <template v-if="availableMaterials.length">
+              <div class="flex flex-wrap items-center gap-2">
                 <select v-model="materialPick" :disabled="equipmentBusy"
                   class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
                   <option :value="null">+ Agregar material por cantidad…</option>
@@ -359,14 +360,26 @@
                     {{ materialLabel(m) }}
                   </option>
                 </select>
-                <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
-                  :disabled="equipmentBusy"
-                  class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
-                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                <div class="flex items-center gap-1">
+                  <input v-model.number="materialQty" type="number" :min="quantityStep(materialPick)" :step="quantityStep(materialPick)"
+                    :max="materialPick ? materialPick.quantity : null" placeholder="Cant." onwheel="this.blur()"
+                    :disabled="equipmentBusy" data-testid="material-qty"
+                    class="w-28 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
+                  <span class="text-xs text-gray-600 dark:text-gray-300 min-w-[2.5rem]">{{ materialPick?.unit || '' }}</span>
+                </div>
+                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy || !!materialQtyError"
                   class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
                   Agregar
                 </button>
               </div>
+              <p v-if="materialPick && materialQtyError" class="mt-1 text-[11px] text-rose-600 dark:text-rose-400" data-testid="material-qty-error">
+                {{ materialQtyError }}
+              </p>
+              <p v-else-if="materialPick" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                Disponible en {{ materialPick.source_label }}: {{ fmtQty(materialPick.quantity) }}{{ materialPick.unit ? ` ${materialPick.unit}` : '' }}
+                · {{ materialDecimals(materialPick) === 0 ? 'cantidades enteras' : `hasta ${materialDecimals(materialPick)} decimal(es)` }}.
+              </p>
+              </template>
               <p v-else-if="equipmentLoaded"
                 class="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                 No hay materiales que puedas usar en esta orden.
@@ -398,10 +411,24 @@
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cable utilizado (metros)</label>
-            <input v-model="sheet.cable_meters" type="number" min="0" step="0.5"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+          <!-- El cable ya no se digita: es la suma de lo registrado en metros
+               arriba, que sí descuenta inventario. Un valor manual guardado
+               antes se conserva y se muestra como histórico. -->
+          <div data-testid="cable-summary">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cable utilizado (del inventario)</label>
+            <div class="w-full bg-gray-100 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white">
+              <template v-if="cable.total > 0">
+                <span class="font-semibold">{{ fmtQty(cable.total) }} m</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400"> · {{ cable.lines.map(l => `${l.label} ${fmtQty(l.quantity)} m`).join(' · ') }}</span>
+              </template>
+              <span v-else class="text-gray-500 dark:text-gray-400">Sin cable registrado en esta orden.</span>
+            </div>
+            <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Se calcula de los materiales en metros de «Equipos y materiales usados».
+            </p>
+            <p v-if="legacyCable" class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+              Registro manual anterior: {{ legacyCable }} m (no descontó inventario; se conserva como histórico).
+            </p>
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Nivel de señal</label>
@@ -430,10 +457,13 @@
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-              Materiales adicionales (texto libre)
+              Otros insumos no inventariados (nota)
             </label>
+            <p class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Sólo una nota: no descuenta inventario. Lo que exista en el inventario se registra arriba con su cantidad.
+            </p>
             <textarea v-model="sheet.materials" rows="2"
-              placeholder="Sólo lo que no esté en el inventario: amarres, silicona…"
+              placeholder="Lo que no se lleva en el inventario: silicona, cinta aislante…"
               class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
           </div>
           <div class="sm:col-span-2">
@@ -928,7 +958,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api, { apiClient } from '@/services/api'
 import installationEquipmentApi from '@/services/api/installation-equipment'
@@ -937,6 +967,7 @@ import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 import SerialDevicePicker from '@/components/SerialDevicePicker.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
+import { cableSummary, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
 const route  = useRoute()
 const router = useRouter()
@@ -1006,6 +1037,14 @@ const serialModelFilter = ref(null)
 const serialPicker = ref(null)
 const materialPick = ref(null)
 const materialQty = ref(1)
+// Clave del intento de «Agregar» material. Se conserva mientras no haya
+// respuesta definitiva, para que el reintento no descuente dos veces; cambiar
+// el material o la cantidad ya es otro registro.
+const materialKey = ref(null)
+watch([materialPick, materialQty], () => { materialKey.value = null })
+const materialQtyError = computed(() => materialPick.value ? quantityError(materialPick.value, materialQty.value) : '')
+// Lo mismo para cada unidad con serial: la clave va atada al equipo elegido.
+const deviceKeys = new Map()
 const chargePick = ref(null)
 // Lo decide el servidor en /equipment/available: firmada o cancelada, no se
 // cargan ni se quitan líneas.
@@ -1021,6 +1060,14 @@ const materialRow = ref(null)
  * preparar la carga: usar lo previsto sigue pasando por «Agregar», que es lo
  * que descuenta y lo que el servidor valida.
  */
+// Cable usado: calculado de las líneas en metros, no digitado aparte.
+const cable = computed(() => cableSummary(equipmentItems.value))
+// Lo que se digitó a mano antes de que el cable saliera del inventario.
+const legacyCable = computed(() => {
+  const v = sheet.value.cable_meters
+  return v === '' || v === null || v === undefined ? '' : fmtQty(v)
+})
+
 const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).map(p => {
   const used = equipmentItems.value
     .filter(it => p.stock_id && it.stock_id === p.stock_id)
@@ -1152,14 +1199,23 @@ const applyDeviceToSheet = (device) => {
 const addDevice = async (device) => {
   if (!device) return
 
+  if (!deviceKeys.has(device.id)) deviceKeys.set(device.id, newRequestKey())
+
   equipmentBusy.value = true
   try {
-    const { data } = await installationEquipmentApi.add(installationId.value, { device_id: device.id })
+    const { data } = await installationEquipmentApi.add(installationId.value, {
+      device_id: device.id,
+      client_request_id: deviceKeys.get(device.id),
+    })
+    deviceKeys.delete(device.id)
     equipmentItems.value = data.equipment ?? equipmentItems.value
     applyDeviceToSheet(device)
     await loadAvailableEquipment()
-    toast.value?.success('Equipo cargado', `${deviceFullLabel(device)}: descontado del inventario y registrado en el historial.`)
+    toast.value?.success('Equipo cargado', data.replayed
+      ? `${deviceFullLabel(device)} ya estaba registrado: no se descontó otra vez.`
+      : `${deviceFullLabel(device)}: descontado del inventario y registrado en el historial.`)
   } catch (e) {
+    if (!keepKeyAfterError(e)) deviceKeys.delete(device.id)
     toast.value?.error('Error', firstError(e) || 'No se pudo cargar el equipo.')
   } finally {
     equipmentBusy.value = false
@@ -1170,11 +1226,13 @@ const addMaterial = async () => {
   const material = materialPick.value
   if (!material) return
 
-  const quantity = Number(materialQty.value) || 0
-  if (quantity <= 0) {
-    toast.value?.error('Cantidad inválida', 'Indica cuánto material se usó.')
+  const error = quantityError(material, materialQty.value)
+  if (error) {
+    toast.value?.error('Cantidad inválida', error)
     return
   }
+  const quantity = Number(materialQty.value)
+  if (!materialKey.value) materialKey.value = newRequestKey()
 
   equipmentBusy.value = true
   try {
@@ -1183,13 +1241,18 @@ const addMaterial = async () => {
       quantity,
       source_type: material.source_type,
       source_id:   material.source_id,
+      client_request_id: materialKey.value,
     })
     equipmentItems.value = data.equipment ?? equipmentItems.value
     materialPick.value = null
     materialQty.value = 1
+    materialKey.value = null
     await loadAvailableEquipment()
-    toast.value?.success('Material cargado', 'Descontado del saldo de quien lo aportó.')
+    toast.value?.success('Material cargado', data.replayed
+      ? 'Ese registro ya estaba guardado: no se descontó otra vez.'
+      : 'Descontado del saldo de quien lo aportó.')
   } catch (e) {
+    if (!keepKeyAfterError(e)) materialKey.value = null
     toast.value?.error('Error', firstError(e) || 'No se pudo cargar el material.')
   } finally {
     equipmentBusy.value = false
@@ -1443,8 +1506,9 @@ const loadNetworkResources = async () => {
  */
 const buildSheetPayload = () => {
   const payload = { ...sheet.value }
-  if (payload.cable_meters === '') delete payload.cable_meters
-  else payload.cable_meters = Number(payload.cable_meters)
+  // El cable no viaja: el servidor conserva el valor histórico y el actual
+  // sale de las líneas de material.
+  delete payload.cable_meters
 
   for (const k of ['sectorial_id', 'router_id', 'plan_id']) {
     if (payload[k] == null || payload[k] === '') delete payload[k]
@@ -1818,6 +1882,9 @@ onMounted(async () => {
     loadAvailableEquipment(),
     loadPaymentMethods(),
   ])
+  // Marca, modelo, MAC y serial salen del equipo registrado cuando la hoja
+  // los tiene vacíos (no se pisa lo que alguien ya escribió).
+  applyDeviceToSheet(equipmentItems.value.find(it => it.is_device))
   await nextTick()
   // Pre-inicializa los contextos si los canvas ya existen; si no, getCtx()
   // los inicializa en el primer trazo.

@@ -846,12 +846,39 @@ class CustomerInstallationController extends Controller
 
         $data = $request->validate($this->sheetValidationRules('required'));
 
-        $installation->update(['sheet' => $data['sheet']]);
+        $installation->update(['sheet' => $this->withStoredCable($installation, $data['sheet'])]);
 
         return response()->json([
             'message'      => 'Hoja de instalación guardada.',
             'installation' => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
         ]);
+    }
+
+    /**
+     * «Cable utilizado (metros)» ya no se escribe desde la hoja.
+     *
+     * Era una cifra a mano, paralela al inventario: se podía declarar 120 m
+     * sin que salieran de ningún saldo, o descontar 120 m del inventario y
+     * escribir 80 en la hoja. El cable usado es ahora lo que se registró como
+     * consumo de productos (installation_equipment), y la pantalla muestra
+     * ese resumen calculado.
+     *
+     * El valor que ya estaba guardado NO se borra: es el registro histórico
+     * de órdenes anteriores al inventario y se sigue mostrando como tal. Lo
+     * que llegue en la petición se ignora —la pantalla vieja en caché, un
+     * cliente de la API— y se conserva el guardado.
+     */
+    private function withStoredCable(CustomerInstallation $installation, array $sheet): array
+    {
+        unset($sheet['cable_meters']);
+
+        $stored = ($installation->getOriginal('sheet') ?? [])['cable_meters'] ?? null;
+
+        if ($stored !== null && $stored !== '') {
+            $sheet['cable_meters'] = $stored;
+        }
+
+        return $sheet;
     }
 
     /**
@@ -905,7 +932,7 @@ class CustomerInstallationController extends Controller
 
         if (!empty($data['sheet'])) {
             $draft = array_filter($data['sheet'], fn ($v) => $v !== null && $v !== '');
-            $installation->sheet = array_merge($installation->sheet ?? [], $draft);
+            $installation->sheet = $this->withStoredCable($installation, array_merge($installation->sheet ?? [], $draft));
         }
 
         $pdf = $this->buildSheetPdf($installation, '', null);

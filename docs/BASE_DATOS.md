@@ -1436,15 +1436,15 @@ Sube en cada alta, retiro o reetiquetado.
 
 | Tabla | Columnas |
 |---|---|
-| `inventory_stock` | `brand`, `model`, `desc` ⚠️(**tipo `date`**, ver §8), `price` numeric(10,2), `is_serialized`, `unit`, `tenant_id` |
+| `inventory_stock` | `brand`, `model`, `desc` ⚠️(**tipo `date`**, ver §8), `price` numeric(10,2), `is_serialized`, `unit`, **`quantity_decimals`** tinyint (0–2, default 2), `tenant_id` |
 | `inventory_provider` | `name`, `email`, `phone`, `addr`, `city`, `identification`, `advisor_*` |
 | `inventory_branch` | `name`, `dir`, `numero` varchar(30) — **texto, no entero** (ver nota abajo) |
 | `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `customer_id`, `status`, `serial`, `mac` |
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
 | `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `support_ticket_id`, `customer_id`, `notes`, `created_by`, `created_at` |
-| `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by` |
+| `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`client_request_id`** varchar(64) nulable |
 | `installation_planned_items` (2026-09-30) | `installation_id`, `stock_id` (nullable), **`label`** varchar(255), **`unit`** varchar(20), **`is_serialized`** bool, `quantity` numeric(12,2), `notes` varchar(255), `created_by`, `tenant_id` |
-| `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`reversed_at`**, `reversed_by`, `reversed_by_name`, `reversal_reason` |
+| `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`reversed_at`**, `reversed_by`, `reversed_by_name`, `reversal_reason`, **`client_request_id`** varchar(64) nulable |
 
 > **`installation_planned_items` es el PLAN, no el consumo** (migración
 > `2026_09_30_000001`). No pasa por el ledger, no descuenta ni reserva, y admite cantidades
@@ -1532,6 +1532,23 @@ mundos que no se mezclan:
 `inventory_movements` es el **kardex append-only**: nunca se actualiza ni se borra una fila; un
 movimiento equivocado se corrige con el contrario. `device_serial` duplica el serial a propósito
 para que la traza sobreviva al borrado del equipo. Todo lo escribe `InventoryLedger` y sólo él.
+
+> **Precisión y reenvío (2026-10-10, `2026_10_10_000001` y `_000002`).**
+> `inventory_stock.quantity_decimals` dice cuántos decimales admite la cantidad de un producto
+> por cantidad (0 = piezas enteras, 2 = metros con centímetros; nunca más de 2 porque saldos y
+> kardex son `decimal(12,2)`). La migración deja **2** por default —lo que se aceptaba antes— y
+> sólo pasa a **0** los no serializados cuya unidad es vacía o de pieza (`unidad`, `und`, `pieza`…)
+> **y** que no tienen ninguna cantidad fraccionaria en `inventory_balances` ni en
+> `inventory_movements`. La exige `InventoryLedger` en entradas, traspasos y consumos.
+>
+> `client_request_id` en `installation_equipment` y `ticket_equipment` es la clave de
+> idempotencia del registro, con `unique(tenant_id, client_request_id)`
+> (`installation_equipment_client_request_unique`, `ticket_equipment_client_request_unique`).
+> NULL en las líneas anteriores y en clientes que no la mandan; PostgreSQL y SQLite admiten
+> varios NULL en un índice único.
+>
+> `customer_installations.sheet.cable_meters` deja de escribirse: el valor que ya estaba se
+> conserva como histórico; el cable actual se calcula de `installation_equipment`.
 
 ### 4.17 Tráfico y falla masiva
 

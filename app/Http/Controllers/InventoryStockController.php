@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\InventoryStock;
+use App\Services\Inventory\InventoryAvailability;
+use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -12,9 +14,25 @@ use Illuminate\Validation\ValidationException;
  */
 class InventoryStockController extends Controller
 {
-    public function index()
+    /**
+     * Catálogo. A quien administra inventario se le agrega `available`: la
+     * existencia total del producto (equipos disponibles o suma de saldos).
+     * Sin ese dato, un producto «por cantidad» creado sin entrada se veía
+     * igual que uno con miles de metros, y la orden decía «sin saldo» sin que
+     * nadie entendiera por qué. Quien sólo ve soporte recibe el catálogo de
+     * siempre: no se le enseña existencia que no administra.
+     */
+    public function index(Request $request, InventoryLedger $ledger, InventoryAvailability $availability)
     {
-        return response()->json(InventoryStock::orderBy('brand')->get());
+        $stocks = InventoryStock::orderBy('brand')->get();
+        $actor  = $request->user();
+
+        if ($actor && $ledger->managesInventory($actor)) {
+            $available = $availability->availableByStock((int) $actor->tenant_id);
+            $stocks->each(fn (InventoryStock $s) => $s->setAttribute('available', (float) ($available[$s->id] ?? 0)));
+        }
+
+        return response()->json($stocks);
     }
 
     public function store(Request $request)
@@ -29,6 +47,7 @@ class InventoryStockController extends Controller
         $data = $request->validate($this->rules());
 
         $this->rechazarCambioDeConteoConExistencias($inventoryStock, $data);
+        $this->rechazarPrecisionMenorQueSaldos($inventoryStock, $data);
 
         $inventoryStock->update($data);
 
@@ -89,6 +108,41 @@ class InventoryStockController extends Controller
         ]);
     }
 
+    /**
+     * Bajar los decimales de un producto que ya tiene saldos con fracciones
+     * dejaría esos saldos imposibles de mover: 12,5 m no se pueden entregar ni
+     * consumir si el producto ahora sólo admite enteros. Se pide dejarlos
+     * cuadrados antes de cambiarlo.
+     */
+    private function rechazarPrecisionMenorQueSaldos(InventoryStock $stock, array $data): void
+    {
+        if (!isset($data['quantity_decimals']) || $stock->is_serialized) {
+            return;
+        }
+
+        $nuevo = (int) $data['quantity_decimals'];
+
+        if ($nuevo >= $stock->quantityDecimals()) {
+            return;
+        }
+
+        $probe = clone $stock;
+        $probe->quantity_decimals = $nuevo;
+
+        $chocan = $stock->balances()
+            ->where('quantity', '>', 0)
+            ->pluck('quantity')
+            ->reject(fn ($q) => $probe->acceptsQuantity((float) $q))
+            ->count();
+
+        if ($chocan > 0) {
+            throw ValidationException::withMessages([
+                'quantity_decimals' => "Hay {$chocan} saldo(s) de este producto con más decimales de los que quieres permitir. "
+                    . 'Ajústalos o consúmelos antes de cambiar la precisión.',
+            ]);
+        }
+    }
+
     public function destroy(InventoryStock $inventoryStock)
     {
         $inventoryStock->delete();
@@ -110,6 +164,9 @@ class InventoryStockController extends Controller
             'price'         => 'nullable|numeric|min:0',
             'is_serialized' => 'nullable|boolean',
             'unit'          => 'nullable|string|max:20',
+            // Decimales de la cantidad: 0 = piezas enteras, 2 = metros con
+            // centímetros. Nunca más de 2: saldos y kardex son decimal(12,2).
+            'quantity_decimals' => 'nullable|integer|between:0,' . InventoryStock::MAX_QUANTITY_DECIMALS,
         ];
     }
 }

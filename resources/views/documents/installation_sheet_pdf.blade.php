@@ -124,7 +124,7 @@
     @if(!empty($sheet))
         <h2>Hoja Técnica</h2>
         <table class="info">
-            @if(!empty($sheet['cable_meters']))<tr><td class="label">Cable utilizado</td><td>{{ $sheet['cable_meters'] }} m</td></tr>@endif
+            @if(!empty($sheet['cable_meters']))<tr><td class="label">Cable (registro manual anterior)</td><td>{{ $sheet['cable_meters'] }} m</td></tr>@endif
             @if(!empty($sheet['modem_brand']) || !empty($sheet['modem_model']))
                 <tr><td class="label">Módem / Router</td><td>{{ $sheet['modem_brand'] ?? '' }} {{ $sheet['modem_model'] ?? '' }}</td></tr>
             @endif

@@ -545,7 +545,7 @@
                                     <p class="text-[11px] text-gray-500 dark:text-gray-400">
                                         {{ item.is_return ? (item.is_scrapped ? 'Retirado y dado de baja' : 'Retirado del cliente') : (item.is_device ? 'Equipo entregado' : 'Material usado') }}
                                         <template v-if="item.is_device"> · {{ deviceIdsText(item) }}</template>
-                                        <template v-if="!item.is_device"> · {{ item.quantity }}{{ item.unit ? ' ' + item.unit : '' }}</template>
+                                        <template v-if="!item.is_device"> · {{ fmtQty(item.quantity) }}{{ item.unit ? ' ' + item.unit : '' }}</template>
                                         <template v-if="item.unit_price != null"> · {{ formatCurrency(item.unit_price * item.quantity) }}</template>
                                     </p>
                                     <!-- La linea revertida NO se oculta: el expediente tiene que contar
@@ -629,14 +629,25 @@
                                         {{ materialLabel(m) }}
                                     </option>
                                 </select>
-                                <input v-model.number="materialQty" type="number" min="0.01" step="0.01" onwheel="this.blur()"
-                                    :disabled="equipmentBusy"
-                                    class="charge-num px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50" />
-                                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                                <div class="flex items-center gap-1">
+                                    <input v-model.number="materialQty" type="number" :min="quantityStep(materialPick)" :step="quantityStep(materialPick)"
+                                        :max="materialPick ? materialPick.quantity : null" onwheel="this.blur()"
+                                        :disabled="equipmentBusy" data-testid="material-qty"
+                                        class="charge-num w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50" />
+                                    <span class="text-xs text-gray-600 dark:text-gray-300">{{ materialPick?.unit || '' }}</span>
+                                </div>
+                                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy || !!materialQtyError"
                                     class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
                                     Agregar
                                 </button>
                             </div>
+                            <p v-if="materialPick && materialQtyError" class="text-[11px] text-rose-600 dark:text-rose-400" data-testid="material-qty-error">
+                                {{ materialQtyError }}
+                            </p>
+                            <p v-else-if="materialPick" class="text-[11px] text-gray-500 dark:text-gray-400">
+                                Disponible en {{ materialPick.source_label }}: {{ fmtQty(materialPick.quantity) }}{{ materialPick.unit ? ` ${materialPick.unit}` : '' }}
+                                · {{ materialDecimals(materialPick) === 0 ? 'cantidades enteras' : `hasta ${materialDecimals(materialPick)} decimal(es)` }}.
+                            </p>
                         </div>
 
                         <p v-if="puedeEquipos" class="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
@@ -1195,7 +1206,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import { useAuthStore } from '../stores/auth'
@@ -1206,6 +1217,7 @@ import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import ticketEquipmentApi from '@/services/api/ticket-equipment'
 import SerialDevicePicker from '../components/SerialDevicePicker.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
+import { fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
 // R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan abajo porque
 // se deciden por código —que es estable— y son presentación.
@@ -1482,8 +1494,16 @@ const vaADarDeBaja = computed(() => (returnTarget.value || '').startsWith('scrap
 
 const materialLabel = (m) => {
     const nombre = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
-    return `${nombre} — ${m.quantity}${m.unit ? ' ' + m.unit : ''} en ${m.source_label}`
+    return `${nombre} — ${fmtQty(m.quantity)}${m.unit ? ' ' + m.unit : ''} en ${m.source_label}`
 }
+
+// Clave del intento de registro: el reintento sin respuesta (doble clic, red
+// caída) reenvía la misma y el servidor no descuenta dos veces. Cambiar el
+// material o la cantidad ya es otro registro.
+const materialKey = ref(null)
+const deviceKeys = new Map()
+const materialQtyError = computed(() => materialPick.value ? quantityError(materialPick.value, materialQty.value) : '')
+watch([materialPick, materialQty], () => { materialKey.value = null })
 
 const loadEquipment = async () => {
     if (!puedeEquipos.value) return
@@ -1548,12 +1568,16 @@ const addDevice = async (device) => {
     const id = device?.id
     if (!id) return
 
+    if (!deviceKeys.has(id)) deviceKeys.set(id, newRequestKey())
+
     equipmentBusy.value = true
     try {
-        const { data } = await ticketEquipmentApi.add(ticketId, { device_id: id })
+        const { data } = await ticketEquipmentApi.add(ticketId, { device_id: id, client_request_id: deviceKeys.get(id) })
+        deviceKeys.delete(id)
         await aplicarRespuestaEquipo(data, 'Equipo entregado')
         cargarHistorial(1)
     } catch (e) {
+        if (!keepKeyAfterError(e)) deviceKeys.delete(id)
         errorDeEquipo(e, 'No se pudo cargar el equipo.')
     } finally {
         equipmentBusy.value = false
@@ -1585,21 +1609,30 @@ const retireDevice = async () => {
 
 const addMaterial = async () => {
     const m = materialPick.value
-    if (!m || !(materialQty.value > 0)) return
+    if (!m) return
+    const error = quantityError(m, materialQty.value)
+    if (error) {
+        toast.value?.error('Cantidad inválida', error)
+        return
+    }
+    if (!materialKey.value) materialKey.value = newRequestKey()
 
     equipmentBusy.value = true
     try {
         const { data } = await ticketEquipmentApi.add(ticketId, {
             stock_id: m.stock_id,
-            quantity: materialQty.value,
+            quantity: Number(materialQty.value),
             source_type: m.source_type,
             source_id: m.source_id,
+            client_request_id: materialKey.value,
         })
         materialPick.value = null
         materialQty.value = 1
+        materialKey.value = null
         await aplicarRespuestaEquipo(data, 'Material cargado')
         cargarHistorial(1)
     } catch (e) {
+        if (!keepKeyAfterError(e)) materialKey.value = null
         errorDeEquipo(e, 'No se pudo cargar el material.')
     } finally {
         equipmentBusy.value = false

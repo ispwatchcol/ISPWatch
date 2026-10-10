@@ -167,7 +167,7 @@ class TicketEquipmentController extends Controller
             fn ($source) => $source['id'] !== null
         ));
 
-        $balances = InventoryBalance::with(['stock:id,brand,model,price,is_serialized,unit'])
+        $balances = InventoryBalance::with(['stock:id,brand,model,price,is_serialized,unit,quantity_decimals'])
             ->where('quantity', '>', 0)
             ->where(function ($query) use ($holders) {
                 if (empty($holders)) {
@@ -187,6 +187,7 @@ class TicketEquipmentController extends Controller
                 'brand'        => $b->stock?->brand,
                 'model'        => $b->stock?->model,
                 'unit'         => $b->stock?->unit,
+                'decimals'     => $b->stock?->quantityDecimals() ?? 2,
                 'price'        => $b->stock?->price,
                 'quantity'     => (float) $b->quantity,
                 'source_type'  => $b->holder_type,
@@ -278,31 +279,32 @@ class TicketEquipmentController extends Controller
             'source_type' => 'nullable|in:branch,user,scrap',
             'source_id'   => 'nullable|integer',
             'notes'       => 'nullable|string|max:255',
+            // Clave del intento: el mismo registro reenviado no mueve dos veces.
+            'client_request_id' => 'nullable|string|max:64',
         ]);
 
-        $direction = $data['direction'] ?? TicketEquipment::DIRECTION_OUT;
+        $requestId = $data['client_request_id'] ?? null;
 
-        if (($data['source_type'] ?? null) === InventoryMovement::HOLDER_SCRAP
-            && $direction !== TicketEquipment::DIRECTION_IN) {
-            throw ValidationException::withMessages([
-                'source_type' => 'De la chatarra no sale nada: la baja sólo vale al retirarle un equipo al cliente.',
-            ]);
-        }
-
-        if ($direction === TicketEquipment::DIRECTION_IN) {
-            $item = $this->retirar($ticket, $actor, $data);
-        } elseif (!empty($data['device_id'])) {
-            $device = InventoryDevice::with('stock')->findOrFail($data['device_id']);
-            $item   = $this->ledger->assignDeviceToTicket($ticket, $device, $actor, $data['notes'] ?? null);
-        } elseif (!empty($data['stock_id'])) {
-            $item = $this->gastarMaterial($ticket, $actor, $data);
-        } else {
-            throw ValidationException::withMessages([
-                'device_id' => 'Indica el equipo del inventario o el material que se usó.',
-            ]);
-        }
+        [$item, $created] = $this->ledger->once(
+            TicketEquipment::class,
+            (int) $ticket->tenant_id,
+            'ticket_id',
+            (int) $ticket->id,
+            $requestId,
+            fn () => $this->write($ticket, $actor, $data, $requestId)
+        );
 
         $item = $item->fresh(['stock', 'device.stock']);
+
+        if (!$created) {
+            return response()->json([
+                'message'   => 'Esta línea ya estaba registrada: no se descontó otra vez.',
+                'item'      => $this->row($item),
+                'equipment' => $this->rows($ticket),
+                'avisos'    => [],
+                'replayed'  => true,
+            ]);
+        }
 
         // El expediente tiene que contar lo que salió de la bodega por su culpa.
         // Sin esto, el kardex sabe el movimiento y el historial del ticket no, y
@@ -324,11 +326,47 @@ class TicketEquipmentController extends Controller
                 ? ($item->source_type === InventoryMovement::HOLDER_SCRAP
                     ? 'Equipo retirado del cliente y dado de baja: no vuelve a circular.'
                     : 'Equipo retirado del cliente y devuelto al inventario.')
-                : 'Equipo cargado al ticket y descontado del inventario.',
+                : ($item->device_id
+                    ? 'Equipo cargado al ticket y descontado del inventario.'
+                    : 'Material registrado en el ticket y descontado del inventario.'),
             'item'      => $this->row($item),
             'equipment' => $this->rows($ticket),
             'avisos'    => $this->ledger->avisosDeGasto(),
+            'replayed'  => false,
         ], 201);
+    }
+
+    /** Escribe la línea según su sentido: entrega, consumo o retiro. */
+    private function write(SupportTicket $ticket, User $actor, array $data, ?string $requestId): TicketEquipment
+    {
+        $direction = $data['direction'] ?? TicketEquipment::DIRECTION_OUT;
+
+        if (($data['source_type'] ?? null) === InventoryMovement::HOLDER_SCRAP
+            && $direction !== TicketEquipment::DIRECTION_IN) {
+            throw ValidationException::withMessages([
+                'source_type' => 'De la chatarra no sale nada: la baja sólo vale al retirarle un equipo al cliente.',
+            ]);
+        }
+
+        // El retiro no lleva clave: el estado del equipo ya impide repetirlo
+        // (un aparato que volvió a bodega no se puede volver a retirar).
+        if ($direction === TicketEquipment::DIRECTION_IN) {
+            return $this->retirar($ticket, $actor, $data);
+        }
+
+        if (!empty($data['device_id'])) {
+            $device = InventoryDevice::with('stock')->findOrFail($data['device_id']);
+
+            return $this->ledger->assignDeviceToTicket($ticket, $device, $actor, $data['notes'] ?? null, $requestId);
+        }
+
+        if (!empty($data['stock_id'])) {
+            return $this->gastarMaterial($ticket, $actor, $data, $requestId);
+        }
+
+        throw ValidationException::withMessages([
+            'device_id' => 'Indica el equipo del inventario o el material que se usó.',
+        ]);
     }
 
     /**
@@ -384,7 +422,7 @@ class TicketEquipmentController extends Controller
     }
 
     /** Gasta un consumible del inventario en la visita. */
-    private function gastarMaterial(SupportTicket $ticket, User $actor, array $data): TicketEquipment
+    private function gastarMaterial(SupportTicket $ticket, User $actor, array $data, ?string $requestId = null): TicketEquipment
     {
         $stock = InventoryStock::findOrFail($data['stock_id']);
 
@@ -407,7 +445,8 @@ class TicketEquipmentController extends Controller
             $data['source_type'],
             (int) $data['source_id'],
             $actor,
-            $data['notes'] ?? null
+            $data['notes'] ?? null,
+            $requestId
         );
     }
 
@@ -544,6 +583,7 @@ class TicketEquipmentController extends Controller
             'serial'      => $item->device?->serial,
             'mac'         => $item->device?->mac,
             'unit'        => $stock?->unit,
+            'decimals'    => $stock?->quantityDecimals() ?? 2,
             'quantity'    => (float) $item->quantity,
             'unit_price'  => $item->unit_price !== null ? (float) $item->unit_price : null,
             'is_device'   => $item->device_id !== null,

@@ -300,6 +300,24 @@ cualquier custodio —recoger lo que un técnico no usó es su función— porqu
 `view_inventory` y el movimiento queda escrito. Lo que nunca se permite es *consumir* existencias
 ajenas en silencio.
 
+**Precisión, reenvío y concurrencia (2026-10-10).** El ledger es también quien valida la
+**cantidad**: `assertQuantityFor()` exige la precisión del producto
+(`inventory_stock.quantity_decimals`: enteros para piezas, hasta 2 decimales para metros) en
+`transferQuantity()` y en los dos `assignMaterialTo*()`. Contra el **doble descuento**:
+
+| Riesgo | Defensa |
+|---|---|
+| Dos consumos simultáneos del mismo saldo | `lockForUpdate()` sobre la fila de `inventory_balances` (ya existía) |
+| El mismo `POST` reenviado (doble clic, red caída) | `client_request_id` + `unique(tenant_id, client_request_id)`; `InventoryLedger::once()` devuelve la línea existente y, si la carrera la gana otro, revierte su transacción entera |
+| Dos registros simultáneos del mismo serial | `assertDeviceStillAt()` relee el equipo **bloqueado** dentro de la transacción y aborta si ya cambió de custodio |
+| Dos «Quitar» simultáneos de la misma línea de orden | `releaseFromInstallation()` relee la línea bloqueada; el segundo no la encuentra y no devuelve nada |
+
+**Sin fuentes paralelas.** El consumo de material sólo existe como línea de
+`installation_equipment`/`ticket_equipment`. El antiguo «Cable utilizado (metros)» de la hoja
+(`sheet.cable_meters`) ya no se escribe —el servidor ignora lo que llegue y conserva el valor
+histórico—; la pantalla muestra un resumen calculado de las líneas en metros. «Materiales
+adicionales» queda como nota para lo que no se lleva en inventario y lo dice en pantalla.
+
 **4. Por dónde sale el inventario: la visita.** Hay dos puertas, y hasta el 2026-09-23 sólo
 estaba construida una.
 

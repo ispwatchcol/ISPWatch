@@ -42,6 +42,7 @@ class TicketEquipment extends Model
         'reversed_by',
         'reversed_by_name',
         'reversal_reason',
+        'client_request_id',
     ];
 
     protected $casts = [
