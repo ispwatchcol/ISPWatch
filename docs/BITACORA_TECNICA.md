@@ -9706,6 +9706,45 @@ No hay migración. Al desplegar, la primera corrida horaria reintentará **todas
 reconexiones abiertas con backoff vencido. Conviene correr antes
 `php artisan billing:reconcile-reconnections --dry-run` para ver cuántas son.
 
+## 102. El script de provisión abre ICMP solo desde la red de gestión (KAN-56, P-26) — 2026-10-05
+
+> Numeración: las §§ 90 a 101 todavía no están en main.
+
+### El problema
+
+La regla `ISPWatch-CORE-MGMT` solo aceptaba TCP (22, 8291, 8728). Un equipo con *drop* por
+defecto en `input` quedaba administrable pero mudo al ping, y `OverlayReachabilityProbe` se
+quedaba en `silent` justo donde más falta hacía saber si filtra ICMP o si no hay nadie.
+
+### Lo que se hizo
+
+`generateL2tpScript()` y `generateWireguardScript()` añaden una segunda regla con el mismo
+comentario:
+
+`/ip firewall filter add chain=input action=accept protocol=icmp src-address={$mgmtNet} comment="ISPWatch-CORE-MGMT" place-before=0`
+
+- Está acotada a la red de gestión y no expone nada a internet.
+- El `remove [find comment="ISPWatch-CORE-MGMT"]` que ya precedía a la regla TCP borra las
+  dos, así que re-aplicar el script es idempotente.
+
+### Lo que no se hizo
+
+No se re-aplicó el script en la flota y no se programó una pasada. Siguiendo la
+recomendación, la regla llega a cada router la próxima vez que se le aplique el script por
+otro motivo.
+
+### Pruebas
+
+`VpnScriptTest`, 2 casos nuevos:
+
+- en el script L2TP generado: la regla ICMP con `src-address`, ningún ICMP sin origen, y el
+  `remove` antes de las dos reglas;
+- una guarda sobre el código fuente que exige la regla en los **dos** generadores. El de
+  WireGuard no se puede generar en pruebas: instancia `WireguardManager`, que habla con el
+  CORE.
+
+Sin el arreglo, las dos fallan.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
