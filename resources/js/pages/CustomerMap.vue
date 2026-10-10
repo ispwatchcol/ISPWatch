@@ -1427,7 +1427,10 @@ const renderHeatmap = (list, g) => {
     heatmapOverlay.setMap(map);
 };
 
-const applyLayers = () => {
+// `refit`: reencuadrar la cámara al terminar. Sólo cuando cambia el CONJUNTO de
+// clientes (carga inicial, filtros). Al alternar una capa no (P-25 / KAN-78):
+// encender «Zonas de cobertura» para mirar una antena te sacaba de esa antena.
+const applyLayers = ({ refit = true } = {}) => {
     if (!mapReady || !map || !window.google?.maps) return;
     const g = window.google;
     clearLayers();
@@ -1622,7 +1625,7 @@ const applyLayers = () => {
     // Reencuadre general. Se omite cuando el redibujado lo provocó el buscador
     // (locateCustomer encendiendo la capa de clientes): ahí manda el vuelo hacia
     // el cliente, no el encuadre de todas las antenas.
-    if (hasBounds && !suppressNextFit) {
+    if (refit && hasBounds && !suppressNextFit) {
         map.fitBounds(bounds);
         g.maps.event.addListenerOnce(map, "idle", () => {
             // Un "idle" pendiente de un fitBounds anterior podría dispararse
@@ -2327,10 +2330,21 @@ const loadMapData = async () => {
     }
 };
 
+// Dos vigilantes y no uno (P-25 / KAN-78): cambiar los clientes visibles
+// reencuadra; alternar una capa redibuja SIN mover la cámara, para no perder el
+// acercamiento que el usuario hizo a mano.
 watch(
-    [filteredCustomers, layers],
+    filteredCustomers,
     () => {
-        applyLayers();
+        applyLayers({ refit: true });
+    },
+    { deep: true }
+);
+
+watch(
+    layers,
+    () => {
+        applyLayers({ refit: false });
     },
     { deep: true }
 );

@@ -49,6 +49,11 @@ Schedule::command('billing:auto-cut')->hourly();
 // Corre tras el auto-cut para recoger lo que haya fallado.
 Schedule::command('billing:reconcile-suspensions')->hourly();
 
+// El sentido inverso (P-29): reabre en el router a quien la DB da por activo
+// pero cuya reconexión no confirmó el equipo — el cliente que pagó y sigue sin
+// servicio. Mismo backoff y MAX_ATTEMPTS por cliente que los cortes.
+Schedule::command('billing:reconcile-reconnections')->hourly();
+
 // Detección de no-show de cortes: alerta (log + email) si un router de Corte
 // Automático está mal configurado (sin cut_day) o dejó clientes morosos sin cortar
 // pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.

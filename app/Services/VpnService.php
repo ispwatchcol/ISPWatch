@@ -274,6 +274,11 @@ class VpnService
 # ====================================
 /ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
 /ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
+# ICMP sólo desde la red de gestión (P-26): sin esto un equipo con drop por
+# defecto queda mudo al ping y OverlayReachabilityProbe no puede distinguir
+# «filtra ICMP» de «no hay nadie». Mismo comentario: el remove de arriba la
+# limpia también, así que re-aplicar el script no la duplica.
+/ip firewall filter add chain=input action=accept protocol=icmp src-address={$mgmtNet} comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # WATCHDOG
@@ -428,6 +433,11 @@ TENANT;
 # script no duplica la regla ni requiere inspeccionar las reglas existentes.
 /ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
 /ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
+# ICMP sólo desde la red de gestión (P-26): sin esto un equipo con drop por
+# defecto queda mudo al ping y OverlayReachabilityProbe no puede distinguir
+# «filtra ICMP» de «no hay nadie». Mismo comentario: el remove de arriba la
+# limpia también, así que re-aplicar el script no la duplica.
+/ip firewall filter add chain=input action=accept protocol=icmp src-address={$mgmtNet} comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # BLINDAJE DEL TÚNEL CONTRA MULTI-WAN

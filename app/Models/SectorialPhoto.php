@@ -34,11 +34,19 @@ class SectorialPhoto extends Model
         return $this->belongsTo(User::class, 'user_id');
     }
 
+    /**
+     * Endpoint autenticado que entrega la foto (P-40 / KAN-96).
+     *
+     * Antes era `asset('storage/…')`: una URL pública y sin sesión, sobre un
+     * disco efímero y sin `storage:link`, así que la foto salía rota tras cada
+     * despliegue y, mientras existía, la leía cualquiera que acertara la ruta.
+     * Ver SectorialPhotoController::show().
+     */
     public function getUrlAttribute(): ?string
     {
         if (empty($this->file_path)) {
             return null;
         }
-        return asset('storage/' . ltrim($this->file_path, '/'));
+        return url("/api/sectorials/{$this->sectorial_id}/photos/{$this->id}");
     }
 }
