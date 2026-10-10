@@ -81,6 +81,7 @@ class InventoryMovementController extends Controller
             'from'          => $this->holderLabel($labels, $m->from_type, $m->from_id),
             'to'            => $this->holderLabel($labels, $m->to_type, $m->to_id),
             'installation_id' => $m->installation_id,
+            'support_ticket_id' => $m->support_ticket_id,
             'notes'         => $m->notes,
             'created_at'    => $m->created_at,
             'created_by'    => $m->creator
@@ -126,7 +127,7 @@ class InventoryMovementController extends Controller
 
         $materials = $id === null
             ? collect()
-            : InventoryBalance::with(['stock:id,brand,model,price,unit'])
+            : InventoryBalance::with(['stock:id,brand,model,price,unit,is_serialized,quantity_decimals'])
                 ->heldBy($type, (int) $id)
                 ->where('quantity', '>', 0)
                 ->get()
@@ -134,6 +135,7 @@ class InventoryMovementController extends Controller
                     'stock_id' => $b->stock_id,
                     'item'     => $b->stock?->label() ?? 'Material',
                     'unit'     => $b->stock?->unit,
+                    'decimals' => $b->stock?->quantityDecimals() ?? 2,
                     'quantity' => (float) $b->quantity,
                 ]);
 
@@ -159,7 +161,7 @@ class InventoryMovementController extends Controller
     {
         $tenantId = $request->user()->tenant_id;
 
-        $balances = InventoryBalance::with(['stock:id,brand,model,price,unit'])
+        $balances = InventoryBalance::with(['stock:id,brand,model,price,unit,is_serialized,quantity_decimals'])
             ->where('quantity', '>', 0)
             ->where(function ($q) use ($tenantId) {
                 $q->where(function ($q) use ($tenantId) {

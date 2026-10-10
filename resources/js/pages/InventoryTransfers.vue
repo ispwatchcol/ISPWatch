@@ -94,7 +94,7 @@
                     Disponible: {{ fmtQty(m.quantity) }}{{ m.unit ? ` ${m.unit}` : '' }}
                   </p>
                 </div>
-                <input v-model.number="materialQty[m.stock_id]" type="number" min="0" :max="m.quantity" step="0.01"
+                <input v-model.number="materialQty[m.stock_id]" type="number" min="0" :max="m.quantity" :step="quantityStep(m)"
                   placeholder="0"
                   class="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                          bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm
@@ -141,7 +141,7 @@
               {{ `${s.brand ?? ''} ${s.model ?? ''}`.trim() }}{{ s.unit ? ` (${s.unit})` : '' }}
             </option>
           </select>
-          <input v-model.number="entry.quantity" type="number" min="0.01" step="0.01" placeholder="Cantidad"
+          <input v-model.number="entry.quantity" type="number" :min="quantityStep(entryStock)" :step="quantityStep(entryStock)" placeholder="Cantidad"
             class="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl
                    bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm
                    focus:ring-2 focus:ring-purple-500 outline-none" />
@@ -180,6 +180,7 @@ import inventoryBranchApi from '@/services/api/inventory-branch'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import catalogsApi from '@/services/api/catalogs'
 import { firstError } from '@/utils/apiError'
+import { quantityStep } from '@/utils/materialQuantity'
 import NotificationToast from '@/components/NotificationToast.vue'
 
 const toast = ref(null)
@@ -189,6 +190,11 @@ const saving = ref(false)
 const branches = ref([])
 const staff = ref([])
 const stocks = ref([])
+// Precisión del producto elegido en la entrada (enteros o decimales).
+const entryStock = computed(() => {
+  const s = stocks.value.find(x => x.id === entry.value?.stock_id)
+  return s ? { decimals: s.quantity_decimals } : null
+})
 
 // Origen y destino se manejan con una clave "tipo:id" porque un <select> sólo
 // guarda un valor y el custodio son dos datos (si es sucursal o persona, y cuál).

@@ -1354,6 +1354,38 @@ Las pruebas que fijan el contrato del lado del servidor —se guarda el `device_
 «uno del modelo», el kardex lleva ese serial, y serial + consumibles conviven en la misma orden y
 el mismo ticket— están en `tests/Feature/Inventory/SerializedUnitsAndConsumablesTest.php`.
 
+**Consumo por cantidad: precisión y reenvío (2026-10-10).**
+
+```php
+// Precisión: la decide el PRODUCTO, la exige el LEDGER. No la valides sólo en el controlador.
+$stock->quantityDecimals();        // 0 (piezas) | 1 | 2 (metros). Serializado → 0
+$stock->acceptsQuantity(12.55);    // true si respeta esos decimales
+
+// Reenvío: toda escritura nueva de línea de orden/ticket va envuelta en once().
+[$item, $created] = $this->ledger->once(
+    InstallationEquipment::class, $tenantId, 'installation_id', $installation->id,
+    $data['client_request_id'] ?? null,
+    fn () => $this->ledger->assignMaterialToInstallation(..., $requestId)   // guarda la clave en la línea
+);
+// $created === false → reenvío: responde 200 + replayed, sin historial ni toast de "descontado".
+```
+
+- Un método nuevo del ledger que **cree una línea** debe aceptar `?string $requestId` y
+  guardarlo en `client_request_id`; si no, `once()` no podrá reconocer el reenvío.
+- Un método nuevo que **consuma un equipo** debe llamar a `assertDeviceStillAt()` dentro de su
+  transacción; uno que **consuma cantidad**, a `assertQuantityFor()` antes.
+- Frontend: `utils/materialQuantity.js` lo comparten orden y ticket. `quantityError()` adelanta
+  el rechazo (precisión y saldo de la fuente), `quantityStep()` da el `step` del input,
+  `newRequestKey()` genera la clave y `keepKeyAfterError(e)` dice si conservarla (sin respuesta o
+  5xx) o descartarla (4xx: rechazo definitivo). Cambiar material o cantidad descarta la clave.
+- `cableSummary(items)` calcula el cable de la orden a partir de las líneas cuya unidad es de
+  longitud (`m`, `metro`, `mts`…). **No reintroduzcas un input de cable**: el servidor ignora
+  `sheet.cable_meters` y conserva el histórico (`withStoredCable()` en
+  `CustomerInstallationController`).
+
+Pruebas: `tests/Feature/Inventory/MaterialConsumptionByQuantityTest.php` (caso fibra 9830 m en
+orden y ticket, precisión, saldo, tenants, reenvío, cable) y `QuantityDecimalsBackfillTest.php`.
+
 **Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
 `unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar
 sigue siendo `generateCharge()` con su propio bloqueo por `no_charge`. Y las líneas `in` nacen

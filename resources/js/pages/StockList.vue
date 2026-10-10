@@ -84,6 +84,7 @@
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Marca</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Modelo</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Control</th>
+                <th v-if="showsAvailable" class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Existencia</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Precio</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
@@ -115,6 +116,20 @@
                     class="text-[11px] font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
                   >
                     Por cantidad{{ item.unit ? ` (${item.unit})` : '' }}
+                  </span>
+                  <span v-if="item.is_serialized === false" class="block mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                    {{ Number(item.quantity_decimals) === 0 ? 'Cantidades enteras' : `Hasta ${item.quantity_decimals ?? 2} decimal(es)` }}
+                  </span>
+                </td>
+                <!-- Existencia total (equipos disponibles o suma de saldos). Un
+                     producto por cantidad sin entrada registrada sale en 0 y
+                     explica por qué no aparece en órdenes ni tickets. -->
+                <td v-if="showsAvailable" class="px-6 py-4 whitespace-nowrap" data-testid="stock-available">
+                  <span class="text-sm text-gray-800 dark:text-gray-200">
+                    {{ fmtQty(item.available) }} {{ item.is_serialized === false ? (item.unit || 'unidad') : 'und.' }}
+                  </span>
+                  <span v-if="item.is_serialized === false && !Number(item.available)" class="block text-[11px] text-amber-700 dark:text-amber-400">
+                    Sin entrada: regístrala en Inventario → Entregas
                   </span>
                 </td>
                 <td class="px-6 py-4">
@@ -183,6 +198,19 @@
             <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mb-3">
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Modelo</p>
               <p class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.model || 'N/A' }}</p>
+              <p class="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                <template v-if="item.is_serialized !== false">Por serial</template>
+                <template v-else>
+                  Por cantidad{{ item.unit ? ` (${item.unit})` : '' }} ·
+                  {{ Number(item.quantity_decimals) === 0 ? 'cantidades enteras' : `hasta ${item.quantity_decimals ?? 2} decimal(es)` }}
+                </template>
+              </p>
+              <p v-if="showsAvailable" class="mt-1 text-xs text-gray-800 dark:text-gray-200" data-testid="stock-available-card">
+                Existencia: {{ fmtQty(item.available) }} {{ item.is_serialized === false ? (item.unit || 'unidad') : 'und.' }}
+                <span v-if="item.is_serialized === false && !Number(item.available)" class="block text-[11px] text-amber-700 dark:text-amber-400">
+                  Sin entrada: regístrala en Inventario → Entregas
+                </span>
+              </p>
             </div>
 
             <!-- Actions -->
@@ -320,6 +348,21 @@
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                          focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
                 />
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-3 mb-2">Precisión de la cantidad</label>
+                <select
+                  v-model.number="form.quantity_decimals"
+                  data-testid="stock-decimals"
+                  class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
+                         bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                         focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
+                >
+                  <option :value="0">Sólo enteros (piezas: conectores, amarres)</option>
+                  <option :value="1">Hasta 1 decimal</option>
+                  <option :value="2">Hasta 2 decimales (metros: cable, fibra)</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Se exige en entradas, entregas y en el consumo de órdenes y tickets.
+                </p>
               </div>
             </div>
 
@@ -417,10 +460,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
+import { fmtQty, isLengthUnit } from '@/utils/materialQuantity'
 
 const { can } = usePermissions()
 
@@ -453,7 +497,19 @@ const form = ref({
   model: '',
   price: 0,
   is_serialized: true,
-  unit: ''
+  unit: '',
+  quantity_decimals: 0
+})
+
+// La existencia sólo llega a quien administra inventario (el servidor decide).
+const showsAvailable = computed(() => items.value.some(i => i.available !== undefined))
+
+// Un producto nuevo en metros casi siempre se fracciona: se sugiere 2
+// decimales al escribir la unidad, sin pisar una elección ya hecha a mano.
+watch(() => form.value.unit, (unit) => {
+  if (!isEditing.value && isLengthUnit(unit) && form.value.quantity_decimals === 0) {
+    form.value.quantity_decimals = 2
+  }
 })
 
 // Computed
@@ -484,7 +540,7 @@ const loadItems = async () => {
 const openAddModal = () => {
   isEditing.value = false
   editingId.value = null
-  form.value = { brand: '', model: '', price: 0, is_serialized: true, unit: '' }
+  form.value = { brand: '', model: '', price: 0, is_serialized: true, unit: '', quantity_decimals: 0 }
   showFormModal.value = true
 }
 
@@ -498,7 +554,8 @@ const openEditModal = (item) => {
     // Lo que ya existía es serializado: es como se comportaba el inventario
     // antes de que el catálogo pudiera declarar consumibles.
     is_serialized: item.is_serialized !== false,
-    unit: item.unit || ''
+    unit: item.unit || '',
+    quantity_decimals: item.quantity_decimals ?? 2
   }
   showFormModal.value = true
 }
@@ -529,6 +586,7 @@ const handleSave = async () => {
       price: form.value.price || 0,
       is_serialized: form.value.is_serialized !== false,
       unit: form.value.is_serialized === false ? (form.value.unit || 'unidad') : null,
+      ...(form.value.is_serialized === false ? { quantity_decimals: Number(form.value.quantity_decimals) || 0 } : {}),
     }
 
     if (isEditing.value) {

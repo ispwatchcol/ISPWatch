@@ -121,7 +121,7 @@ class InstallationEquipmentController extends Controller
             fn ($source) => $source['id'] !== null
         ));
 
-        $balances = InventoryBalance::with(['stock:id,brand,model,price,is_serialized,unit'])
+        $balances = InventoryBalance::with(['stock:id,brand,model,price,is_serialized,unit,quantity_decimals'])
             ->where('quantity', '>', 0)
             ->where(function ($query) use ($holders) {
                 if (empty($holders)) {
@@ -141,6 +141,7 @@ class InstallationEquipmentController extends Controller
                 'brand'        => $b->stock?->brand,
                 'model'        => $b->stock?->model,
                 'unit'         => $b->stock?->unit,
+                'decimals'     => $b->stock?->quantityDecimals() ?? 2,
                 'price'        => $b->stock?->price,
                 'quantity'     => (float) $b->quantity,
                 'source_type'  => $b->holder_type,
@@ -215,6 +216,9 @@ class InstallationEquipmentController extends Controller
             'source_type' => 'nullable|in:branch,user',
             'source_id'   => 'nullable|integer',
             'notes'       => 'nullable|string|max:255',
+            // Clave del intento que genera la pantalla: el mismo «Agregar»
+            // reenviado (doble clic, señal que se cae) no descuenta dos veces.
+            'client_request_id' => 'nullable|string|max:64',
         ]);
 
         if (empty($data['device_id']) && empty($data['stock_id'])) {
@@ -223,45 +227,68 @@ class InstallationEquipmentController extends Controller
             ]);
         }
 
+        $requestId = $data['client_request_id'] ?? null;
+
+        [$item, $created] = $this->ledger->once(
+            InstallationEquipment::class,
+            (int) $installation->tenant_id,
+            'installation_id',
+            (int) $installation->id,
+            $requestId,
+            fn () => $this->write($installation, $actor, $data, $requestId)
+        );
+
+        return response()->json([
+            'message'   => $created
+                ? ($item->device_id
+                    ? 'Equipo cargado a la instalación y descontado del inventario.'
+                    : 'Material registrado en la instalación y descontado del inventario.')
+                : 'Esta línea ya estaba registrada: no se descontó otra vez.',
+            'item'      => $this->row($item->fresh(['stock', 'device.stock'])),
+            'equipment' => $this->rows($installation),
+            'replayed'  => !$created,
+        ], $created ? 201 : 200);
+    }
+
+    /** Escribe la línea: un equipo por serial o un material por cantidad. */
+    private function write(CustomerInstallation $installation, User $actor, array $data, ?string $requestId): InstallationEquipment
+    {
         if (!empty($data['device_id'])) {
             $device = InventoryDevice::with('stock')->findOrFail($data['device_id']);
-            $item   = $this->ledger->assignDeviceToInstallation(
+
+            return $this->ledger->assignDeviceToInstallation(
                 $installation,
                 $device,
                 $actor,
-                $data['notes'] ?? null
-            );
-        } else {
-            $stock = InventoryStock::findOrFail($data['stock_id']);
-
-            if ($stock->is_serialized) {
-                throw ValidationException::withMessages([
-                    'stock_id' => "{$stock->label()} se maneja por serial: elígelo de la lista de equipos, no como material.",
-                ]);
-            }
-
-            if (empty($data['source_type']) || empty($data['source_id'])) {
-                throw ValidationException::withMessages([
-                    'source_type' => 'Indica de qué bodega o de quién sale el material.',
-                ]);
-            }
-
-            $item = $this->ledger->assignMaterialToInstallation(
-                $installation,
-                $stock,
-                (float) ($data['quantity'] ?? 1),
-                $data['source_type'],
-                (int) $data['source_id'],
-                $actor,
-                $data['notes'] ?? null
+                $data['notes'] ?? null,
+                $requestId
             );
         }
 
-        return response()->json([
-            'message'   => 'Equipo cargado a la instalación y descontado del inventario.',
-            'item'      => $this->row($item->fresh(['stock', 'device.stock'])),
-            'equipment' => $this->rows($installation),
-        ], 201);
+        $stock = InventoryStock::findOrFail($data['stock_id']);
+
+        if ($stock->is_serialized) {
+            throw ValidationException::withMessages([
+                'stock_id' => "{$stock->label()} se maneja por serial: elígelo de la lista de equipos, no como material.",
+            ]);
+        }
+
+        if (empty($data['source_type']) || empty($data['source_id'])) {
+            throw ValidationException::withMessages([
+                'source_type' => 'Indica de qué bodega o de quién sale el material.',
+            ]);
+        }
+
+        return $this->ledger->assignMaterialToInstallation(
+            $installation,
+            $stock,
+            (float) ($data['quantity'] ?? 1),
+            $data['source_type'],
+            (int) $data['source_id'],
+            $actor,
+            $data['notes'] ?? null,
+            $requestId
+        );
     }
 
     /**
@@ -366,6 +393,7 @@ class InstallationEquipmentController extends Controller
             'serial'      => $item->device?->serial,
             'mac'         => $item->device?->mac,
             'unit'        => $stock?->unit,
+            'decimals'    => $stock?->quantityDecimals() ?? 2,
             'quantity'    => (float) $item->quantity,
             'unit_price'  => $item->unit_price !== null ? (float) $item->unit_price : null,
             'is_device'   => $item->device_id !== null,

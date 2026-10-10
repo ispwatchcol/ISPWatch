@@ -10195,3 +10195,105 @@ P-RLS-2 sigue pendiente, a la espera de verificar el backfill.
 - el listado trae solo las del tenant.
 
 Sin el arreglo fallan 3. El del uso legítimo pasa en ambos casos, como debe.
+
+## 111. Consumo de materiales por cantidad: precisión, reenvío y sin cable paralelo — 2026-10-10
+
+> Numeración: sigue a § 110; las §§ 90 a 109 siguen en PR abiertos, fuera de main.
+
+**Solicitud:** que equipos y materiales usados en una instalación o ticket salgan del
+inventario real, con su unidad, descontando una sola vez, sin un registro manual paralelo.
+Caso de aceptación: «Fibra óptica», unidad *metro*, 9830 m de existencia.
+
+### Qué ya estaba (validado, no reconstruido)
+
+Revisado sobre `origin/main` (PR #272, #293, #294, #295; KAN-92 llegó a main por § 78 y el PR
+#275 quedó como borrador obsoleto). Probado de punta a punta en una SQLite aislada y en el
+navegador, no sólo por CI:
+
+- Serializados: se elige la unidad exacta; marca, modelo, serial y MAC salen del inventario.
+- Materiales por cantidad en orden y ticket, con unidad del producto, descontados por
+  `InventoryLedger` con `lockForUpdate`, kardex con `installation_id`/`support_ticket_id`.
+- Custodia: cada quien toma lo suyo y lo del técnico asignado; bodegas sólo con inventario.
+- Tenant: orden, ticket, producto y custodio ajenos responden 404/422.
+- Bloqueos de § 83: firmada no cambia, cancelar con consumo no se puede, ticket cerrado no mueve.
+
+### El mensaje de la captura: datos, no código
+
+«No hay materiales… Ningún producto por cantidad tiene saldo registrado» es
+`materials_status.code = no_stock`: en ese tenant **ningún** producto *por cantidad* tiene una
+fila con saldo positivo en `inventory_balances`. No mira permisos (eso sería `not_accessible`).
+El saldo sólo nace de una **entrada** (Entregas y traspasos → Entrada de material, o un
+traspaso). Causas posibles, por orden de probabilidad:
+
+1. «Fibra óptica» está en el catálogo pero nunca se registró su entrada: los 9830 m viven fuera
+   del sistema (hoja de cálculo, factura del proveedor). Crear el producto no crea existencia.
+2. Se creó **por serial** (es el valor por defecto del formulario): entonces no es consumible y
+   sus «existencias» serían filas de `inventory_device`, no metros.
+3. Hubo saldo y se consumió o traspasó entero.
+
+No se consultó producción (fuera de alcance de la instrucción). Consulta de solo lectura para
+confirmarlo, a correr por quien tenga acceso:
+
+```sql
+SELECT s.id, s.brand, s.model, s.is_serialized, s.unit,
+       (SELECT COALESCE(SUM(b.quantity),0) FROM inventory_balances b WHERE b.stock_id = s.id) AS saldo,
+       (SELECT COUNT(*) FROM inventory_device d WHERE d.stock_id = s.id) AS equipos,
+       (SELECT COUNT(*) FROM inventory_movements m WHERE m.stock_id = s.id) AS movimientos
+FROM inventory_stock s
+WHERE s.tenant_id = :tenant AND s.model ILIKE '%fibra%';
+```
+
+Si los 9830 m están en bodega y el técnico no administra inventario, **no debe** verlos: el
+flujo es entregarle lo que va a usar (bodega → técnico) en Entregas y traspasos, o que quien
+administra inventario registre el consumo desde la bodega. No se aflojó esa regla.
+
+### Lo que faltaba y se hizo
+
+- **Precisión por producto** (`inventory_stock.quantity_decimals`, 0–2). Antes `unit` era sólo
+  etiqueta y un conector aceptaba 0,37. El ledger la exige en entradas, traspasos y consumos.
+  Backfill conservador: 2 por defecto; 0 sólo para unidades de pieza sin fracciones registradas.
+  Bajar la precisión con saldos fraccionarios se rechaza.
+- **Reenvío**: `client_request_id` único por tenant en `installation_equipment` y
+  `ticket_equipment`; `InventoryLedger::once()` devuelve la línea existente (200 + `replayed`) y
+  resuelve la carrera por el índice. La pantalla conserva la clave sólo si no hubo respuesta o
+  hubo 5xx.
+- **Concurrencia de seriales y de «Quitar»**: el equipo y la línea se releen bloqueados dentro de
+  la transacción (`assertDeviceStillAt`, `releaseFromInstallation`).
+- **«Cable utilizado» deja de ser fuente**: el servidor ignora `sheet.cable_meters` y conserva el
+  histórico; la pantalla muestra el resumen calculado de las líneas en metros (P-73). El PDF
+  rotula el histórico como «registro manual anterior». «Materiales adicionales» pasa a «Otros
+  insumos no inventariados (nota)» y dice que no descuenta.
+- **Visibilidad**: Stock muestra precisión y existencia (sólo a quien administra inventario),
+  con aviso «Sin entrada» en los por cantidad en 0; el kardex enlaza también el ticket.
+- Mensaje de éxito correcto para material (parte de P-75).
+
+### Devolución y anulación (sin cambios de regla)
+
+- Orden: «Quitar» es **corrección de captura antes de firmar** y devuelve a la fuente; firmada,
+  no se toca; con consumo no se cancela ni se borra. No hay devolución parcial de material
+  gastado: es la conciliación de la entrega B (P-69).
+- Ticket: deshacer una línea exige motivo, la deja visible y devuelve a la fuente; cerrado, no se
+  mueve. Material consumido **nunca** vuelve solo al inventario.
+
+### Pruebas
+
+- `tests/Feature/Inventory/MaterialConsumptionByQuantityTest.php` (17): fibra 9830 m por la API
+  real (alta, entrada, entrega); técnico sin acceso a bodega (no la ve ni la puede forzar);
+  120 m en orden y 120,5 m en ticket descontados una vez, con kardex e historial; consumo directo
+  de bodega con inventario; más de lo disponible, cero y negativo; enteros vs. decimales en
+  orden, ticket y entrega; tres decimales; bajar precisión; otro tenant; reenvío en orden, ticket
+  y serial; índice único; hoja sin cable y cable histórico conservado.
+- `QuantityDecimalsBackfillTest.php`: el backfill de la migración.
+- Suite completa SQLite: 1905 pruebas en verde (8 omitidas preexistentes). PostgreSQL: en CI.
+- Navegador (SQLite aislada, `php -S`): técnico sin entrega ve el aviso `not_accessible`; Stock
+  muestra «metro · hasta 2 decimales · Existencia 9830»; entrega de 500 m deja la bodega en 9330;
+  en la orden 600 m se bloquea con «Disponible en Mis equipos: 500 metro», 120 m se registra y el
+  cable calculado dice 120 m con el histórico de 80 m aparte; en el ticket 40,255 se bloquea y
+  40,5 se registra (saldo 339,5). Se encontró y corrigió en la misma revisión un `v-else-if` roto
+  que mostraba «No hay materiales» con la lista llena.
+
+### Pendiente
+
+- Correr la consulta de arriba en producción y registrar la entrada o la entrega que falte.
+- Migraciones `2026_10_10_000001`/`_000002`: se aplican con el despliegue, no a mano.
+- P-91 (Entregas sin transacción envolvente) y P-92 (unidades en texto libre).
