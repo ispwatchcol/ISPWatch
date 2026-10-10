@@ -1723,7 +1723,14 @@ reintentar `unsuspendCustomer()`. Reusa el backoff y `MAX_ATTEMPTS` que ya tiene
 `SuspensionActionLog`; el trabajo real es el comando y agendarlo. Prioridad media-alta: es
 justamente el caso en que el cliente ya pagó.
 
-### 🟡 P-FK-1 · El borrado de un router se protege en la aplicación, no en el esquema
+### ✅ P-FK-1 · El borrado de un router se protege en la aplicación, no en el esquema — RESUELTO 2026-10-05 (KAN-55)
+
+> **Resuelto** en la bitácora § 106 con la migración `2026_10_05_120000`, solo en PostgreSQL.
+> Busca en el catálogo todas las FK de `customer_profile.router_id` hacia `router` (el nombre no
+> se supone), las elimina y crea una sola con `ON DELETE RESTRICT`. El camino `force` suelta las
+> bajas a mano dentro de la transacción. `suspension_action_logs`, `billing_action_logs` e
+> `ip_assignment` se dejan en `SET NULL` a propósito. **No se ha aplicado en producción.** Lo de
+> abajo queda como contexto.
 
 Desde el § 44 de la bitácora, `RouterController::destroy()` rechaza con 409 el borrado de un
 router con clientes vivos. Pero la FK sigue siendo:
@@ -2898,7 +2905,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
 | **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | ✅ Resuelto 2026-10-05 (`your_ip`, KAN-39) · la allowlist editable sigue por decidir |
 | **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |
-| **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
+| **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | ✅ Resuelto 2026-10-05 (RESTRICT en PostgreSQL, KAN-55) · migración sin aplicar en producción |
 | **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |
 | **P-PROC-1** | El planificador corre de fondo dentro del `worker` | Si muere, el contenedor sigue «sano» y se para el ciclo de negocio | 🟠 Alta | 🟡 Mitigado por el latido; falta separar el componente |
 | **P-DEPLOY-1** | `migrate --force` corría al arrancar el contenedor | Tumbó el despliegue del 2026-09-10 con un error que no menciona la base de datos; el rollback revierte también las variables corregidas | 🔴 Crítica | 🟡 Resuelto en la plantilla (job `PRE_DEPLOY`); **falta aplicar** |

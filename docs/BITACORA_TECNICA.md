@@ -9977,6 +9977,61 @@ el merge mismo requiere aprobación.
 las llaves vivas que venzan en los próximos 7 días, y eso son correos reales a integradores.
 Antes de activarlo conviene ejecutar `php artisan api-keys:expiring --dry-run`.
 
+## 106. La base rechaza borrar un router con clientes (KAN-55, P-FK-1) — 2026-10-05
+
+> Numeración: las §§ 90 a 105 todavía no están en main.
+
+### El problema
+
+`RouterController::destroy()` devolvía 409 si el router tenía clientes vivos. Pero la FK
+`customer_profile.router_id → router(id)` era `ON DELETE SET NULL`, así que un
+`DELETE FROM router` por SQL directo los dejaba huérfanos, sin que nada lo impidiera.
+
+### Lo que se hizo
+
+- **Controlador:** el camino `force`, que borra un router referenciado solo por bajas, ahora
+  ejecuta `UPDATE customer_profile SET router_id = NULL` y luego el `DELETE`, ambos en la misma
+  transacción. Ya no depende de la acción de la FK.
+- **Migración `2026_10_05_120000`, solo en PostgreSQL:**
+  - busca en `pg_constraint` **todas** las FK de `customer_profile(router_id)` hacia `router`.
+    El nombre no se supone, porque el esquema de producción tiene deriva;
+  - las elimina y crea una sola, `customer_profile_router_id_foreign`, con `ON DELETE RESTRICT`;
+  - `down()` vuelve a `SET NULL`;
+  - corre dentro de una transacción: si hubiera huérfanos, el `ADD CONSTRAINT` falla y no se
+    aplica nada a medias.
+- **En SQLite no se toca.** Cambiar una FK obliga a reconstruir la tabla, y eso pondría en
+  riesgo los índices parciales de `customer_profile`.
+
+### Decidido en el mismo cambio, sin tocar
+
+- `suspension_action_logs` y `billing_action_logs` siguen en `SET NULL`: son historial.
+- `ip_assignment` sigue en `SET NULL`. Con `RESTRICT`, los routers con asignaciones dejarían de
+  poder borrarse, porque la aplicación no las limpia.
+
+### Pruebas
+
+`RouterDeletionTest`, 3 casos nuevos:
+
+- `force` suelta a las bajas y borra el router (SQLite y PostgreSQL);
+- **solo en PostgreSQL:** un `DELETE` directo con un cliente vinculado se rechaza. Va dentro de
+  un savepoint para no repetir la trampa 25P02;
+- **solo en PostgreSQL:** queda exactamente una FK, con `confdeltype = 'r'`.
+
+En SQLite se omiten los dos de PostgreSQL. **Su validación depende del job de PostgreSQL del
+CI.**
+
+### Despliegue
+
+La migración cambia el esquema de producción. El despliegue de `main` ejecuta `php artisan migrate --force` en el job `migrate`
+(`kind: PRE_DEPLOY`) de `.do/deploy.template.yaml`. Si la spec viva coincide con la plantilla
+(no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
+el merge mismo requiere aprobación. La comprobación de huérfanos tiene que
+correrse **antes de mergear**:
+
+`SELECT count(*) FROM customer_profile cp LEFT JOIN router r ON r.id = cp.router_id WHERE cp.router_id IS NOT NULL AND r.id IS NULL;`
+
+Si el resultado no es 0, la migración falla, y no hace nada.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
