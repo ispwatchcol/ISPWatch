@@ -195,6 +195,7 @@
 </template>
 
 <script setup>
+import { downloadBlob } from '@/utils/download'
 import { ref } from 'vue';
 import axios from 'axios';
 import FieldDocsModal from './FieldDocsModal.vue';
@@ -212,13 +213,7 @@ const downloadTemplate = async () => {
       responseType: 'blob',
     });
 
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'plantilla_inventario.xlsx');
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    downloadBlob(response.data, 'plantilla_inventario.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   } catch (error) {
     alert('Error al descargar plantilla: ' + (error.message || 'Error desconocido'));
   }

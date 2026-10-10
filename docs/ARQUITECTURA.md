@@ -956,6 +956,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `billing:verify-monthly` | Auditoría de *no-show*: detecta routers que no facturaron |
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
+| `billing:reconcile-reconnections` | Reconcilia en el sentido inverso (reabre lo que la BD da por activo y el equipo no confirmó) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
 | `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
 | `billing:audit-books` | **Cierre de libros**: las catorce invariantes contables. Lector puro |
@@ -1547,6 +1548,7 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:retry-failed` | Sólo procesa filas con `next_retry_at` vencido |
 | Cada hora | `billing:auto-cut` | Gate por `cut_day` + `cut_time` de cada router |
 | Cada hora | `billing:reconcile-suspensions` | Failover DB ⇄ RouterBoard |
+| Cada hora | `billing:reconcile-reconnections` | Failover de reconexiones (P-29) |
 | Cada hora | `billing:send-reminders` | `withoutOverlapping(55)`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
@@ -1757,6 +1759,10 @@ de instalación.
   (llave, tenant, ruta, IP, código, milisegundos, motivo del rechazo). El logging
   nunca lanza: un fallo de auditoría no puede tumbar la petición del cliente.
 - `api-keys:prune-logs` corre a diario (03:30) y conserva 90 días.
+- `api-keys:expiring` corre a diario (08:30). Avisa por correo, **una vez por llave**
+  (`expiry_notified_at`), de las llaves vivas que vencen en 7 días. Los destinatarios son
+  `api_clients.contact_email` y `api_keys.self_service.notify_email`. Omite las integraciones
+  que ya rotaron a una llave que dura más (P-KEYS-1, KAN-43).
 - El cubo de rate limit es **propio del token**, no compartido con el limitador
   general de la API: el consumo del integrador no puede comerse la capacidad que
   el personal del ISP necesita para cobrar y reconectar.

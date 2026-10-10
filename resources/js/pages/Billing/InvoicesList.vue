@@ -359,12 +359,7 @@ const confirmVoid = async () => {
 const downloadPdf = async (id, number) => {
     try {
         const response = await billingService.downloadPdf(id)
-        const url = window.URL.createObjectURL(new Blob([response.data]))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `Invoice-${number}.pdf`)
-        document.body.appendChild(link)
-        link.click()
+        downloadBlob(response.data, `Invoice-${number}.pdf`, 'application/pdf')
     } catch (e) {
         alert('Error downloading PDF')
     }

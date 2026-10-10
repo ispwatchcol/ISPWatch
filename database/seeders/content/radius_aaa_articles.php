@@ -137,7 +137,8 @@ HTML,
 
 <h2>Qué datos del router hacen falta</h2>
 <p>Con RADIUS activo, estos campos <strong>puedes dejarlos vacíos</strong>: interfaz LAN y WAN, rangos de IP, puertos API/web/SSH y los datos de VPN.</p>
-<p>En cambio, el formulario <strong>todavía te va a exigir</strong> nombre, IP, usuario y contraseña del equipo, versión de firmware y estado. Aunque en este modo el sistema nunca los usa, hoy siguen siendo obligatorios para poder guardar. Si el router es sólo un agrupador y no tienes esos datos, puedes poner valores de relleno: no se conectan a ningún lado.</p>
+<p>Tampoco hacen falta la IP, el usuario y la contraseña del equipo ni la versión de firmware: en este modo el sistema nunca los usa. Si el router es sólo un agrupador, déjalos vacíos. Sólo son obligatorios el nombre y el estado.</p>
+<p>Si después cambias el router a otro método de control, el sistema te pedirá esos datos antes de guardar, porque a partir de ahí sí se va a conectar al equipo.</p>
 
 <h2>Usar routers como agrupadores</h2>
 <p>Como en este modo ISPWatch no se conecta a ningún equipo, <strong>un router puede ser sólo una agrupación</strong> y no un MikroTik real. Es útil para separar clientes por criterio propio —por ejemplo, los de facturación electrónica de los de cuenta de cobro—, porque <strong>la configuración de facturación se define por router</strong>: cada grupo puede tener su propio día de facturación, su hora de aviso y su hora de corte.</p>

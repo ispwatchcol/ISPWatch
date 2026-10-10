@@ -96,8 +96,9 @@
               <p class="text-[11px] text-amber-800/80 dark:text-amber-200/70 mt-2">
                 Responde con los permisos de la llave y con <strong>la IP desde la que te ve
                 el servidor</strong>. Si devuelve <code>ip_not_allowed</code>, esa IP no es
-                la que autorizaste — mírala en <em>Ver peticiones</em> y emite una llave
-                nueva con ella (la lista de IPs de una llave ya emitida no se puede editar).
+                la que autorizaste: la respuesta trae en <code>your_ip</code> la que llegó (también
+                está en <em>Ver peticiones</em>). Emite una llave nueva con ella, porque la lista
+                de IPs de una llave ya emitida no se puede editar.
               </p>
               <p class="text-[11px] text-amber-800/80 dark:text-amber-200/70 mt-1.5">
                 Para armar la integración completa, el contrato de la API se descarga con la
