@@ -25,6 +25,19 @@ class ReconcileReconnectionsTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * Secuencia para las IP de los fixtures. Antes eran `random_int(2, 250)`:
+     * con dos clientes en el mismo router la colisión de `(router_id, ip_user)`
+     * ocurría de vez en cuando y tumbaba el job de SQLite sin que nada hubiera
+     * cambiado. Una secuencia no puede repetirse.
+     */
+    private static int $ipSeq = 0;
+
+    private static function nextHost(): int
+    {
+        return (self::$ipSeq++ % 249) + 2;
+    }
+
     // ────────────────────────────────────────────────────────────
     // Helpers
     // ────────────────────────────────────────────────────────────
@@ -35,7 +48,7 @@ class ReconcileReconnectionsTest extends TestCase
             'name'        => 'Router ' . uniqid(),
             'tenant_id'   => $tenant->id,
             'status'      => 'active',
-            'ip'          => '172.16.16.' . random_int(2, 250),
+            'ip'          => '172.16.16.' . self::nextHost(),
             'user_rb'     => 'ispwatch',
             'password_rb' => 'secreto',
         ], $overrides));
@@ -53,7 +66,7 @@ class ReconcileReconnectionsTest extends TestCase
                 'name'           => 'Test',
                 'last_name'      => 'Pagado',
                 'router_id'      => $router->id,
-                'ip_user'        => '10.0.0.' . random_int(2, 250),
+                'ip_user'        => '10.0.0.' . self::nextHost(),
                 'status'         => true,
                 'service_status' => 'activo',
             ], $overrides)
