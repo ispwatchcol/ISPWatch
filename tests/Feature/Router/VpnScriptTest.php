@@ -75,6 +75,43 @@ class VpnScriptTest extends TestCase
         $this->assertLessThan($posAlta, $posPerfil, 'la interfaz se crea antes de existir su perfil');
     }
 
+    #[Test]
+    public function la_red_de_gestion_tambien_puede_hacer_ping(): void
+    {
+        // P-26 / KAN-56: sólo TCP dejaba mudo al ping a un equipo con drop por
+        // defecto, y OverlayReachabilityProbe quedaba en `silent` sin poder
+        // distinguir «filtra ICMP» de «no hay nadie».
+        $script = $this->l2tpScriptFor($this->router());
+
+        $this->assertMatchesRegularExpression(
+            '/chain=input action=accept protocol=icmp src-address=\S+ comment="ISPWatch-CORE-MGMT"/',
+            $script
+        );
+        // Acotada a la red de gestión: nada de ICMP abierto a internet.
+        $this->assertDoesNotMatchRegularExpression('/protocol=icmp(?! src-address=)/', $script);
+
+        // Las dos reglas cuelgan del mismo comentario y el remove va antes:
+        // re-aplicar el script no las duplica.
+        $remove = strpos($script, '/ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]');
+        $this->assertNotFalse($remove);
+        $this->assertGreaterThan($remove, strpos($script, 'protocol=icmp'));
+        $this->assertGreaterThan($remove, strpos($script, 'protocol=tcp src-address='));
+    }
+
+    #[Test]
+    public function el_script_wireguard_lleva_la_misma_regla_icmp(): void
+    {
+        // generateWireguardScript habla con el CORE (WireguardManager con
+        // `new`), así que no se puede generar aquí. Se fija en la fuente que
+        // los DOS generadores instalan la regla.
+        $source = file_get_contents(app_path('Services/VpnService.php'));
+
+        $this->assertSame(2, substr_count(
+            $source,
+            '/ip firewall filter add chain=input action=accept protocol=icmp src-address={$mgmtNet} comment="ISPWatch-CORE-MGMT" place-before=0'
+        ));
+    }
+
     private function router(): Router
     {
         // Sin tenant a propósito: con tenant, generateL2tpScript sincroniza

@@ -715,7 +715,12 @@ que `BillingService::notifyInvoiceCreated()` consulte antes que la del cliente, 
 precedencia grupo → cliente. Es chico, pero toca el camino de facturación: va con test que
 cubra las cuatro combinaciones.
 
-### 🟡 P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa
+### ✅ P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa — RESUELTO 2026-10-05 (KAN-102)
+
+> **Resuelto** en la bitácora § 92: con `radius = true`, `ip`, `user_rb`, `password_rb` y
+> `firmware_version` son opcionales al crear y se pueden vaciar al editar; al salir de RADIUS
+> se exigen si el router no los tiene guardados. `status` sigue siendo obligatorio. El Centro de
+> Ayuda se corrigió con la migración `2026_10_05_100000`. Lo de abajo queda como contexto.
 
 Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 75 de la bitácora).
 
@@ -994,7 +999,14 @@ columna se llama `state` y "departamento" es el término del formato CRC, mientr
 nombre de WispHub quedó documentada en la tabla de migración de marcadores de
 `docs/MANUAL_USUARIO.md`. Ver `docs/BITACORA_TECNICA.md` § 15.4.
 
-### 📋 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página
+### 🟡 P-8 · dompdf recorta el contenido de una celda de tabla más alta que una página — aviso en vista previa HECHO 2026-10-05 (KAN-60)
+
+> **(b) resuelto** en la bitácora § 94: `TemplateDiagnostics` emite `kind: long_table_cell` por
+> `X-Template-Warnings` cuando una celda pasa de 2.500 caracteres de texto visible. **La causa
+> sigue en pie**, porque dompdf sigue recortando. Lo de raíz es P-15 (cambiar de motor de PDF).
+> El umbral es una heurística y no mide el desborde real: puede avisar de una celda que sí
+> cabe, y no avisa de una más corta que desborde por letra grande o por un marcador que
+> resuelve mucho texto.
 
 Detectado 2026-08-04 diagnosticando páginas en blanco en un contrato real exportado de WispHub.
 dompdf **no sabe partir una celda de tabla entre páginas**: si el contenido de un `<td>` excede el
@@ -1148,7 +1160,14 @@ hoy no está claro cuál se quiso mostrar. El manual documenta **el comportamien
 `$monthlyRevenue`; si debía ser lo facturado, cambiar la clave de la respuesta y avisar del
 cambio de significado. No tocarlo a ciegas — el número que hoy ve el operador cambiaría.
 
-### 📋 P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción
+### ✅ P-12 · El Centro de Ayuda no tiene forma sancionada de actualizarse en producción — RESUELTO 2026-10-05 (KAN-75)
+
+> **Punto 1:** el camino sancionado ya existía desde el 2026-08-19. Es una migración de datos
+> idempotente que lee `database/seeders/content/*.php` y solo reescribe lo que nadie editó
+> (huella md5; ver `2026_10_01_100000`). **Punto 2, resuelto en la bitácora § 104:**
+> `HelpCenterSeeder` ya no empieza borrando todo. Es un upsert por nombre de categoría y por
+> (categoría, título), y no toca lo creado desde la UI. Límite: un artículo que se renombre en el
+> seeder deja el viejo, que debe retirarse con una migración. Lo de abajo queda como contexto.
 
 El contenido que el usuario lee dentro de la app vive en `help_categories` / `help_articles` y
 lo produce `HelpCenterSeeder`. Hay dos problemas encadenados:
@@ -1179,6 +1198,15 @@ producción a mano".
 El portal de pago (`resources/views/payment-portal.blade.php`) muestra un teléfono de
 soporte y un WhatsApp **fijos en el código** (`+573001234567`), iguales para todos los
 tenants. Deberían salir de `tenant.billing_phone`.
+
+> **2026-10-05 (KAN-81), parcial.** Se **retiró** el número falso (bitácora § 107): ahora el
+> portal remite al teléfono que figura en la factura o el contrato del abonado. **No** se pudo
+> reemplazar por `tenant.billing_phone`, porque el portal no sabe de qué ISP es el abonado: los
+> routers redirigen por `dst-nat` a una sola `PORTAL_IP` de la plataforma, y la redirección no
+> lleva el tenant. **Decisión pendiente** sobre cómo identificarlo. Las opciones:
+> - una `PORTAL_IP` o un subdominio por tenant;
+> - un parámetro en los enlaces que comparte el ISP (expone nombre y teléfono por enumeración);
+> - resolverlo por la IP de origen del abonado. No es viable con NAT.
 
 ---
 
@@ -1585,7 +1613,12 @@ hará exactamente eso.
 correspondiente de `ticket_catalog_version` para que los integradores externos detecten
 el cambio.
 
-### 📋 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa
+### 🟡 P-25 · El Mapa de Clientes reencuadra la cámara en cada cambio de capa — punto 1 RESUELTO 2026-10-05 (KAN-78)
+
+> **Punto 1, hecho** (bitácora § 105): alternar una capa redibuja sin mover la cámara. Solo
+> reencuadran la carga inicial y los cambios del conjunto de clientes (filtros). **Punto 2,
+> pendiente:** al cambiar un filtro, los `bounds` siguen incluyendo cobertura y nodos visibles
+> que no están sujetos al filtro. Lo de abajo queda como contexto.
 
 `applyLayers()` (`resources/js/pages/CustomerMap.vue`) termina **siempre** con
 `map.fitBounds(bounds)`. Como un `watch` la invoca ante cualquier cambio de
@@ -1608,7 +1641,13 @@ cambios de filtro), no al alternar capas; y calcular los `bounds` sólo con las 
 usuario está mirando. Alternativa mínima: recordar el `zoom`/`center` y restaurarlos cuando
 el redibujado no venga de un cambio de filtro.
 
-### 📋 P-26 · El script de provisión no abre ICMP desde la red de gestión
+### 🟡 P-26 · El script de provisión no abre ICMP desde la red de gestión — en el generador desde 2026-10-05 (KAN-56)
+
+> **Código hecho** (bitácora § 102): los dos scripts (L2TP y WireGuard) instalan también
+> `protocol=icmp src-address=<red de gestión>`, con el mismo comentario `ISPWatch-CORE-MGMT`,
+> así que re-aplicarlos no duplica. **Los routers ya provisionados no la tienen** hasta que
+> se les vuelva a aplicar el script. No se programó una pasada por la flota, tal como pedía
+> la recomendación: entra con el próximo cambio que ya obligue a re-aplicar.
 
 `VpnService::generateL2tpScript()` y `generateWireguardScript()` instalan
 `ISPWatch-CORE-MGMT` como `action=accept protocol=tcp ... dst-port=22,8291,8728`. **Sólo
@@ -1655,7 +1694,13 @@ para esos routers en vez de omitirlos (informativa, sin marcar fallo el primer m
 la pantalla de Routers marque visualmente al que tiene configuración de facturación
 asignada pero sin día. Coste bajo; evita descubrir el hueco cliente por cliente.
 
-### 📋 P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido
+### ✅ P-29 · No hay reconciliador que reintente un `UNSUSPEND` fallido — RESUELTO 2026-10-05 (KAN-53)
+
+> **Resuelto** con `billing:reconcile-reconnections` (cada hora), bitácora § 91. Candidato =
+> `status = true` cuya **última** fila en `suspension_action_logs` es un `UNSUSPEND` sin éxito;
+> reintenta con `BillingService::attemptReconnection()` (preflight, candado por cliente y
+> desenlace estampado). Omite routers RADIUS, fichas que se contradicen, backoff, agotados y
+> filas `pending` de menos de 15 min (intento en curso). Lo de abajo queda como contexto.
 
 `billing:reconcile-suspensions` sólo va en **un** sentido: barre los clientes con
 `status = false` y re-corta en la RB lo que la BD dice cortado. No existe la simétrica —
@@ -1762,7 +1807,12 @@ sería derivarlo de `config('app.url')` al servir `/openapi.yaml`; no se hizo po
 reescribir el YAML al vuelo obliga a parsearlo, y el proyecto no trae `symfony/yaml`.
 
 
-### 📋 P-33 · «Estado del Sistema: Operativo» no comprueba nada
+### ✅ P-33 · «Estado del Sistema: Operativo» no comprueba nada — RESUELTO 2026-10-05 (KAN-68)
+
+> **Resuelto** en la bitácora § 100: el recuadro lee `GET /api/system/status`, que es el latido
+> de `system:heartbeat` con el mismo umbral que `/health`, y se pinta verde, ámbar o gris. El
+> umbral es el de `/health` (5 min) y no las 2 h que sugería la recomendación, para que el
+> recuadro y el centinela externo no se contradigan. Lo de abajo queda como contexto.
 
 En **Configuración → Sistema**, junto a la versión, hay un punto verde que dice «Operativo».
 Es texto fijo en la plantilla: diría lo mismo con el planificador caído, la cola parada y la
@@ -1796,6 +1846,19 @@ más simple: que el propio pipeline de despliegue cree el tag leyendo la config,
 deja de haber un paso manual que olvidar.
 
 ### 🟠 P-35 · El tenant operador de las llaves de API no existe: ese camino lleva meses muerto
+
+> **2026-10-05 (KAN-38), parcial.** El punto 2 está hecho (bitácora § 96): el superadmin ve en
+> Configuración un aviso cuando el tenant operador no existe o no está configurado
+> (`App\Support\ApiKeyOperator`, `data.api_key_operator_issue`). **El punto 1 sigue pendiente**:
+> definir `API_KEYS_OPERATOR_TENANT_ID` en producción y redesplegar es un cambio de
+> configuración de producción que requiere aprobación. `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL`
+> también sigue sin definir.
+>
+> **Deriva de esquema encontrada de paso:** `users.is_superadmin` existe en producción
+> (BASE_DATOS.md) pero **ninguna migración la crea**. En una base nueva, o en las pruebas, no
+> existe, y `$user->is_superadmin` es `null`. Las pruebas la fijan en memoria. Hace falta una
+> migración idempotente (`if (!Schema::hasColumn(...))`) para que el esquema de migraciones
+> coincida con producción.
 
 `config/api_keys.php` toma `operator_tenant_id` de `API_KEYS_OPERATOR_TENANT_ID`, **por
 defecto `1`**. En producción esa variable no está definida y **el tenant 1 no existe** (los
@@ -1848,7 +1911,12 @@ borrar las copias `scoped`. Activar `@tailwindcss/forms` es la otra mitad, pero 
 gratis**: normaliza todos los controles nativos de la aplicación de golpe, así que exige
 revisar pantalla por pantalla y va en su propio PR, no colado en otro.
 
-### 🟠 P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona
+### ✅ P-37 · El 403 de allowlist no dice qué IP llegó, y el remedio documentado no funciona — RESUELTO 2026-10-05 (KAN-39)
+
+> **Resuelto** en la bitácora § 95: el 403 `ip_not_allowed` trae `your_ip`, el OpenAPI pasó a
+> 1.2.0 con el campo documentado, y los manuales ya no mandan a `/ping` en ese caso. **La
+> decisión aparte, si la allowlist debería poder editarse con auditoría, sigue sin tomarse**: es
+> de producto. Lo de abajo queda como contexto.
 
 Cuando una llave se usa desde una IP no autorizada, la respuesta es:
 
@@ -1978,7 +2046,13 @@ migraciones e `ispwatch_dev` con 172, faltando
 `ispwatch_dev` del 2026-08-21 cerró la brecha.
 
 
-### 🟠 P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero
+### ✅ P-40 · `SectorialPhoto` sigue sirviendo archivos por una URL pública sobre un disco efímero — RESUELTO 2026-10-05 (KAN-96)
+
+> **Resuelto** en la bitácora § 93. La subida va a `s3`, `url` apunta a
+> `GET /api/sectorials/{sectorial}/photos/{photo}` (autenticado, con comprobación de tenant y
+> lista blanca en línea) y queda el respaldo al disco `public` para las filas antiguas. Las
+> fotos subidas antes **no se recuperan**: se fueron con el contenedor, y el endpoint responde
+> 404 con mensaje. Lo de abajo queda como contexto.
 
 El endurecimiento posterior al PR #2 (2026-08-23) retiró este patrón de los adjuntos de
 tickets, pero `SectorialPhoto` lo conserva intacto:
@@ -2013,6 +2087,12 @@ es el mismo fallo y conviene cerrarlo antes de que alguien lo reporte desde prod
 **Nota relacionada:** mientras el despliegue no ejecute `storage:link`, **cualquier** uso
 del disco `public` seguirá fallando en silencio. Conviene decidir si se añade al
 `run_command` o si se prohíbe ese disco por convención.
+
+**Sigue abierto tras KAN-96 (2026-10-05):** el único uso de escritura que queda en el disco
+`public` son los **logos de tenant**: `TenantController` guarda en `tenant_logos/{id}` con
+`asset()`, y tiene exactamente el mismo fallo de disco efímero. No entró en KAN-96 para no
+ampliar el alcance. Necesita su propia tarjeta, y la decisión `storage:link` frente a prohibir
+`public` sigue pendiente: es un cambio de despliegue que requiere aprobación.
 
 ### ✅ P-41 · El catch-all del SPA responde 200 con HTML a rutas de API inexistentes — RESUELTO 2026-09-21
 
@@ -2782,11 +2862,11 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-5** | Modo avanzado no permite `background-image` vía CSS | Limitación de diseño, no de seguridad | 🟢 Baja | 📋 Pendiente (por diseño, con alternativa propuesta) |
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
-| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 📋 Documentado · aviso en vista previa pendiente |
+| **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 🟡 Aviso en vista previa hecho (KAN-60) · la causa sigue (P-15) |
 | **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
 | **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
-| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | 📋 Pendiente |
+| **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | ✅ Resuelto 2026-10-05 (seeder upsert, KAN-75; las migraciones con huella ya publicaban) |
 | **P-13** | Migrar una plantilla de otro sistema no tiene ayuda en la app | Los marcadores de WispHub se blanquean en silencio; el usuario ve HTML correcto con datos vacíos y no sabe por qué | 🟡 Media | ✅ Resuelto 2026-08-06 (`TemplateDiagnostics`) |
 | **P-14** | Los mocks de dompdf se rompen con cada método nuevo del wrapper | Un cambio de una línea en `TemplateRenderer` tumba 14 pruebas con un error que señala el archivo equivocado | 🟢 Baja | ✅ Resuelto 2026-10-05 (`fakePdf()`, KAN-65) |
 | **P-15** | La vista previa nunca será idéntica al PDF mientras el motor sea dompdf | `float`/`position`/flexbox divergen y dompdf no lee las fuentes del sistema; la paridad exacta exige un navegador headless | 🟡 Media | 📋 Mitigado 2026-08-06 (panel con el PDF real + avisos); el motor sigue pendiente |
@@ -2805,18 +2885,18 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-21** *(catálogos)* | Un tenant puede pisar un código de catálogo global | El integrador no sabría si `sin_senal` es global o del ISP | 🟡 Media | 📋 Pendiente · se activa con la pantalla de administración |
 | **P-23** *(R3)* | Falta la R3 de `support_ticket` | — | — | ✅ Resuelto 2026-08-15 · entrada contradictoria |
 | **P-24** | La pantalla de catálogos tendrá que vaciar la caché | Editar y releer en la misma petición devuelve el valor viejo | 🟢 Baja | 📋 Nota anticipada |
-| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 📋 Pendiente |
-| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 📋 Pendiente |
+| **P-25** | El Mapa reencuadra la cámara en cada cambio de capa | Pierde el acercamiento hecho a mano | 🟡 Media | 🟡 Capas ya no reencuadran (KAN-78) · falta acotar los `bounds` al filtro |
+| **P-26** | El script de provisión no abre ICMP desde la red de gestión | El sondeo de alcanzabilidad no puede concluir nada | 🟡 Media | 🟡 En el generador (KAN-56) · la flota la recibe al re-aplicar |
 | **P-27** | `router.firmware_version` admite tres formatos | Ambiguo por naturaleza; ya no hay bug | 🟢 Baja | 📋 Deuda documentada |
 | **P-28** | Un router sin día de facturación no factura a nadie y la auditoría calla | Se descubre cliente por cliente, un mes tarde | 🟠 Alta | 📋 Pendiente |
-| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | 📋 Pendiente |
+| **P-29** | No hay reconciliador que reintente un `UNSUSPEND` fallido | **El cliente paga y se queda sin servicio**; nada lo reintenta | 🟠 Alta | ✅ Resuelto 2026-10-05 (`billing:reconcile-reconnections`, KAN-53) |
 | **P-30** | La API partner responde 302 en vez de 401 sin `Accept` | De los errores más caros de diagnosticar para un integrador | 🟡 Media | ✅ Resuelto 2026-09-21 (401 JSON bajo `api/*`) |
 | **P-31** | `/customers` devuelve fechas en otro formato | Rompería a quien ya consume el contrato | 🟢 Baja | 📋 Deuda aceptada · unificar en una `v2` |
-| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | 📋 Pendiente |
+| **P-33** | «Estado del Sistema: Operativo» no comprueba nada | Texto fijo; entrena a la gente a no mirarlo | 🟡 Media | ✅ Resuelto 2026-10-05 (latido real, KAN-68) |
 | **P-34** | El tag de git es el único eslabón que nada verifica | Creer que `v1.0.0` es lo último con tres versiones encima | 🟢 Baja | 📋 Pendiente |
-| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 📋 Pendiente |
+| **P-35** | El tenant operador de las llaves de API no existe | El camino centralizado de emisión **es inalcanzable**; no falla, desaparece | 🟠 Alta | 🟡 Aviso al superadmin hecho (KAN-38) · falta definir la variable en producción |
 | **P-36** | Clases de formulario copiadas 7 veces; `@tailwindcss/forms` sin activar | Campos sin estilo en cada componente nuevo, sin ninguna señal | 🟢 Baja | 📋 Pendiente |
-| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | 📋 Pendiente |
+| **P-37** | El 403 de allowlist no dice qué IP llegó, y el remedio no funciona | Obliga a revocar la llave y emitir otra | 🟠 Alta | ✅ Resuelto 2026-10-05 (`your_ip`, KAN-39) · la allowlist editable sigue por decidir |
 | **P-38** | El origen de DigitalOcean acepta tráfico sin pasar por Cloudflare | `CF-Connecting-IP` suplantable; rompe todo control por IP | 🔴 Crítica | 📋 Pendiente · confirmar si el origen es alcanzable |
 | **P-FK-1** | El borrado de un router se protege en la app, no en el esquema | Un `DELETE` por SQL directo deja clientes huérfanos | 🟡 Media | 📋 Pendiente |
 | **P-MON-1** | No había centinela externo sobre `/health` | Quince horas de caída sin una sola alerta | 🔴 Crítica | 🟡 UptimeRobot activo; falta cuenta de Healthchecks.io y `MEM_UTILIZATION` |
@@ -2830,9 +2910,9 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
 | **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
-| **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | 📋 Pendiente |
+| **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-102) |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
-| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | 📋 Pendiente · el mismo patrón ya se corrigió en adjuntos de tickets |
+| **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | ✅ Resuelto 2026-10-05 (KAN-96) · queda el logo de tenant en `public` |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
 | **P-52** | `ticket_close_override` no se repartió a ningún rol: el cierre especial es inalcanzable | Un ticket sin causa confirmada no se puede cerrar por ninguna vía hasta que alguien marque el permiso | 🟠 Media | 📋 Pendiente · **decisión del cliente**: a qué rol se le da (§ 18 lo sitúa en el Supervisor) |
 | **P-50** | Cinco de las diez reglas de cierre del § 15 no son exigibles: faltan infraestructura «no aplica», validación del cliente separada de la restauración técnica y el seguimiento de solución temporal / pendiente de tercero | Un ticket puede cerrarse con menos evidencia de la que el requerimiento pide; **F1-10 queda parcial** | 🟠 Media | 🟡 **Parcial**: la regla 5 (prueba final o justificación) quedó cubierta por el **PR F2** el 2026-09-25 |
