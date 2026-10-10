@@ -293,6 +293,11 @@ Devuelve el usuario autenticado con sus **permisos actualizados desde la base de
 El frontend lo usa para refrescar permisos sin cerrar sesión (necesario tras cambiar un rol).
 Misma estructura de `data` que el login.
 
+`data.api_key_operator_issue` (desde KAN-38) es `null` salvo para un usuario
+`is_superadmin` cuando `API_KEYS_OPERATOR_TENANT_ID` apunta a un tenant inexistente o no está
+configurado. En ese caso trae el motivo legible y Configuración lo muestra como aviso. A los
+demás usuarios nunca se les envía la configuración de la plataforma.
+
 ### `GET /api/dashboard/stats`
 
 Estadísticas del tenant del usuario. Incluye: total de clientes, clientes activos,
@@ -1019,7 +1024,8 @@ Cada acción crea una fila nueva en `router_outage_events` (nunca actualiza). Lo
 | `GET/POST` | `/api/sectorials` | Lista / crea elemento de red |
 | `GET/PUT/DELETE` | `/api/sectorials/{id}` | Detalle / actualiza / elimina |
 | `GET/POST` | `/api/sectorials/{sectorial}/photos` | Fotos |
-| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto |
+| `GET` | `/api/sectorials/{sectorial}/photos/{photo}` | Entrega la foto, autenticada (P-40): `view_sectorials` o `view_support`; sectorial de otro tenant o foto de otro sectorial → 404; en línea solo `image/jpeg/png/gif/webp`, el resto como descarga; `Cache-Control: private, no-store`. Es la `url` que devuelve el listado |
+| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto (borra el archivo de `s3` y del disco `public` heredado) |
 | `GET/POST` | `/api/sectorials/{sectorial}/notes` | Notas |
 | `PUT/DELETE` | `/api/sectorials/{sectorial}/notes/{note}` | Edita / elimina nota |
 | `GET` | `/api/sectorials/{sectorial}/history` | Bitácora de cambios |
@@ -2771,6 +2777,7 @@ el frontend sólo lo lee si el header existe.
 | `kind` | Qué pasó |
 |---|---|
 | `needs_advanced_mode` | El borrador es un documento completo pero se va a renderizar en **modo seguro**: el shell fijo lo desarma y el PDF no se parecerá al editor |
+| `long_table_cell` | Una celda `<td>`/`<th>` tiene más de `TemplateDiagnostics::LONG_TABLE_CELL_CHARS` (2.500) caracteres de texto visible. dompdf no parte celdas entre páginas y **recorta en silencio** lo que no cabe (P-8). `token` es el inicio del texto de la celda, no un marcador. Se reportan como máximo 2, la más larga primero |
 | `malformed_placeholder` | Llaves desparejadas (`{{token}`) o basura dentro (`{{ token&nbsp;}}`): no se reconoce, así que **se imprime literal** en vez de blanquearse |
 | `foreign_marker` | Marcador de otro sistema **sin llaves** (`NUMERO_CONTRATO_TAG`): aquí es texto y se imprime tal cual |
 | `foreign_placeholder` | `{{token}}` con el nombre de otro sistema; hay equivalente conocido (`config/document_placeholder_aliases.php`) |
@@ -2882,6 +2889,24 @@ que usa el campo "A nombre de quién" de un gasto.
 |---|---|---|
 | `POST` | `/api/settings/cache/clear` | `view_settings` |
 | `GET` | `/api/system/version` | — (cualquier usuario autenticado) |
+| `GET` | `/api/system/status` | — (cualquier usuario autenticado) |
+
+`/api/system/status` (KAN-68) alimenta el recuadro «Estado del Sistema». Lee el latido del
+planificador con **la misma clave y el mismo umbral** que `/health`
+(`config/health.php`, 300 s por defecto):
+
+```json
+{ "scheduler": { "status": "ok", "last_run_seconds_ago": 42, "max_silence_seconds": 300 } }
+```
+
+`status` puede ser:
+
+- `ok`: latió dentro del umbral;
+- `stale`: pasó el umbral;
+- `never`: no ha latido desde el despliegue;
+- `not_expected`: entorno con `HEALTH_SCHEDULER_EXPECTED=false`.
+
+No expone nada más.
 
 `/api/system/version` devuelve la versión del despliegue que atiende:
 
@@ -3185,7 +3210,7 @@ distinga «me cambió la IP» de «me revocaron la llave» sin llamar por teléf
 | 401 | *(sin cuerpo propio)* | Token inexistente, vencido o de un dueño que no es `ApiClient` |
 | 401 | `invalid_credentials` | Autenticó pero no con una llave de API (p. ej. sesión del panel) |
 | 401 | `key_revoked` / `key_expired` | Llave revocada o vencida |
-| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave |
+| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave. El cuerpo trae además `your_ip`, la IP con la que llegó la petición (desde OpenAPI 1.2.0, KAN-39). Es el único rechazo que la incluye |
 | 403 | `client_disabled` | El cliente de API está desactivado |
 | 403 | `tenant_missing` | La llave no tiene tenant asignado (falla cerrado) |
 | 403 | `https_required` | Petición por HTTP plano en producción |
