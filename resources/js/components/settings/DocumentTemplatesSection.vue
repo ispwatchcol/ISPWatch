@@ -817,11 +817,11 @@ function readWarningsHeader(response) {
 
 /**
  * Los marcadores se muestran con llaves; un marcador ajeno sin llaves
- * (NUMERO_CONTRATO_TAG) o una URL de imagen remota se muestran tal cual,
- * que es exactamente como aparecen en la plantilla.
+ * (NUMERO_CONTRATO_TAG), una URL de imagen remota o el inicio de una celda
+ * con texto largo se muestran tal cual, que es como aparecen en la plantilla.
  */
 function warningToken(warning) {
-  const literal = warning.kind === 'foreign_marker' || warning.kind === 'remote_image'
+  const literal = ['foreign_marker', 'remote_image', 'long_table_cell'].includes(warning.kind)
   return literal ? warning.token : placeholderToken(warning.token)
 }
 

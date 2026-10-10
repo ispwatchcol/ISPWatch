@@ -195,6 +195,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `revoked_at` | timestamp? | Revocación manual, distinta de la caducidad |
 | `last_used_ip` | varchar(45)? | Detectar uso desde un origen inesperado aun dentro de la allowlist |
 | `created_by` | bigint? | Quién emitió la llave |
+| `expiry_notified_at` | timestamp? | Cuándo `api-keys:expiring` avisó que vence. Un aviso por llave (KAN-43, migración `2026_10_05_110000`) |
 
 **`api_key_request_logs`**: `api_client_id`, `token_id`, `tenant_id` (los tres nullable —
 un token inexistente no resuelve cliente y ese intento es justo el que interesa auditar),
@@ -1590,7 +1591,7 @@ Agregado permanente.
 | `customer_credits.to_invoice_id` | `invoices.id` | SET NULL |
 | `customer_documents.customer_id` | `users.id` | CASCADE |
 | `customer_profile.olt_id` | `sectorial.id` | SET NULL |
-| `customer_profile.router_id` | `router.id` | SET NULL |
+| `customer_profile.router_id` | `router.id` | **RESTRICT** en PostgreSQL desde `2026_10_05_120000` (KAN-55); SET NULL en SQLite. Para borrar un router con solo bajas, `RouterController::destroy(force)` las suelta antes en la misma transacción |
 | `customer_profile.sectorial_id` | `sectorial.id` | SET NULL |
 | `customer_profile.service_id` | `service_plan.id` | SET NULL |
 | `customer_profile.user_id` | `users.id` | CASCADE |

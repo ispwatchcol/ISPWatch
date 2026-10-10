@@ -49,6 +49,11 @@ Schedule::command('billing:auto-cut')->hourly();
 // Corre tras el auto-cut para recoger lo que haya fallado.
 Schedule::command('billing:reconcile-suspensions')->hourly();
 
+// El sentido inverso (P-29): reabre en el router a quien la DB da por activo
+// pero cuya reconexión no confirmó el equipo — el cliente que pagó y sigue sin
+// servicio. Mismo backoff y MAX_ATTEMPTS por cliente que los cortes.
+Schedule::command('billing:reconcile-reconnections')->hourly();
+
 // Detección de no-show de cortes: alerta (log + email) si un router de Corte
 // Automático está mal configurado (sin cut_day) o dejó clientes morosos sin cortar
 // pese a haber pasado el día/hora de corte. Análogo a billing:verify-monthly.
@@ -102,6 +107,10 @@ Schedule::command('contracts:remind-unsigned')->dailyAt('09:00');
 // en config/api_keys.php (90 días por defecto). Sin esta purga la tabla crece
 // sin techo, porque se escribe una fila por petición atendida o rechazada.
 Schedule::command('api-keys:prune-logs')->dailyAt('03:30');
+
+// Una semana de margen antes de que una llave de la API pública venza y tumbe
+// la integración (P-KEYS-1). Un aviso por llave; ver NotifyExpiringApiKeys.
+Schedule::command('api-keys:expiring')->dailyAt('08:30');
 
 // Latido del planificador. Cada minuto, y a propósito lo primero que se agenda
 // en importancia: es lo único que permite detectar que ESTE proceso dejó de
