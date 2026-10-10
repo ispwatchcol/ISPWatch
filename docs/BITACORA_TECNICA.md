@@ -9745,6 +9745,49 @@ otro motivo.
 
 Sin el arreglo, las dos fallan.
 
+## 103. Trinquete de frontera de MikroTik para los controladores (KAN-16, parcial) — 2026-10-05
+
+> Numeración: las §§ 90 a 102 todavía no están en main.
+
+### El problema
+
+KAN-16 pide un test de arquitectura que impida a un controlador usar la capa de red de
+MikroTik. Pero la fachada que debería ser el único camino (paso 1 de la secuencia) no existe.
+Hoy tres controladores llaman directamente a esa capa:
+
+- `RouterController`: `MikroTikSshService`, `RouterEndpointResolver` y `SshTunnelManager`;
+- `PlanController`: `MikroTikSshService` y `RouterEndpointResolver`;
+- `CustomerProfileController`: `MikroTikSshService`.
+
+Un test con la regla completa fallaría desde el primer día.
+
+### Lo que se hizo
+
+`tests/Unit/Architecture/MikroTikBoundaryTest.php` funciona como un **trinquete**:
+
+- La deuda medida queda en `BASELINE` y se tolera.
+- Cualquier referencia nueva a `App\Services\MikroTik\*` o a `MikroTikSshService` desde
+  `app/Http/Controllers` hace fallar el test, con el controlador y la clase en el mensaje.
+  Eso incluye otro controlador u otra clase en uno de los tres.
+- Si una entrada de `BASELINE` deja de usarse, el test también falla y pide borrarla. La
+  lista solo puede encoger.
+- Un tercer caso comprueba que el patrón reconoce las dos formas de nombrar la clase: con
+  `use` y con el nombre completo en línea.
+
+Se comprobó a mano que, al inyectar `use App\Services\MikroTik\QueueManager;` en
+`CustomerProfileController`, el test falla y nombra la violación.
+
+### Lo que no se hizo
+
+Faltan dos de las tres reglas de la tarjeta, porque sin fachada ni módulos definidos no hay
+contra qué medirlas:
+
+- que ningún módulo importe las clases internas de otro;
+- que nadie hable con un RouterBoard fuera de `Services/MikroTik/`. Hoy `MikroTikSshService`
+  vive fuera de esa carpeta y lo usan siete servicios, tres comandos y un job.
+
+No se agregó Pest ni Deptrac: el test es PHPUnit puro, sin dependencias nuevas.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
