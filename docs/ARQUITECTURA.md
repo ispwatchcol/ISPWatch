@@ -956,6 +956,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `billing:verify-monthly` | Auditoría de *no-show*: detecta routers que no facturaron |
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
+| `billing:reconcile-reconnections` | Reconcilia en el sentido inverso (reabre lo que la BD da por activo y el equipo no confirmó) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
 | `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
 | `billing:audit-books` | **Cierre de libros**: las catorce invariantes contables. Lector puro |
@@ -1546,6 +1547,7 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:retry-failed` | Sólo procesa filas con `next_retry_at` vencido |
 | Cada hora | `billing:auto-cut` | Gate por `cut_day` + `cut_time` de cada router |
 | Cada hora | `billing:reconcile-suspensions` | Failover DB ⇄ RouterBoard |
+| Cada hora | `billing:reconcile-reconnections` | Failover de reconexiones (P-29) |
 | Cada hora | `billing:send-reminders` | `withoutOverlapping(55)`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
