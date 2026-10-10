@@ -1722,6 +1722,11 @@ Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**
 Cada elemento tiene tres pestañas: **Fotos** (para documentar la instalación en campo),
 **Notas** (observaciones de mantenimiento) e **Historial** (registro automático de cambios).
 
+Las fotos solo las ve quien tiene sesión iniciada en tu empresa, con permiso de sectoriales
+o de soporte. Un enlace copiado no sirve fuera de esa sesión. Desde el 2026-10-05 se guardan
+en almacenamiento permanente. Las subidas **antes** de esa fecha pueden aparecer sin imagen:
+se perdieron en un despliegue y no se pueden recuperar. Vuelve a subirlas si las necesitas.
+
 ---
 
 ## 13. Planes de internet
@@ -2473,6 +2478,11 @@ avisar si los tenían; ya no.)
 > cláusulas) usa `<div>` en lugar de `<table>`: el texto fluye solo de una página a la siguiente.
 > Las tablas están bien para lo que son: filas de datos cortas.
 >
+> Desde el 2026-10-05 la **vista previa te avisa**: si una celda tiene mucho texto (más de
+> unos 2.500 caracteres), aparece en *Revisa…* con el comienzo de esa celda para que la
+> encuentres. El aviso no significa que ya se haya cortado. Compara el final de esa sección
+> en la vista previa, y si falta texto, pásalo a `<div>`.
+>
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
 > sí se respetan.
@@ -2536,6 +2546,11 @@ corresponde:
   la sección 17.5.1.
 - **Si eres del equipo de ISPWatch** (tenant operador) → la misma pestaña te muestra las
   integraciones de **todos los ISP**, sin límites. Es lo que se describe a continuación.
+
+> Si eres superadministrador y en **Configuración** ves el aviso *«La emisión centralizada de
+> llaves de API está apagada»*, el tenant operador está mal configurado y esa vista no le
+> aparece a nadie. Hasta que se corrija, solo funciona el auto-servicio (17.5.1). Se corrige
+> en la configuración del servidor (`API_KEYS_OPERATOR_TENANT_ID`), no desde el panel.
 
 **Qué puede hacer una llave — y qué no**
 
@@ -2636,8 +2651,10 @@ En la tabla de llaves, la columna **Estado** te dice de un vistazo si la llave e
 > **Sobre las IPs.** Es normal pelearse con un `403` al principio, y la tentación es
 > ensanchar la lista hasta que funcione. No lo hagas: esa lista es justamente lo que
 > hace que una llave filtrada no le sirva a nadie fuera de tu servidor. Si no sabes qué
-> IP poner, llama a `GET /api/v1/partner/ping` con la llave: la respuesta te dice desde
-> qué IP te está viendo el servidor.
+> IP poner, llama a `GET /api/v1/partner/ping` con la llave. Si la IP es la correcta,
+> responde con la IP desde la que te ve el servidor. Si no lo es, responde `403
+> ip_not_allowed` y el campo `your_ip` de esa misma respuesta trae la IP que hay que
+> autorizar.
 
 **Ver qué está pasando**
 
@@ -2659,6 +2676,15 @@ Es el primer dato que te va a pedir soporte. Sale del servidor, así que es el n
 —no uno guardado en tu navegador de la última vez que entraste—.
 
 Si dice `—`, es que no se pudo consultar en ese momento; recarga la página.
+
+**Estado del Sistema** (desde el 2026-10-05) comprueba de verdad que las tareas automáticas
+estén corriendo: facturas del mes, recordatorios y cortes.
+
+- **Operativo** (verde): están al día.
+- **Revisar** (ámbar): llevan varios minutos sin correr o no han arrancado desde la última
+  actualización. Durante una actualización puede verse ámbar unos minutos. Si sigue así,
+  avísale a soporte: mientras tanto no se generan facturas ni se corta a nadie.
+- **Sin datos** (gris): no se pudo consultar.
 
 ### 17.7 Auditoría
 
@@ -2758,8 +2784,9 @@ Necesitas el permiso **Gestionar mis llaves de API**.
    llaves: pruebas, producción, y la nueva mientras se rota la vieja.
 2. **Pide la IP pública del integrador.** Es el error más común: no es la IP de su oficina
    ni la de su computador, sino la del **servidor** que va a llamar. Si hay dudas, que
-   consulte el chequeo de la API (`/ping`): la respuesta le dice con qué IP lo ve
-   ISPWatch. Esa es la que va en la lista.
+   llame al chequeo de la API (`/ping`) con la llave. Si su IP no está autorizada, el
+   rechazo (`ip_not_allowed`) trae en `your_ip` la IP con la que lo ve ISPWatch. Esa es la
+   que va en la lista.
 3. **Elige los permisos**, sólo los que necesite:
 
    | Permiso | Da acceso a |
@@ -2781,7 +2808,7 @@ recibir datos.
 
 | Le dice | Qué es | Qué hacer |
 |---|---|---|
-| «IP no autorizada» | Llama desde una IP que no está en la lista | Que consulte `/ping` y te pase la IP que ve el servidor |
+| «IP no autorizada» | Llama desde una IP que no está en la lista | Que te pase el `your_ip` de esa respuesta de error (o búscala en *Ver peticiones*) |
 | «No tengo permiso» | A la llave le falta el ability de esa área | Emitir una llave nueva: **los permisos de una llave existente no se editan** |
 | «La llave no vale» | Vencida, revocada o mal copiada | Revisar en el panel si sigue activa y su fecha |
 | «Funcionaba y dejó de funcionar» | Casi siempre el vencimiento | Mirar la fecha antes que nada |
