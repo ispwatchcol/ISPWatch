@@ -542,6 +542,7 @@ idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van
 | `billing:auto-cut` | Corte automático por router |
 | `billing:process-overdue` | Procesamiento manual de morosos |
 | `billing:reconcile-suspensions` | Re-corta a los suspendidos en BD no confirmados en el router |
+| `billing:reconcile-reconnections` | Reabre a los activos en BD cuya reconexión no confirmó el router (P-29) |
 | `billing:verify-cuts` | Auditoría de no-show de cortes |
 | `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos. **Arranca en dry-run**; delega en `reactivateIfCleared()` para no duplicar reglas |
 
@@ -567,8 +568,9 @@ Dos invariantes más que conviene no romper:
   `CustomerProfile::BILLABLE_SERVICE_STATUSES`, el mismo vocabulario del ciclo mensual.
 - **La BD se corrige aunque el router falle.** Deliberado: dejar `status = false` en alguien
   que ya pagó garantiza que el reconciliador lo re-corte. El fallo se reporta en
-  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Ver **P-29** en
-  `MEJORAS_RECOMENDADAS.md`: nada lo reintenta solo todavía.
+  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Lo reintenta cada hora
+  `billing:reconcile-reconnections` (P-29), que pasa por `attemptReconnection()` igual que el
+  pago: si cambias el preflight o el candado, cambian los dos caminos a la vez.
 
 El aviso previo al cobro sale de `suspensionStatusFor()`, que evalúa **las mismas dos
 señales** a propósito: si el aviso y la acción usaran criterios distintos, el panel podría
@@ -1498,6 +1500,10 @@ Tres reglas para que el PDF no salga roto, todas aprendidas midiendo (ver `BITAC
   `symbol`, `zapfdingbats` y las tres DejaVu. `font-family: Calibri` cae a Times y el texto
   ocupa distinto que en el editor; `font-family: Calibri, Arial, sans-serif` funciona, porque
   dompdf recorre la pila. `TemplateDiagnostics` lo avisa (`unsupported_font`).
+- **Nada de texto largo dentro de una celda.** dompdf no parte un `<td>` entre páginas y recorta
+  lo que no cabe. `TemplateDiagnostics` avisa (`long_table_cell`) por encima de
+  `LONG_TABLE_CELL_CHARS`. Si una plantilla base o del catálogo dispara ese aviso, el arreglo es
+  pasar ese texto a `<div>`, no subir el umbral.
 - **Sólo marcadores del catálogo del tipo.** `DocumentStarterLibraryTest` corre
   `TemplateDiagnostics` sobre cada plantilla base y falla si aparece uno que el sistema no
   resuelve; `DocumentTemplateControllerTest` las renderiza todas y exige un PDF real sin avisos.
@@ -1967,6 +1973,7 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 45 | **Una escritura masiva por query builder no dispara observers** | `Modelo::insert([...])` y `Modelo::where(...)->update([...])` no pasan por Eloquent, así que ni `MoneyAuditObserver` ni `PartnerEventObserver` se enteran. Este manual decía que la carga masiva de clientes estaba cubierta: **no lo estaba** desde que pasó a `insert()` en bloque (fix del 504), y sus altas no aparecían en el feed partner hasta KAN-111. Hoy emiten a mano con `PartnerEvent::recordMany()` la carga masiva de clientes y el cambio de RADIUS de un router. Si agregas un camino masivo que mueva estado comercial, router, IP o PPPoE, emite el evento tú: el integrador externo quedaría desincronizado **sin ninguna señal** |
 | 65 | **Cambiar `router_id` deja trabajo en el router VIEJO** | El aprovisionamiento sólo mira el router nuevo. `CustomerRouterMoveObserver` encola `PurgeCustomerFromPreviousRouterJob` con la identidad **original** (la que el cliente tenía allí, aunque la misma edición cambie IP o PPPoE) y sólo si el router viejo lo gestiona ISPWatch. Si escribes un camino que mude clientes por query builder (`where()->update()`), el observer no se entera y el residuo vuelve: despacha el job a mano. El job omite cualquier dato que hoy use otro cliente del router viejo, porque el barrido borra por esas claves (KAN-119) |
 | 66 | **Toda mensualidad automática se escribe dentro de `withMonthlyInvoiceLock()`; el «¿ya existe?» de afuera no protege nada** | Comprobar `monthlyInvoiceExists()` y después crear es una carrera: la corrida horaria, `billing:retry-failed`, el alta, `billing:generate-tenant` y la reparación pueden llegar al mismo cliente a la vez. La protección real es `BillingService::withMonthlyInvoiceLock()`: transacción, bloqueo de `customer_profile` y segunda comprobación, que lanza `MonthlyInvoiceAlreadyExists`. `createMonthlyInvoiceFor()` ya la usa. Un camino nuevo que emita mensualidades tiene que escribir dentro de ella y tratar esa excepción como «ya estaba hecha», no como fallo. La factura MANUAL no pasa por ahí (P-86): no afirmes unicidad global. **Los avisos van con `DB::afterCommit`, nunca dentro de la transacción**: un correo caído desharía la factura, y un lote deshecho avisaría de facturas que no existen (bitácora § 88). Y una prueba de «se factura aunque X» tiene que **ejecutar la corrida**: la que cubría «No enviar notificaciones» creaba la factura a mano y no probaba nada |
+| 67 | **Un controlador no importa la capa de red de MikroTik** | `tests/Unit/Architecture/MikroTikBoundaryTest.php` falla si un controlador usa `App\Services\MikroTik\*` o `MikroTikSshService` fuera de su `BASELINE`, la deuda de 2026-10-05: `RouterController`, `PlanController` y `CustomerProfileController`. Pasa por un servicio de dominio. Si migras uno de esos tres, borra su entrada, porque el test exige que la lista solo encoja (KAN-16) |
 | 64 | **En `partner_events`, el cursor es `seq`, nunca `id`** | El `id` se toma al insertar, dentro de la transacción del cambio, y las transacciones confirman en cualquier orden: un cursor o una revisión calculados sobre `id` pueden saltarse para siempre un evento que confirmó tarde. Todo lo que se publica hacia afuera (`event_id`, `revision`, `next_since`) es `seq`, que asigna `PartnerEventSequencer` después del commit y en serie. Un evento con `seq` nulo **todavía no existe** para el feed. Si escribes un lector nuevo, filtra con `->published()` y ordena por `seq`, y llama antes a `publishPendingEvents()`. Ver `ARQUITECTURA.md` § 14.8 |
 | 40 | **El orden del método de control vive en TRES sitios y tienen que coincidir** | `CustomerProvisioningService::resolveControlMode()` decide el modo **al leer**; el trait `NormalizesRouterControlMode` decide cuál sobrevive **al escribir**; y `CONTROL_MODES` en `RouterAdd.vue`/`RouterEdit.vue` decide cuál queda encendido **en el formulario**. Si los órdenes divergen, la base guarda un modo y el aprovisionamiento ejecuta otro — sin ningún error, sólo un router que "no carga los clientes". Al agregar un modo hay que tocar los cuatro archivos |
 | 41 | **En los endpoints RADIUS `BelongsToTenant` NO rellena `tenant_id`** | El trait lo deriva de `auth()->user()`, y las rutas RADIUS son máquina-a-máquina: no hay usuario autenticado, así que ni el hook de `creating` asigna ni el scope global filtra. Toda escritura del pipeline de accounting/authorize debe fijar `tenant_id` **explícitamente desde el router registrado** — nunca desde un campo del request, que es exactamente el vector de fuga cross-tenant. Si se olvida, la fila nace con `tenant_id` null y desaparece del panel |
