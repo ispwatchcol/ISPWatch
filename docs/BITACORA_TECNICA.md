@@ -6562,7 +6562,8 @@ sentencia, el despliegue completó — pero no solo:
    servidor ya sirva la nueva. Le pasa a cualquier usuario después de cualquier despliegue, y
    nadie le va a decir que pulse Ctrl+F5. Queda anotado como deuda: o cabeceras de no-caché en
    el documento, o un aviso de «hay una versión nueva, recarga» comparando `/api/version`
-   contra la compilada.
+   contra la compilada. *(Resuelto el 2026-09-21 con las dos cosas: `no-store` en el documento y
+   aviso de versión nueva; ver P-46 en `MEJORAS_RECOMENDADAS.md`.)*
 
 Verificación final: `Inventory-DtQ5vjIE.js` en producción con el marcador del arreglo,
 `/health` con `migrations.pending = 0` —la prueba de que la migración de P-43 terminó— y el
