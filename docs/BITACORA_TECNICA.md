@@ -9917,6 +9917,66 @@ La migración de datos solo toca `help_articles`. El despliegue de `main` ejecut
 (no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
 el merge mismo requiere aprobación. Si no llegara a correr, el código funciona igual y solo el Centro de Ayuda sigue diciendo lo viejo.
 
+## 99. Aviso de llaves de API por vencer (KAN-43, P-KEYS-1 punto 4) — 2026-10-05
+
+> Numeración: las §§ 90 a 98 todavía no están en main.
+
+### El problema
+
+El vencimiento obligatorio de 90 días tumba la integración el día que se cumple, y nada lo
+anticipaba. Ya hay una llave de CNO con ese vencimiento y sin ninguna alarma.
+
+### Lo que se hizo
+
+- Comando `api-keys:expiring` (`--days=7`, `--dry-run`), agendado a diario a las 08:30.
+- **Candidatas:** tokens de `ApiClient` sin revocar, no vencidos, que vencen dentro del
+  margen y cuyo cliente está activo.
+- **Se omite** la llave de una integración que ya tiene otra viva que dura más allá del
+  margen, porque ya rotó.
+- **Destinatarios:** `api_clients.contact_email` y `api_keys.self_service.notify_email`, sin
+  duplicados ni distinción de mayúsculas.
+- **Un aviso por llave:** se marca la columna nueva `personal_access_tokens.expiry_notified_at`
+  (migración `2026_10_05_110000`, idempotente). Se prefirió esa marca a una ventana fija de un
+  día porque así un día sin planificador no hace perder el aviso.
+  - Si no hay destinatario, la llave **no** se marca y queda un warning: el aviso sale cuando
+    se configure uno.
+  - Si el envío falla, tampoco se marca, y se reintenta al día siguiente.
+- `ApiKeyExpiringMail` es un correo de texto. No lleva el token, que el servidor ni conoce, ni
+  la allowlist. Se usó un Mailable y no `Mail::raw()`, porque `MailFake::raw()` no registra
+  nada y el envío no se podría comprobar.
+
+### Pendiente
+
+- El aviso de llaves que llevan 60 días sin usarse (la otra mitad del punto 4).
+- Los puntos 1 a 3 de P-KEYS-1.
+- Definir `API_KEYS_SELF_SERVICE_NOTIFY_EMAIL` en producción, que necesita aprobación.
+
+### Pruebas
+
+`tests/Feature/ApiKeys/NotifyExpiringApiKeysTest.php` (9 casos):
+
+- aviso y marca;
+- un solo aviso en corridas repetidas;
+- destinatarios sin duplicados;
+- negativos: llave lejos de vencer, sin vencimiento, vencida, revocada, de un cliente
+  desactivado;
+- integración ya rotada;
+- sin destinatario no marca y avisa cuando aparece uno;
+- `--dry-run`;
+- el correo no lleva el token ni la allowlist;
+- la expresión de agenda.
+
+### Despliegue
+
+El despliegue de `main` ejecuta `php artisan migrate --force` en el job `migrate`
+(`kind: PRE_DEPLOY`) de `.do/deploy.template.yaml`. Si la spec viva coincide con la plantilla
+(no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
+el merge mismo requiere aprobación.
+
+**Ojo:** tras desplegar, la primera corrida avisará de **todas**
+las llaves vivas que venzan en los próximos 7 días, y eso son correos reales a integradores.
+Antes de activarlo conviene ejecutar `php artisan api-keys:expiring --dry-run`.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.

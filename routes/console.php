@@ -108,6 +108,10 @@ Schedule::command('contracts:remind-unsigned')->dailyAt('09:00');
 // sin techo, porque se escribe una fila por petición atendida o rechazada.
 Schedule::command('api-keys:prune-logs')->dailyAt('03:30');
 
+// Una semana de margen antes de que una llave de la API pública venza y tumbe
+// la integración (P-KEYS-1). Un aviso por llave; ver NotifyExpiringApiKeys.
+Schedule::command('api-keys:expiring')->dailyAt('08:30');
+
 // Latido del planificador. Cada minuto, y a propósito lo primero que se agenda
 // en importancia: es lo único que permite detectar que ESTE proceso dejó de
 // correr. Sin él, un scheduler caído solo se descubre a fin de mes, cuando no
