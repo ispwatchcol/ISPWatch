@@ -53,6 +53,27 @@ class TemplateDiagnostics
     /** Documento completo editado en modo seguro: el shell fijo lo va a desarmar. */
     public const KIND_NEEDS_ADVANCED_MODE = 'needs_advanced_mode';
 
+    /** Celda de tabla con tanto texto que puede no caber en una página: dompdf recorta lo que sobra. */
+    public const KIND_LONG_TABLE_CELL = 'long_table_cell';
+
+    /**
+     * Caracteres de texto visible a partir de los cuales una celda se reporta
+     * (P-8 / KAN-60). dompdf no parte una celda entre páginas: si no cabe, la
+     * empuja entera a la siguiente y DESCARTA en silencio lo que no entra.
+     *
+     * No se puede saber de verdad si desborda sin renderizar, porque depende del
+     * contenido resuelto, del papel y de la letra. Este umbral es la
+     * aproximación barata: una página A4 a 10-11 pt lleva unos 4.500-5.000
+     * caracteres a todo lo ancho, y la mitad en una columna de media página, que
+     * es el caso típico de un contrato maquetado con tablas. El caso medido que
+     * originó la tarjeta perdía ~1.800 de unos 17.700. Un aviso de más cuesta
+     * una lectura; uno de menos cuesta texto legal fuera de un contrato firmado.
+     */
+    public const LONG_TABLE_CELL_CHARS = 2500;
+
+    /** Máximo de celdas largas reportadas: el arreglo es el mismo para todas. */
+    private const MAX_LONG_TABLE_CELLS = 2;
+
     /**
      * Tope de hallazgos reportados. Los avisos viajan en una cabecera HTTP
      * (X-Template-Warnings) y una plantilla migrada entera puede tener
@@ -90,6 +111,9 @@ class TemplateDiagnostics
         // tenant ve en el editor: no es un marcador mal puesto, es el
         // documento entero que no se va a usar.
         self::KIND_NEEDS_ADVANCED_MODE,
+        // Justo después: es texto que DESAPARECE del PDF sin dejar hueco
+        // visible, en el documento con valor contractual.
+        self::KIND_LONG_TABLE_CELL,
         self::KIND_MALFORMED_PLACEHOLDER,
         self::KIND_FOREIGN_MARKER,
         self::KIND_FOREIGN_PLACEHOLDER,
@@ -130,9 +154,69 @@ class TemplateDiagnostics
             $this->inspectLiteralMarkers($html, $type),
             $this->inspectRemoteImages($html),
             $this->inspectFonts($html),
+            $this->inspectLongTableCells($html),
         );
 
         return $this->prioritize($findings);
+    }
+
+    /**
+     * Celdas `<td>`/`<th>` con texto suficiente para no caber en una página
+     * (P-8). Es la única pérdida de contenido que el sanitizer no puede corregir
+     * solo: convertir a ciegas toda tabla de una celda en `<div>` cambiaría el
+     * diseño de plantillas que hoy salen bien. Por eso se avisa, no se toca.
+     *
+     * Se mide el texto visible con los espacios colapsados, sin etiquetas, y
+     * también el de las tablas anidadas: una celda que contiene otra tabla
+     * tampoco se parte. Los {{marcadores}} cuentan por su nombre, no por lo que
+     * resuelven. Es una cota inferior, y los bloques largos se insertan fuera de
+     * las celdas.
+     *
+     * @return array<int,array{kind:string,token:string,label:string,message:string}>
+     */
+    private function inspectLongTableCells(string $html): array
+    {
+        if (stripos($html, '<td') === false && stripos($html, '<th') === false) {
+            return [];
+        }
+
+        $previous = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $cells = [];
+        foreach (['td', 'th'] as $tag) {
+            foreach ($dom->getElementsByTagName($tag) as $cell) {
+                $text = trim(preg_replace('/\s+/u', ' ', (string) $cell->textContent));
+                $length = mb_strlen($text);
+
+                if ($length > self::LONG_TABLE_CELL_CHARS) {
+                    $cells[] = ['text' => $text, 'length' => $length];
+                }
+            }
+        }
+
+        // La más larga primero: es la que con más seguridad desborda.
+        usort($cells, fn (array $a, array $b) => $b['length'] <=> $a['length']);
+
+        $findings = [];
+        foreach (array_slice($cells, 0, self::MAX_LONG_TABLE_CELLS) as $cell) {
+            $findings[] = [
+                'kind'    => self::KIND_LONG_TABLE_CELL,
+                // El inicio del texto, para que el tenant encuentre la celda en el editor.
+                'token'   => $this->shorten($cell['text'], 40),
+                'label'   => 'Texto largo dentro de una tabla',
+                'message' => 'Esta celda tiene unos ' . number_format($cell['length'], 0, ',', '.')
+                    . ' caracteres. El PDF no puede partir una celda entre dos páginas: si no cabe, la pasa '
+                    . 'entera a la siguiente y corta lo que sobra, sin avisar. Compara el final de esa sección '
+                    . 'en la vista previa. Si falta texto, sácalo de la tabla y ponlo en párrafos '
+                    . '(un <div> en modo avanzado).',
+            ];
+        }
+
+        return $findings;
     }
 
     /**
