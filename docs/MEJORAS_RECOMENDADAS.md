@@ -1107,7 +1107,14 @@ aquí**, y el día que alguien no se acuerde, el error no dará ninguna señal.
 **Recomendación.** Borrarlo si ya cumplió su propósito (es la opción limpia), o reescribirlo para
 que delegue en `createMonthlyInvoiceFor()` con un flag que suprima las notificaciones — que es lo
 único que justificaba tener una copia.
-### 📋 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue
+### 🟡 P-9 · Los documentos anteriores al paso a S3 pueden estar perdidos, y la interfaz no lo distingue — auditoría HECHA 2026-10-05 (KAN-62)
+
+> **Hecho** (bitácora § 101): `php artisan documents:audit-storage`, de solo lectura, lista
+> los documentos sin archivo en S3. Separa «perdido» de «no se pudo consultar» y marca si son
+> anteriores al paso a S3. **No se ha ejecutado contra producción.** Necesita autorización y
+> lo corre quien tenga acceso. **Sigue pendiente la decisión** de qué hacer con los perdidos:
+> purgarlos, o marcarlos con una columna para que la interfaz diga «se perdió antes de
+> julio». Mientras no se decida, la interfaz sigue sin distinguirlos.
 
 Hasta el 29-jul-2026 (`828865c`) los documentos de cliente se escribían en el disco `public`
 de Laravel y se servían con `asset('storage/…')`. En App Platform el sistema de archivos del
@@ -2876,7 +2883,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-6** | `APP_KEY` local no desencripta campos `encrypted` sincronizados desde producción | Router passwords, WireGuard keys, PPPoE passwords y Maps key ilegibles en dev; tumbaba `GET /tenants/{id}` entero | 🟡 Media | ✅ Aislado en `TenantController` · 📋 Confirmar `APP_KEY` real de App Platform pendiente |
 | **P-7** | Whitelist de contrato sin departamento/ciudad del cliente | Plantillas migradas de WispHub no pueden mostrar `{{cliente.localidad}}`/`{{cliente.ciudad}}` | 🟢 Baja | ✅ Resuelto 2026-08-05 (`cliente.ciudad` + `cliente.departamento`) |
 | **P-8** | dompdf recorta el contenido de una celda de tabla más alta que una página | **Pérdida silenciosa de texto legal** en el PDF firmado (~1.800 caracteres medidos), además de páginas en blanco | 🟠 Alta | 🟡 Aviso en vista previa hecho (KAN-60) · la causa sigue (P-15) |
-| **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 📋 Pendiente |
+| **P-9** | Documentos anteriores al paso a S3 con enlace roto e indistinguibles de los buenos | El usuario ve la tarjeta y el enlace falla; soporte no puede separar "se perdió en la migración" de "el almacenamiento está caído" | 🟡 Media | 🟡 Auditoría lista (KAN-62) · falta decidir: purgar o marcar en la interfaz |
 | **P-10** *(router)* | Eliminar un cliente no lo saca del router | Fuga de ingreso silenciosa: sigue navegando y ya no aparece en ninguna lista | 🟠 Alta | ✅ Resuelto por P-16 (2026-08-06) |
 | **P-11** | `$monthlyRevenue` calculado y nunca usado en el Dashboard | Consulta agregada inútil por petición; ambigüedad sobre qué mide la tarjeta | 🟢 Baja | 📋 Pendiente (decisión de producto) |
 | **P-12** | El Centro de Ayuda no tiene forma sancionada de publicarse, y el seeder borra todo antes de sembrar | El manual en la app se queda viejo; y en cuanto alguien edite un artículo desde la UI, el próximo seed lo destruye | 🟡 Media | ✅ Resuelto 2026-10-05 (seeder upsert, KAN-75; las migraciones con huella ya publicaban) |

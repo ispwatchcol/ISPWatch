@@ -10066,6 +10066,52 @@ PDF o plantilla descargada quedaba en memoria hasta recargar la página.
 
 `npm run build` OK. Las descargas no se probaron en un navegador.
 
+## 101. Auditoría de documentos sin archivo en S3 (KAN-62, P-9, parcial) — 2026-10-05
+
+> Numeración: las §§ 90 a 100 todavía no están en main.
+
+### El problema
+
+Hasta el 29-jul-2026 los documentos de cliente se guardaban en el disco `public`, que es
+efímero, y en cada despliegue los bytes se iban. `file_path` usa la misma convención antes y
+después del paso a S3. Por eso una fila perdida y una buena se ven idénticas, y el enlace de la
+perdida devuelve un error del proveedor.
+
+### Lo que se hizo
+
+`documents:audit-storage` (`--tenant`, `--show`) es **de solo lectura**. Recorre
+`customer_documents` por lotes y pregunta a S3 por cada `file_path`. Reporta cuatro cosas:
+
+- los encontrados;
+- los perdidos;
+- de los perdidos, cuáles son **anteriores al 2026-07-29**;
+- los **no consultables** (error), que se cuentan aparte: con S3 caído, todo saldría
+  «perdido».
+
+Además, avisa en dos casos:
+
+- si hubo errores, el resultado no es concluyente;
+- si hay perdidos **posteriores** al paso a S3, eso no lo explica la migración y hay que
+  investigarlo.
+
+No toca ninguna fila.
+
+### Lo que no se hizo
+
+- **No se ejecutó contra producción.** Requiere autorización y acceso.
+- **Queda por decidir** qué hacer con los perdidos: purgarlos, o marcarlos con una columna
+  para que la interfaz los distinga. Elegir entre las dos es decisión de producto.
+
+### Pruebas
+
+`tests/Feature/Documents/AuditCustomerDocumentStorageTest.php` (4 casos):
+
+- recuento de encontrados y perdidos, con la separación anterior/posterior al paso a S3 y el
+  aviso de los posteriores;
+- no modifica ninguna fila;
+- filtro por tenant;
+- un error de almacenamiento se cuenta como error, no como perdido, con su aviso.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
