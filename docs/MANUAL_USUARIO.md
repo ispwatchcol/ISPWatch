@@ -1501,9 +1501,10 @@ cambio; **tu sistema lo ejecuta**. Al pagar, lo reactiva y publica la reconexió
 Ten presente que **ISPWatch no puede comprobar que el corte se aplicó**: eso ocurre en tu
 servidor. En los otros métodos verifica y reintenta; aquí la verificación es tuya.
 
-Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos
-y datos de VPN**. El formulario todavía exige nombre, IP, usuario y contraseña del equipo,
-versión de firmware y estado, aunque en este modo no se usen. Como ISPWatch no se conecta
+Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos,
+datos de VPN, IP, usuario y contraseña del equipo y versión de firmware**. Sólo son
+obligatorios el nombre y el estado. Si después pasas el router a otro método de control, el
+formulario te pedirá esos datos antes de guardar, porque ahí sí se conecta al equipo. Como ISPWatch no se conecta
 a ningún equipo, **un router puede ser sólo un agrupador** y no un Mikrotik real — útil
 para separar clientes por criterio propio, ya que la facturación se configura por router.
 Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP

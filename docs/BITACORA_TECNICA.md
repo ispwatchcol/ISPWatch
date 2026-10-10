@@ -9861,6 +9861,62 @@ Queda en MEJORAS y en la tarjeta.
 `tests/Feature/Ui/PaymentPortalContactTest.php` (2 casos): el portal no contiene el número, ni
 `tel:+57`, ni `wa.me/`, y sí muestra la indicación nueva. Sin el arreglo fallan los dos.
 
+## 92. Un router RADIUS ya no obliga a inventar IP, usuario y contraseña (KAN-102, P-RADIUS-4) — 2026-10-05
+
+> Numeración: la § 90 (PR #302) y la § 91 (KAN-53, rama `fix/kan-53-reconciliar-reconexiones`)
+> todavía no están en main.
+
+### El problema
+
+CNO quiere dejar en ISPWatch dos routers *lógicos* (facturación electrónica y cuentas de
+cobro) sin MikroTik detrás, porque su FreeRADIUS autentica y aprovisiona. El modo RADIUS ya
+lo soportaba: `provisionByControlMode()` sale antes de resolver el endpoint. Pero
+`StoreRouterRequest`/`UpdateRouterRequest` exigían `ip` (válida), `user_rb`, `password_rb` y
+`firmware_version` sin excepción, y en la edición tampoco dejaban **vaciarlos**. Era
+justamente el caso de la migración de CNO. El Centro de Ayuda tapaba el síntoma recomendando
+«valores de relleno».
+
+### Lo que se hizo
+
+- **Alta:** si el modo normalizado es RADIUS (`normalizedControlMode()`, después de
+  `prepareForValidation()`), esos cuatro campos son `nullable`. Una IP que sí venga se sigue
+  validando.
+- **Edición** (`UpdateRouterRequest::equipmentRule()`): el modo que cuenta es el que el router
+  tendrá al terminar. Si el request no toca los flags de modo, cuenta el `radius` guardado.
+  - Si queda en RADIUS: `sometimes|nullable`, es decir, se pueden omitir y vaciar.
+  - Si **sale** de RADIUS y la base no tiene el dato: `required` en ese mismo request. Sin
+    esto, el router volvería a un modo clásico sin con qué operar el equipo.
+  - En cualquier otro caso: `sometimes|required`, igual que antes.
+- **`status` sigue siendo obligatorio:** `ReconnectionPreflight` lo lee también en RADIUS.
+- **Centro de Ayuda:** se corrigió el párrafo en `database/seeders/content/radius_aaa_articles.php`
+  y se añadió la migración de datos `2026_10_05_100000_update_help_center_radius_router_fields`.
+  Esa migración reescribe el artículo solo si su md5 coincide con el texto anterior, con el
+  mismo criterio que `2026_10_01_100000`: lo editado por un superadmin no se pisa.
+
+### Pruebas
+
+- `tests/Feature/Router/RadiusRouterCredentialsTest.php`, 10 casos:
+  - alta en RADIUS sin datos y con cadenas vacías;
+  - IP inválida en RADIUS;
+  - sin RADIUS, las reglas de siempre;
+  - `status` obligatorio;
+  - paso a RADIUS vaciando;
+  - vaciar un router que ya es RADIUS;
+  - el router clásico sigue sin poder vaciarse;
+  - salida de RADIUS sin datos (422) y con datos (200);
+  - el aprovisionamiento en RADIUS sin datos no llama a `RouterEndpointResolver::resolve()`.
+- Sin el arreglo, los 5 casos de comportamiento fallan y los 5 de regresión pasan.
+- `tests/Feature/HelpCenter/RadiusRouterFieldsHelpMigrationTest.php`: la huella del texto
+  anterior, una base nueva sin «relleno», la reescritura de un artículo intacto (incluso con
+  `\r\n`) y el respeto de lo editado.
+
+### Despliegue
+
+La migración de datos solo toca `help_articles`. El despliegue de `main` ejecuta `php artisan migrate --force` en el job `migrate`
+(`kind: PRE_DEPLOY`) de `.do/deploy.template.yaml`. Si la spec viva coincide con la plantilla
+(no está confirmado: KAN-11 sigue abierta), **la migración se aplica sola al mergear**. Por eso
+el merge mismo requiere aprobación. Si no llegara a correr, el código funciona igual y solo el Centro de Ayuda sigue diciendo lo viejo.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.

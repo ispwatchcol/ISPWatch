@@ -938,6 +938,21 @@ queman el enlace de forma permanente, incluso ante los dígitos correctos.
 > Nota de seguridad presente en el código: la variante `GET` de `test-secret-sync` exige
 > **el mismo permiso** que la `POST`; de lo contrario sería un bypass de autorización por método.
 
+### `POST`/`PUT /api/routers` — datos del equipo según el método de control
+
+`ip`, `user_rb`, `password_rb` y `firmware_version` dependen del método en que **queda** el
+router (tras normalizar los flags de modo):
+
+| Caso | Regla |
+|---|---|
+| Alta con `radius = true` | Opcionales (`nullable`). Si viene `ip`, tiene que ser una IP válida |
+| Alta con cualquier otro modo, o sin modo | Obligatorios, como siempre |
+| Edición de un router que queda en RADIUS | Se pueden omitir **y vaciar** (`null` o `""`) |
+| Edición que **saca** al router de RADIUS | Obligatorios en ese request los que el router no tenga guardados |
+| Cualquier otra edición | `sometimes|required`, como siempre |
+
+`name` y `status` siguen siendo obligatorios en todos los casos (KAN-102).
+
 ### `GET /api/routers` — campo calculado
 
 Cada fila incluye `active_customers_count`: clientes con `service_status` en

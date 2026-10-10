@@ -709,7 +709,12 @@ que `BillingService::notifyInvoiceCreated()` consulte antes que la del cliente, 
 precedencia grupo → cliente. Es chico, pero toca el camino de facturación: va con test que
 cubra las cuatro combinaciones.
 
-### 🟡 P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa
+### ✅ P-RADIUS-4 · El formulario del router exige datos que el modo RADIUS nunca usa — RESUELTO 2026-10-05 (KAN-102)
+
+> **Resuelto** en la bitácora § 92: con `radius = true`, `ip`, `user_rb`, `password_rb` y
+> `firmware_version` son opcionales al crear y se pueden vaciar al editar; al salir de RADIUS
+> se exigen si el router no los tiene guardados. `status` sigue siendo obligatorio. El Centro de
+> Ayuda se corrigió con la migración `2026_10_05_100000`. Lo de abajo queda como contexto.
 
 Detectado el 2026-09-22 al documentar el modo para el Centro de Ayuda (§ 75 de la bitácora).
 
@@ -2899,7 +2904,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-RADIUS-1** | El snapshot de respaldo puede reconectar a un cortado reciente | Ventana de 5 min a favor de la continuidad del servicio | 🟡 Media | 📋 Deuda aceptada |
 | **P-RADIUS-2** | Doble contabilidad de tráfico sin fuente autoritativa | Dos números distintos en dos pantallas de la misma app | 🟡 Media | 📋 Decisión de producto |
 | **P-RADIUS-3** | No existe política de «no enviar factura» por router/grupo | Aviso duplicado en un grupo facturado por otra plataforma | 🟡 Media | 📋 Pendiente |
-| **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | 📋 Pendiente |
+| **P-RADIUS-4** | El formulario del router exige IP, credenciales y firmware que el modo RADIUS nunca usa | Obliga a inventar datos para usar un router como agrupador lógico | 🟡 Media | ✅ Resuelto 2026-10-05 (KAN-102) |
 | **P-39** | Nada impide que un `php artisan migrate` local escriba en producción: la salvaguarda vive sólo en la suite de pruebas y `DB_SCHEMA` resuelve a `public` por defecto | Ocurrió el 2026-08-21 y se revirtió el mismo día; con FKs `ON DELETE RESTRICT` ya en uso, la próxima vez podría no ser reversible | 🔴 Alta | ✅ Resuelto 2026-09-21 (`ProductionDatabaseGuard` + `DB_SCHEMA` sin valor por defecto) |
 | **P-40** | `SectorialPhoto` sirve archivos por `asset('storage/…')`: URL pública sobre un disco efímero y sin `storage:link` | Las fotos no cargan tras cada despliegue y son legibles sin sesión por quien acierte la ruta | 🟠 Alta | ✅ Resuelto 2026-10-05 (KAN-96) · queda el logo de tenant en `public` |
 | **P-41** | El catch-all del SPA responde 200 con HTML a rutas de `/api` inexistentes | Un integrador que pida una ruta mal escrita recibe HTML y código 200 en vez de un 404 JSON | 🟡 Media | ✅ Resuelto 2026-09-21 (fallback propio bajo `api/*`) |
