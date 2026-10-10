@@ -172,19 +172,22 @@
         </div>
 
         {{--
-            Enlaces, no <button onclick="...">. Los manejadores en línea son
-            script en línea a efectos de CSP y obligaban a mantener
-            'unsafe-inline' en script-src para toda la aplicación. Eran los dos
-            únicos del proyecto; como sólo navegan a una URL, un <a> hace lo
-            mismo sin script.
-        --}}
-        <a class="btn" href="tel:+573001234567">
-            📞 Llamar a Soporte
-        </a>
+            Aquí había un «Llamar a Soporte» y un «WhatsApp» con +573001234567
+            FIJO para todos los ISP (KAN-81): el abonado moroso de cualquier
+            tenant llamaba a un número inventado para pagar. Se retiró.
 
-        <a class="btn btn-secondary" href="https://wa.me/573001234567">
-            💬 WhatsApp
-        </a>
+            No se reemplazó por `tenant.billing_phone` porque este portal no sabe
+            de qué ISP es el abonado: los routers lo redirigen por dst-nat a una
+            sola PORTAL_IP de la plataforma, y esa redirección no lleva el tenant.
+            Cómo identificarlo es una decisión pendiente (ver MEJORAS). Mientras
+            tanto, no mostrar un número es mejor que mostrar uno falso.
+        --}}
+        <div class="info-box">
+            <p><strong>¿Cómo me comunico?</strong></p>
+            <p>
+                Usa el teléfono o el WhatsApp de tu proveedor de internet que aparece en tu factura o en tu contrato.
+            </p>
+        </div>
 
         <div class="footer">
             Powered by ISPWatch<br>

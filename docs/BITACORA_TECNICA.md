@@ -9827,6 +9827,40 @@ escrito a mano. Para retirar contenido, el camino es una migración de datos.
 Sin el arreglo fallan 2. El de no duplicar ya pasaba, porque borrar y recrear tampoco
 duplica. Las 13 pruebas existentes del Centro de Ayuda siguen en verde.
 
+## 107. El portal de pago deja de mostrar un teléfono inventado (KAN-81, parcial) — 2026-10-05
+
+> Numeración: las §§ 90 a 106 todavía no están en main.
+
+### El problema
+
+`payment-portal.blade.php` mostraba «Llamar a Soporte» y «WhatsApp» con `+573001234567` fijo en
+el código, igual para todos los ISP. El abonado moroso que quería pagar llamaba a un número que
+no era de nadie.
+
+### Lo que se hizo
+
+- Se retiraron los dos enlaces.
+- En su lugar, un recuadro remite al teléfono o WhatsApp de la factura o el contrato. No se
+  añadió script: la CSP sigue igual.
+
+### Por qué no se usó `tenant.billing_phone`
+
+El portal no tiene tenant. Los routers redirigen al abonado suspendido por `dst-nat` a una única
+`PORTAL_IP` de la plataforma, y esa redirección no puede llevar parámetros: en 443 ni siquiera
+coincide el TLS. Identificar al ISP exige una decisión:
+
+- una `PORTAL_IP` o un subdominio por tenant;
+- un parámetro en los enlaces que el ISP comparte, que expone nombre y teléfono a quien enumere
+  ids;
+- resolverlo por IP de origen. No es viable detrás de NAT.
+
+Queda en MEJORAS y en la tarjeta.
+
+### Pruebas
+
+`tests/Feature/Ui/PaymentPortalContactTest.php` (2 casos): el portal no contiene el número, ni
+`tel:+57`, ni `wa.me/`, y sí muestra la indicación nueva. Sin el arreglo fallan los dos.
+
 ## 109. Un solo doble de dompdf para toda la suite (KAN-65, P-14) — 2026-10-05
 
 > Numeración: las §§ 90 a 108 todavía no están en main.
