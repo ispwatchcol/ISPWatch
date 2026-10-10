@@ -1,4 +1,5 @@
 <script setup>
+import { downloadBlob } from '@/utils/download'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
@@ -128,12 +129,7 @@ const downloadPdf = async () => {
     if (!invoice.value) return
     try {
         const response = await billingService.downloadPdf(invoice.value.id)
-        const url = window.URL.createObjectURL(new Blob([response.data]))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `Invoice-${invoice.value.number}.pdf`)
-        document.body.appendChild(link)
-        link.click()
+        downloadBlob(response.data, `Invoice-${invoice.value.number}.pdf`, 'application/pdf')
     } catch (e) {
         alert('Error downloading PDF')
     }

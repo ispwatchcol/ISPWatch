@@ -1037,7 +1037,13 @@ envuelvas texto largo en una celda de tabla, usa `<div>`* — ya reflejado en `M
 header `X-Template-Warnings`, reutilizando el mecanismo que ya existe para bloques huérfanos. Es la
 única forma de que el tenant se entere sin tener que comparar el PDF carácter por carácter.
 
-### 📋 P-9 · Auditoría de Finanzas (2026-08-05): deuda restante tras ejecutar el plan
+### 🟡 P-9 · Auditoría de Finanzas (2026-08-05): deuda restante tras ejecutar el plan — punto 3 HECHO 2026-10-05 (KAN-52)
+
+> **Punto 3 resuelto** (bitácora § 108): las 9 descargas que dejaban el blob en memoria usan
+> `downloadBlob()`, cada una con su MIME. La vista previa de plantillas revoca su URL a los 60 s.
+> Las otras 2 de las 13 ya limpiaban. `BlobDownloadLeakTest` impide que vuelva el patrón.
+> **Siguen pendientes** el punto 1 (búsqueda sin índice, `pg_trgm`) y el 2 (adoptar o borrar
+> `SearchBar`, `StatusBadge` y `LoadingSkeleton`, que es una decisión).
 
 Auditoría de UX/rendimiento sobre Facturación, Pagos/Recaudos, Servicios Adicionales, Gastos y
 Categorías de Gasto. Las **Fases 1** (debounce y guard anti-carrera en Facturación, índices
@@ -2885,7 +2891,7 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-21** | El resto de los managers MikroTik siguen con 15 s para el `ssh-exec` anidado | Contra routers lentos, cortes y altas se reportan fallidos aunque habrían funcionado con más espera | 🟡 Media | 📋 Pendiente · el falso éxito por truncamiento **sí** quedó cerrado |
 | **P-0** | Devolver saldo al borrar una factura no des-consume el `earned` de origen | El error siempre favorece al cliente, nunca al ISP | 🟢 Baja | 📋 Deuda aceptada |
 | **P-00** | 91 clientes con dinero recibido que no respalda ninguna factura ni saldo | **$5.709.350 sin respaldo en producción** (corte 2026-08-13) | 🔴 Crítica | 📋 Pendiente · caso por caso, nunca en bloque |
-| **P-9** *(finanzas)* | Deuda restante de la auditoría de Finanzas | Búsqueda sin índice; 3 componentes muertos; fuga de blobs en 13 sitios | 🟢 Baja | 📋 Pendiente |
+| **P-9** *(finanzas)* | Deuda restante de la auditoría de Finanzas | Búsqueda sin índice; 3 componentes muertos; fuga de blobs en 13 sitios | 🟢 Baja | 🟡 Punto 3 hecho (KAN-52) · faltan índice de búsqueda y componentes muertos |
 | **P-10** *(arrastre)* | La factura de excepción no cobra el arrastre pendiente | Plata que se deja de cobrar sin que nadie se entere | 🟡 Media | 📋 Decidir al primer caso real |
 | **P-11** *(generate-tenant)* | `billing:generate-tenant` es una segunda ruta de facturación | Todo lo nuevo hay que replicarlo a mano; el error no da señal | 🟡 Media | 📋 Pendiente · borrarlo o delegar |
 | **P-22** | Del vocabulario del ticket sólo faltan los códigos de subcausa | Las subcausas no son seleccionables | 🟡 Media | 🟡 Parcial · sembrado 2026-08-21; falta **D-06** |

@@ -471,6 +471,7 @@
 </template>
 
 <script setup>
+import { downloadBlob } from '@/utils/download'
 import { ref, computed, onMounted } from 'vue'
 import billingService from '@/services/billing'
 import { apiClient } from '@/services/api'
@@ -720,13 +721,7 @@ const submitPayment = async () => {
 const downloadPdf = async (inv) => {
   try {
     const res = await billingService.downloadPdf(inv.id)
-    const url  = window.URL.createObjectURL(new Blob([res.data]))
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `Factura-${inv.number}.pdf`)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
+    downloadBlob(res.data, `Factura-${inv.number}.pdf`, 'application/pdf')
   } catch (e) {
     emit('notify', { type: 'error', title: 'Error', message: 'No se pudo descargar el PDF.' })
   }

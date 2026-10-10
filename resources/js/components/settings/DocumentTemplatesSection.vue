@@ -948,6 +948,9 @@ async function runPreview() {
     templateWarnings.value = readWarningsHeader(response)
     const url = URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
     window.open(url, '_blank')
+    // La pestaña nueva necesita el blob mientras carga; después se libera
+    // (KAN-52): sin revocar, cada vista previa quedaba en memoria.
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
   } catch (e) {
     toast.value?.error('No se pudo generar la vista previa', 'Revisa el contenido e intenta de nuevo.')
   } finally {
