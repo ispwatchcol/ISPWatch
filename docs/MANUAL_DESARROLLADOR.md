@@ -542,6 +542,7 @@ idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van
 | `billing:auto-cut` | Corte automático por router |
 | `billing:process-overdue` | Procesamiento manual de morosos |
 | `billing:reconcile-suspensions` | Re-corta a los suspendidos en BD no confirmados en el router |
+| `billing:reconcile-reconnections` | Reabre a los activos en BD cuya reconexión no confirmó el router (P-29) |
 | `billing:verify-cuts` | Auditoría de no-show de cortes |
 | `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos. **Arranca en dry-run**; delega en `reactivateIfCleared()` para no duplicar reglas |
 
@@ -567,8 +568,9 @@ Dos invariantes más que conviene no romper:
   `CustomerProfile::BILLABLE_SERVICE_STATUSES`, el mismo vocabulario del ciclo mensual.
 - **La BD se corrige aunque el router falle.** Deliberado: dejar `status = false` en alguien
   que ya pagó garantiza que el reconciliador lo re-corte. El fallo se reporta en
-  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Ver **P-29** en
-  `MEJORAS_RECOMENDADAS.md`: nada lo reintenta solo todavía.
+  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Lo reintenta cada hora
+  `billing:reconcile-reconnections` (P-29), que pasa por `attemptReconnection()` igual que el
+  pago: si cambias el preflight o el candado, cambian los dos caminos a la vez.
 
 El aviso previo al cobro sale de `suspensionStatusFor()`, que evalúa **las mismas dos
 señales** a propósito: si el aviso y la acción usaran criterios distintos, el panel podría
