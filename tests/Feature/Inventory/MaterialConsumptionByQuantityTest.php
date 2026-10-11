@@ -95,7 +95,7 @@ class MaterialConsumptionByQuantityTest extends TestCase
             'is_serialized' => false, 'unit' => 'unidad', 'quantity_decimals' => 0,
         ])->assertCreated()->json('id'));
 
-        // Entrada real de 9830 m a la bodega (Inventario → Entregas, sin origen).
+        // Entrada real de 9830 m a la bodega (Inventarios → Entregas y traspasos, sin origen).
         $this->postJson('/api/inventory/transfers', [
             'to_type' => 'branch', 'to_id' => $this->bodega->id,
             'materials' => [['stock_id' => $this->fibra->id, 'quantity' => 9830]],
@@ -143,7 +143,7 @@ class MaterialConsumptionByQuantityTest extends TestCase
         ]);
     }
 
-    /** La bodega le entrega al técnico (Inventario → Entregas). */
+    /** La bodega le entrega al técnico (Inventarios → Entregas y traspasos). */
     private function deliverToTechnician(InventoryStock $stock, float $qty): void
     {
         Sanctum::actingAs($this->admin);
@@ -195,7 +195,7 @@ class MaterialConsumptionByQuantityTest extends TestCase
         $this->assertSame([], $res->json('materials'));
         // No dice «no hay saldo»: dice que hay, pero no a su alcance, y cuál es el paso.
         $this->assertSame('not_accessible', $res->json('materials_status.code'));
-        $this->assertStringContainsString('Inventario → Entregas', $res->json('materials_status.message'));
+        $this->assertStringContainsString('Inventarios → Entregas y traspasos', $res->json('materials_status.message'));
 
         // Y no puede saltarse la regla mandando la bodega a mano.
         $this->consume("/api/installations/{$installation->id}/equipment", $this->fibra, 120, 'branch', $this->bodega->id)

@@ -967,7 +967,7 @@ import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 import SerialDevicePicker from '@/components/SerialDevicePicker.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
-import { cableSummary, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
+import { cableSummary, fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
 const route  = useRoute()
 const router = useRouter()
@@ -1158,10 +1158,6 @@ const materialLabel = (m) => {
   return `${name} — ${fmtQty(m.quantity)}${m.unit ? ` ${m.unit}` : ''} en ${m.source_label}`
 }
 
-const fmtQty = (n) => {
-  const value = Number(n) || 0
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace('.', ',')
-}
 
 const loadEquipment = async () => {
   try {

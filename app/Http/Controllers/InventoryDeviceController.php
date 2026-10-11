@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
+use App\Models\InventoryStock;
 use App\Models\TicketEquipment;
 use App\Services\Inventory\InventoryExpenseRecorder;
 use App\Services\Inventory\InventoryLedger;
@@ -225,7 +226,7 @@ class InventoryDeviceController extends Controller
         $delTenant = fn (string $tabla) => Rule::exists($tabla, 'id')->where('tenant_id', $tenantId);
 
         return [
-            'stock_id'    => ['nullable', 'integer', $delTenant('inventory_stock')],
+            'stock_id'    => ['nullable', 'integer', $delTenant('inventory_stock'), $this->onlySerializedStock($device)],
             'provider_id' => ['nullable', 'integer', $delTenant('inventory_provider')],
             'user_id'     => ['nullable', 'integer', $delTenant('users')],
             'branch_id'   => ['nullable', 'integer', $delTenant('inventory_branch')],
@@ -285,6 +286,36 @@ class InventoryDeviceController extends Controller
     }
 
     /** En español y diciendo QUÉ campo choca: "status code 422" no le sirve a nadie. */
+    /**
+     * Un equipo con serial sólo puede ser de un modelo «por serial».
+     *
+     * El formulario «Agregar equipo» listaba todo el catálogo, materiales
+     * incluidos, y el servidor lo aceptaba: «Fibra drop» con un serial quedaba
+     * como una fila de `inventory_device`, que para un material no cuenta como
+     * metros (los metros son saldos), y la existencia del catálogo sumaba esa
+     * fila como si fuera un metro más. El material se da de alta en Stock como
+     * «Por cantidad» y su existencia entra por Entregas y traspasos → Entrada
+     * de material.
+     *
+     * Al editar, sólo se comprueba si CAMBIA el modelo: una fila vieja creada
+     * así antes de esta regla tiene que poder abrirse y corregirse.
+     */
+    private function onlySerializedStock(?InventoryDevice $device): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) use ($device) {
+            if ($value === null || ($device && (int) $device->stock_id === (int) $value)) {
+                return;
+            }
+
+            $stock = InventoryStock::find($value);
+
+            if ($stock && !$stock->is_serialized) {
+                $fail("«{$stock->label()}» es un material por cantidad: no lleva serial ni MAC. "
+                    . 'Su existencia se registra en Inventarios → Entregas y traspasos → Entrada de material.');
+            }
+        };
+    }
+
     private function messages(): array
     {
         // Los mensajes de unicidad los emite la propia regla (`uniqueIgnoringCase`):

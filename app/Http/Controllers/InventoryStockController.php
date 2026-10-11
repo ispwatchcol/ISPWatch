@@ -28,8 +28,14 @@ class InventoryStockController extends Controller
         $actor  = $request->user();
 
         if ($actor && $ledger->managesInventory($actor)) {
-            $available = $availability->availableByStock((int) $actor->tenant_id);
-            $stocks->each(fn (InventoryStock $s) => $s->setAttribute('available', (float) ($available[$s->id] ?? 0)));
+            $available  = $availability->availableByStock((int) $actor->tenant_id);
+            $serialRows = $availability->serialRowsOnConsumables((int) $actor->tenant_id);
+            $stocks->each(function (InventoryStock $s) use ($available, $serialRows) {
+                $s->setAttribute('available', (float) ($available[$s->id] ?? 0));
+                // Filas con serial sobre un material (alta equivocada por el
+                // formulario de equipos): no son existencia, pero se avisan.
+                $s->setAttribute('serial_rows', $serialRows[$s->id] ?? 0);
+            });
         }
 
         return response()->json($stocks);

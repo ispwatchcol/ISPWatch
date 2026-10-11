@@ -92,6 +92,7 @@ class InventoryAvailability
         $devices = InventoryDevice::withoutTenantScope()
             ->where('tenant_id', $tenantId)
             ->available()
+            ->whereIn('stock_id', $this->serializedStockIds($tenantId))
             ->selectRaw('stock_id, COUNT(*) as total')
             ->groupBy('stock_id')
             ->pluck('total', 'stock_id');
@@ -129,6 +130,7 @@ class InventoryAvailability
         $devices = InventoryDevice::withoutTenantScope()
             ->where('tenant_id', $tenantId)
             ->available()
+            ->whereIn('stock_id', $this->serializedStockIds($tenantId))
             ->selectRaw('stock_id, status, user_id, branch_id, COUNT(*) as total')
             ->groupBy('stock_id', 'status', 'user_id', 'branch_id')
             ->get();
@@ -190,6 +192,43 @@ class InventoryAvailability
     }
 
     /**
+     * Modelos «por serial» del tenant, como subconsulta.
+     *
+     * Una fila de `inventory_device` sobre un modelo «por cantidad» no es
+     * existencia: la cantidad de un material son sus saldos. Esas filas sólo
+     * podían nacer del formulario de equipos antes de que lo impidiera, y
+     * contarlas hacía que «Fibra drop» con 100 m mostrara 101.
+     */
+    private function serializedStockIds(int $tenantId)
+    {
+        return InventoryStock::withoutTenantScope()
+            ->where('tenant_id', $tenantId)
+            ->where('is_serialized', true)
+            ->select('id');
+    }
+
+    /**
+     * Filas con serial colgadas de un modelo «por cantidad», por modelo.
+     * No se cuentan como existencia; se informan para que alguien las corrija.
+     *
+     * @return array<int, int> stock_id => filas
+     */
+    public function serialRowsOnConsumables(int $tenantId): array
+    {
+        return InventoryDevice::withoutTenantScope()
+            ->where('tenant_id', $tenantId)
+            ->whereIn('stock_id', InventoryStock::withoutTenantScope()
+                ->where('tenant_id', $tenantId)
+                ->where('is_serialized', false)
+                ->select('id'))
+            ->selectRaw('stock_id, COUNT(*) as total')
+            ->groupBy('stock_id')
+            ->pluck('total', 'stock_id')
+            ->map(fn ($n) => (int) $n)
+            ->all();
+    }
+
+    /**
      * Por qué la lista de consumibles de una orden o un ticket sale vacía.
      *
      * Distingue sólo lo que el sistema PUEDE saber en general. No diagnostica
@@ -215,7 +254,7 @@ class InventoryAvailability
             return [
                 'code'    => 'no_consumable_products',
                 'message' => 'No hay productos configurados «por cantidad» en el inventario. Los consumibles '
-                    . '(cable, conectores…) se crean en Inventario → Stock eligiendo «Por cantidad»; un producto '
+                    . '(cable, conectores…) se crean en Inventarios → Agregar material («Por cantidad»); un producto '
                     . 'creado «por serial» sólo aparece en la lista de equipos con serial.',
                 'inaccessible_products' => 0,
             ];
@@ -232,7 +271,7 @@ class InventoryAvailability
             return [
                 'code'    => 'no_stock',
                 'message' => 'Ningún producto por cantidad tiene saldo registrado. La existencia entra por '
-                    . 'Inventario → Entregas, como entrada sin origen, a una bodega o a una persona.',
+                    . 'Inventarios → Entregas y traspasos → Entrada de material, a una bodega o a una persona.',
                 'inaccessible_products' => 0,
             ];
         }
@@ -242,7 +281,7 @@ class InventoryAvailability
             'message' => "Hay saldo de {$conSaldo} producto(s) por cantidad, pero en bodegas o en poder de "
                 . "personas de las que no puedes tomar en {$where}. Cada quien toma lo suyo y lo del técnico "
                 . 'asignado; las bodegas, sólo con permiso de inventario. Pide que te lo entreguen en '
-                . 'Inventario → Entregas.',
+                . 'Inventarios → Entregas y traspasos.',
             'inaccessible_products' => $conSaldo,
         ];
     }

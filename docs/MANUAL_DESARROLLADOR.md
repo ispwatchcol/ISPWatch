@@ -1386,6 +1386,42 @@ $stock->acceptsQuantity(12.55);    // true si respeta esos decimales
 Pruebas: `tests/Feature/Inventory/MaterialConsumptionByQuantityTest.php` (caso fibra 9830 m en
 orden y ticket, precisión, saldo, tenants, reenvío, cable) y `QuantityDecimalsBackfillTest.php`.
 
+**Catálogo ≠ existencia; serial ≠ material (2026-10-11).**
+
+- Un material nace en dos pasos: `inventory_stock` con `is_serialized = false` (pantalla Stock →
+  «Agregar material») y una **entrada** por `InventoryLedger::transferQuantity()` sin origen
+  (Entregas y traspasos → «Entrada de material»). No hay otra puerta para su existencia.
+- `inventory_device` es sólo para modelos por serial. Lo exigen
+  `InventoryDeviceController::onlySerializedStock()` (alta, y edición si cambia el modelo) e
+  `InventoryImport` (fila rechazada). Si agregas otra forma de crear equipos, aplica la misma regla.
+- Las filas viejas de `inventory_device` sobre un material **no** son existencia:
+  `InventoryAvailability` cuenta equipos sólo de modelos por serial (`serializedStockIds()`) y las
+  informa aparte (`serialRowsOnConsumables()` → `serial_rows` en `GET /inventory-stock`). Los
+  selectores de orden y ticket tampoco las ofrecen.
+- `inventory_stock.price` es un precio de catálogo por unidad de medida con dos usos (precio
+  congelado de la línea consumida y, si el tenant lo activó, costo del gasto de entrada). No le
+  agregues un tercer significado sin separar el campo (P-93).
+
+**Recorrido de navegador del material por cantidad.** `tests/Browser/material-por-cantidad.mjs`
+recorre por pantalla el alta de «Fibra drop», la entrada de 100 m, la entrega y el consumo en orden
+y ticket, y guarda capturas. La suite de PHPUnit no tiene navegador y el CI tampoco: se corre a
+mano contra un backend de pruebas (nunca producción; el script se niega a usar otro host que
+127.0.0.1/localhost porque crea datos):
+
+```bash
+# backend aislado: APP_ENV=testing, DB_CONNECTION=sqlite con un archivo propio, y
+# `cd public && php -S 127.0.0.1:5186 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php`
+VITE_API_URL= npx vite build
+BASE_URL=http://127.0.0.1:5186 ADMIN_USER=admin_demo ADMIN_PASS=... \
+TECH_USER=tecnico_demo TECH_PASS=... INSTALLATION_ID=2 TICKET_ID=1 \
+node tests/Browser/material-por-cantidad.mjs
+```
+
+Necesita Node ≥ 22 y Edge o Chrome (`BROWSER=`). El técnico no debe tener `view_inventory`; la
+orden y el ticket deben estar asignados a él. Cada corrida usa nombres únicos, así que se puede
+repetir sobre la misma base. Ojo al escribir pasos nuevos: las opciones de material en Vue llevan
+un objeto como valor; se eligen por `selectedIndex`, no por `value`.
+
 **Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
 `unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar
 sigue siendo `generateCharge()` con su propio bloqueo por `no_charge`. Y las líneas `in` nacen
