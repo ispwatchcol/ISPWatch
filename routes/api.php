@@ -19,6 +19,7 @@ use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\TicketInterventionController;
 use App\Http\Controllers\TicketMeasurementController;
+use App\Http\Controllers\TicketSubjectController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
@@ -642,6 +643,18 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // tocar (supuesto S-3 del diseño).
         Route::get('/support/archived', [SupportTicketController::class, 'archived'])
             ->middleware('permission:ticket_archive,ticket_restore');
+
+        // Asuntos frecuentes del ticket (catálogo por ISP). Antes del
+        // apiResource por lo mismo que `archived`: `support/{support}` casaría
+        // con `support/subjects`. Leer basta con `ticket_view` (quien radica o
+        // filtra necesita la lista); administrarlos es `ticket_manage_catalogs`
+        // (D-13, concedido a `admin` por la migración 2026_10_11_000002).
+        Route::get('/support/subjects', [TicketSubjectController::class, 'index']);
+        Route::middleware('permission:ticket_manage_catalogs')->group(function () {
+            Route::post('/support/subjects', [TicketSubjectController::class, 'store']);
+            Route::put('/support/subjects/{subject}', [TicketSubjectController::class, 'update']);
+            Route::delete('/support/subjects/{subject}', [TicketSubjectController::class, 'destroy']);
+        });
 
         Route::post('/support/{ticket}/archive', [SupportTicketController::class, 'archive'])
             ->middleware('permission:ticket_archive');

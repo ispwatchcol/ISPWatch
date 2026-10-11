@@ -428,7 +428,7 @@ como los reintentos del failover** (`retryFailedInvoice`). El orden no es casual
 |---|---|---|
 | 1 | `Invoice::create` con el cargo del plan | `balance_due` sale del total, **sin atajos**: un mes de cortesía nace en cero porque su subtotal *es* cero |
 | 2 | Ítem del plan (`type = plan`) | Prorrateo y cortesía ya resueltos por `FirstInvoicePolicy` |
-| 3 | `applyPendingCarryoversTo()` — arrastre de abonos parciales | Se salta en meses de cortesía, a propósito: espera a la siguiente factura cobrable |
+| 3 | `applyPendingCarryoversTo()` — arrastre de abonos parciales y **una cuota por acuerdo de pago** de instalación | Se salta en meses de cortesía, a propósito: espera a la siguiente factura cobrable. Qué entra lo decide `chargeablePendingCarryovers()`, que también usa la vista previa de facturas faltantes |
 | 4 | **`applyAdditionalServicesTo()`** — servicios adicionales recurrentes | Después del arrastre y **antes** del crédito |
 | 5 | `applyCreditToInvoice()` — saldo a favor | Aplicarlo antes del paso 4 lo calcularía contra un total incompleto y dejaría `balance_due` mal |
 | 6 | Notificación | Decide por `balance_due > 0`, no por el motivo: una cortesía con adicionales **sí** se avisa |
@@ -618,6 +618,54 @@ Dos consecuencias de diseño que conviene tener presentes:
 Los PDF que el ISP sube a mano (`type = contrato`, `signed = false`) **no** reciben número:
 no se puede sellar por dentro un archivo ajeno, y un consecutivo que no aparece en el papel
 prometería una trazabilidad que el documento no tiene.
+
+### Acuerdo de pago de la instalación en cuotas (2026-10-11)
+
+La casilla «Acuerdo de pago» de la cartera existía desde junio y no hacía nada: la factura de
+instalación nacía vencida el mismo día por todo el saldo y, con `overdue_invoices = 1`, al
+cliente que había pactado pagar en cuotas se le cortaba al día siguiente.
+
+**El modelo.** Las cuotas no son un concepto contable nuevo: son **arrastres** numerados.
+
+```
+Factura de instalación (madre)       total 150.000 · abono 30.000
+  carried_out = 120.000  ─────────►  invoice_carryovers  (installment 1/3, 2/3, 3/3 · 40.000 c/u)
+  balance_due = 0 (paid)                 │ monthly  → pending; cada mensualidad absorbe UNA
+                                         │ separate → applied a su propia factura (vence mes a mes)
+```
+
+Es el mismo camino por el que ya salía el faltante de un abono parcial, así que la ecuación
+de la factura (C1 de `billing:audit-books`), la coherencia del arrastre (C13), anular, borrar
+y «marcar como no pagada» funcionan sin una regla nueva. La única regla nueva está en
+`BillingService::chargeablePendingCarryovers()`: de cada acuerdo, sólo la cuota de número más
+bajo que siga pendiente.
+
+**Dos modos, a elección del asesor** (`customer_installations.installments_mode`):
+
+| | `monthly` | `separate` |
+|---|---|---|
+| Facturas que recibe el cliente | Una al mes (la mensualidad trae la cuota) | La mensualidad + una por cuota |
+| Cuándo cuenta para mora/corte | Si no paga la mensualidad | Cuando vence cada cuota |
+| Tope de facturación | No le afecta | Las cuotas que **no han vencido** no cuentan (`pendingInvoiceCount`) |
+| Cliente «no facturar» | Las cuotas no se cobran (aviso al guardar) | Se cobran igual |
+
+**Quién la arma:** `InstallationInstallmentPlanner::sync()`, llamado desde
+`InstallationBillingService::syncPayment()` dentro de la misma transacción que la factura.
+Calcula lo que la madre debe *antes* de financiar (total − asignado − saldo a favor −
+faltantes ya arrastrados), deja fijo lo ya **cobrado** y reparte lo que falta. «Cobrada» es,
+en `monthly`, la cuota que ya viajó a una mensualidad; en `separate`, la que su factura ya
+recibió dinero. Lo que no cuadra (menos cuotas que las cobradas, cambiar de modo con cuotas
+cobradas, un saldo por debajo de lo cobrado) se rechaza con 422 y, como el controlador
+envuelve orden + factura en una transacción, la orden tampoco queda a medias. Las facturas
+aparte intactas se reescriben **en su sitio**; las sobrantes se **anulan**, nunca se borran.
+
+**Lo que no hace, a propósito:** no cobra intereses (es un diferimiento, no un crédito), no
+tiene calendario propio en modo `monthly` (la cuota sigue al ciclo de facturación del router:
+si una mensualidad se anula, la cuota se corre un mes) y no emite avisos propios.
+
+**Dos arreglos que salieron del camino.** `syncPayment()` recalculaba el saldo ignorando los
+faltantes de abonos parciales ya arrastrados (re-guardar la cartera los volvía a deber), y
+volver a guardar la cartera de una factura **anulada** la resucitaba. Ver bitácora § 113.
 
 ### Plantillas de documentos (`app/Services/Templates`)
 
@@ -2111,6 +2159,31 @@ Por eso el frontend recibe siempre `code` **y** `label`: colorea por el primero,
 estable, y muestra el segundo, que no lo es. La SPA los obtiene de
 `GET /api/catalogs/ticket` mediante el composable `useTicketCatalogs()`, que sustituyó a
 los mapas de etiquetas que estaban duplicados en cinco componentes.
+
+### 15.7 Asuntos frecuentes: un catálogo del ISP, no de plataforma (2026-10-11)
+
+El asunto era texto libre y por eso no servía para filtrar. `ticket_subjects` es la lista de
+asuntos de **cada ISP**, que administra quien tiene `ticket_manage_catalogs` (D-13, concedido
+a `admin`) desde Soporte → *Asuntos*.
+
+No sigue el modelo de los siete catálogos de arriba: no hay filas de plataforma, no hay
+`code` estable ni vigencia por fechas (basta `is_active`), y no se versiona para el
+integrador. Es vocabulario operativo —lo que un ISP llama «Caída de nodo» otro lo llama
+«Masivo»— y meterlo en `ticket_category` ataría el contrato de socios al gusto de cada
+cliente.
+
+Tres decisiones:
+
+- **El texto se conserva.** `support_ticket.subject` sigue siendo la verdad que leen la API
+  de socios, la búsqueda y los tickets viejos; al elegir del catálogo el servidor copia el
+  nombre y guarda `subject_id`. El filtro va por id, así que renombrar un asunto no rompe la
+  agrupación ni reescribe expedientes.
+- **«Otro…» existe.** El asunto raro de una vez no justifica una fila. Al filtrar, esos tickets
+  (y los anteriores al catálogo) se agrupan en `subject_id=other`.
+- **Se corrige al cerrar.** El modal de proponer cierre / cerrar / cierre especial muestra el
+  asunto y el diagnóstico editables y los guarda con el `PUT` de siempre **antes** de la
+  acción, porque los requisitos de cierre se evalúan sobre lo guardado. Los permisos son los
+  de siempre, campo por campo; lo que el rol no puede cambiar se muestra bloqueado.
 
 ---
 

@@ -861,6 +861,7 @@ sólo uno deja fila en `payment_allocations`**:
 | Pago asignado | `payment_allocations.amount` |
 | Saldo a favor aplicado | `customer_credits` (`applied`, negativo). **No crea asignación** |
 | Faltante de un abono parcial | `invoices.carried_out` → `invoice_carryovers` |
+| Cuota de un acuerdo de pago de instalación | `invoices.carried_out` → `invoice_carryovers` con `installment_number` |
 | Anulación | `balance_due = 0`, `carried_out = 0` |
 
 De ahí las dos invariantes que `BooksAuditService` verifica y que **tu código debe conservar**:
@@ -888,6 +889,21 @@ Tres consecuencias prácticas:
 Si recibes dinero por un camino nuevo, **acredita el excedente**: lo que no se asigna a una
 factura tiene que volverse saldo a favor, o desaparece de los libros. Se comprueba corriendo
 `php artisan billing:audit-books --tenant=N` — si tu cambio está bien, no sale ningún hallazgo.
+
+**Cuotas de instalación: no inventes un camino nuevo para diferir un cobro.** El acuerdo de pago
+reutiliza el arrastre (`InstallationInstallmentPlanner`): la factura madre saca lo financiado
+por `carried_out` y cada cuota es una fila de `invoice_carryovers` con `installment_number` /
+`installment_count`. Tres cosas que hay que respetar si tocas algo de eso:
+
+- **Qué arrastres cobra una mensualidad lo decide un solo método**,
+  `BillingService::chargeablePendingCarryovers()`: todos los faltantes y, de cada acuerdo, la
+  cuota de número más bajo. La generación y la vista previa (`explainMonthlyInvoice`) lo
+  llaman los dos; si filtras arrastres en otro sitio, la vista previa mentirá.
+- **`InvoiceCarryover::pendingTotalFor()` ya sólo suma faltantes** («se cobra entero en la
+  próxima factura»). Las cuotas pendientes van por `pendingInstallmentsFor()`.
+- **Lo cobrado no se reescribe.** El planificador deja fijas las cuotas ya cobradas y reparte
+  sólo lo que falta; lo que no cuadra es un 422, nunca un ajuste silencioso. Y una factura de
+  cuota que sobra se **anula** con `voidInvoice()`, no se borra.
 
 **Añadir una comprobación nueva:** un método `protected` en `BooksAuditService`, su nombre en
 el array de `run()`, y devuélvela por `hallazgo()` pasando la **expresión SQL** del importe (no
@@ -1411,7 +1427,14 @@ mano contra un backend de pruebas (nunca producción; el script se niega a usar 
 ```bash
 # backend aislado: APP_ENV=testing, DB_CONNECTION=sqlite con un archivo propio, y
 # `cd public && php -S 127.0.0.1:5186 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php`
-VITE_API_URL= npx vite build
+# con además SESSION_DRIVER=file y SANCTUM_STATEFUL_DOMAINS=127.0.0.1:5186: el login es por
+# cookie de sesión, y con el driver `array` de .env.testing o sin ese dominio «con estado»
+# cada petición llega sin usuario.
+#
+# ASSET_URL vacío también, no sólo VITE_API_URL: `vite build` lee .env.production y sin
+# esto el bundle pide los chunks al dominio de PRODUCCIÓN (la pantalla sale en blanco o,
+# peor, con el código viejo desplegado).
+ASSET_URL= VITE_API_URL= npx vite build
 BASE_URL=http://127.0.0.1:5186 ADMIN_USER=admin_demo ADMIN_PASS=... \
 TECH_USER=tecnico_demo TECH_PASS=... INSTALLATION_ID=2 TICKET_ID=1 \
 node tests/Browser/material-por-cantidad.mjs
@@ -1972,6 +1995,23 @@ onMounted(() => cargar())
 Los mapas de **color** sí se quedan en el componente, indexados por `code`. La regla:
 el color es presentación y se decide por código —que es estable—; la etiqueta es dato de
 negocio y viene del catálogo. Nunca compares contra la etiqueta.
+
+**7. Los asuntos frecuentes NO son uno de estos catálogos**
+
+`ticket_subjects` es vocabulario propio de cada ISP (sin filas de plataforma, sin `code`, sin
+vigencia por fechas, con `is_active`) y se administra por pantalla, no por migración. En el
+backend no hay que tocar nada para añadir un asunto. En el frontend:
+
+- El campo de asunto es **un componente**, `TicketSubjectField` (`{ subject_id, subject }`), que
+  usan el alta, la edición y el modal de cierre. No vuelvas a poner un `<input>` de asunto suelto:
+  el filtro sólo sirve si todo el que radica elige del mismo catálogo.
+- Los vigentes llegan en `subjects` de `GET /api/catalogs/ticket`. Quien los cambie tiene que
+  refrescar con `cargar(true)` (lo hace `Support.vue` al cerrar el gestor). El **filtro** del
+  listado usa `GET /api/support/subjects`, que incluye los desactivados: un asunto retirado no
+  se ofrece al radicar, pero sus tickets se tienen que poder encontrar.
+- En el servidor, `subject_id` manda sobre `subject`: con asunto del catálogo el texto lo pone
+  `SupportTicketController::resolverAsunto()`. Si aceptas el asunto por otra puerta, pásalo por
+  ahí.
 
 **Trampa de Eloquent (te va a morder):** si te tienta escribir un ayudante que devuelva
 `Attribute` para no repetir accessors, **no le declares el tipo de retorno**. Eloquent

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CustomerCredit;
 use App\Models\CustomerInstallation;
 use App\Models\Invoice;
+use App\Models\InvoiceCarryover;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
@@ -13,8 +14,10 @@ use Illuminate\Support\Facades\Log;
 
 class InstallationBillingService
 {
-    public function __construct(protected BillingService $billingService)
-    {
+    public function __construct(
+        protected BillingService $billingService,
+        protected InstallationInstallmentPlanner $installments,
+    ) {
     }
 
     /**
@@ -38,6 +41,15 @@ class InstallationBillingService
             $existing = Invoice::where('installation_id', $installation->id)
                 ->where('tenant_id', $tenantId)
                 ->first();
+
+            // Una factura ANULADA en Facturación no se resucita desde la
+            // cartera. Antes, volver a guardar la orden le reescribía ítems y
+            // estado y la dejaba viva otra vez sin que nadie lo decidiera; con
+            // cuotas, además, colgaría un plan de una factura sin efecto (C13).
+            // El controlador avisa con el número.
+            if ($existing && $existing->estaAnulada()) {
+                return $existing;
+            }
 
             if ($existing) {
                 return $this->updateInvoice($existing, $items, $subtotal, $total, $installation, $tenantId);
@@ -220,13 +232,33 @@ class InstallationBillingService
             ->where('type', CustomerCredit::TYPE_APPLIED)
             ->sum('amount'));
 
-        $invoice->balance_due = max(0.0, $total - $allocated - $creditApplied);
+        // Lo que ya salió por abonos parciales (pagados en Facturación sobre
+        // esta factura) tampoco se vuelve a deber. Antes este recálculo lo
+        // ignoraba: guardar la cartera después de un abono parcial le devolvía
+        // a la factura el faltante que ya viajaba a la mensualidad, y la
+        // ecuación C1 dejaba de cuadrar (se cobraba dos veces).
+        $faltantesFuera = round((float) InvoiceCarryover::shortfalls()
+            ->where('from_invoice_id', $invoice->id)
+            ->sum('amount'), 2);
 
+        // Lo que la factura debe ANTES del acuerdo de pago.
+        $debe = max(0.0, round($total - $allocated - $creditApplied - $faltantesFuera, 2));
+
+        // Acuerdo de pago: lo financiado sale de aquí y espera en cuotas.
+        $financiado = $this->installments->sync($invoice, $installation, $debe, auth()->id());
+
+        $invoice->carried_out = round($faltantesFuera + $financiado, 2);
+        $invoice->balance_due = max(0.0, round($debe - $financiado, 2));
+
+        // `partial` siempre que el saldo esté por debajo del total —por pago,
+        // saldo a favor o cuotas—, no sólo cuando hay asignaciones: si no, la
+        // factura financiada o saldada con crédito decía «issued» con un saldo
+        // menor que su total (C4).
         $invoice->status = match (true) {
-            $total <= 0                    => 'paid',
-            $invoice->balance_due <= 0     => 'paid',
-            $allocated > 0                 => 'partial',
-            default                        => 'issued',
+            $total <= 0                                  => 'paid',
+            $invoice->balance_due <= 0                   => 'paid',
+            $invoice->balance_due + 0.009 < $total       => 'partial',
+            default                                      => 'issued',
         };
         $invoice->save();
     }

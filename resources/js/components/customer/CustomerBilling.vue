@@ -18,6 +18,10 @@
         <p v-if="carryoverBalance > 0" class="text-xs mt-2 bg-white/20 rounded-lg px-2 py-1 inline-block">
           ↷ ${{ fmt(carryoverBalance) }} para la próxima factura
         </p>
+        <!-- Cuotas de instalación: tampoco se deben hoy, y van una por mes. -->
+        <p v-if="installmentsBalance > 0" class="text-xs mt-2 bg-white/20 rounded-lg px-2 py-1 inline-block">
+          ${{ fmt(installmentsBalance) }} en {{ installmentsPending }} cuota(s) de instalación, una por mensualidad
+        </p>
       </div>
 
       <!-- Saldo a favor -->
@@ -491,6 +495,10 @@ const netBalance     = ref(0)   // what they actually owe
 // Faltante de abonos parciales cuyas facturas ya se cerraron: se cobra en la
 // próxima factura, así que NO entra en el saldo pendiente de hoy.
 const carryoverBalance = ref(0)
+// Cuotas de instalación que esperan la mensualidad (una por factura). Aparte
+// del arrastre: el arrastre se cobra entero en la próxima, las cuotas no.
+const installmentsBalance = ref(0)
+const installmentsPending = ref(0)
 // Estado de corte del cliente: se avisa antes de cobrar, porque registrar el
 // pago lo reconecta automáticamente.
 const suspension     = ref(null)
@@ -631,6 +639,8 @@ const fetchData = async () => {
     creditBalance.value = balRes.data.credit_balance ?? 0
     netBalance.value    = balRes.data.net_balance    ?? balRes.data.balance ?? 0
     carryoverBalance.value = balRes.data.carryover_balance ?? 0
+    installmentsBalance.value = balRes.data.installments_balance ?? 0
+    installmentsPending.value = balRes.data.installments_pending ?? 0
     suspension.value    = balRes.data.suspension ?? null
   } catch (e) {
     console.error('Error cargando facturación:', e)

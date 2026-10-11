@@ -8,6 +8,7 @@ use App\Models\SupportTicket;
 use App\Models\SupportTicketMessage;
 use App\Models\SupportTicketAttachment;
 use App\Models\SupportTicketHistory;
+use App\Models\TicketSubject;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Support\TicketCatalogs;
@@ -17,6 +18,7 @@ use App\Support\TicketWorkflow;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\In;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
@@ -140,7 +142,98 @@ class SupportTicketController extends Controller
             $mensajes["{$campo}.in"] = "{$nombre} no pertenece al catálogo vigente.";
         }
 
+        $mensajes['subject_id.exists'] = 'El asunto elegido no pertenece al catálogo de asuntos.';
+        $mensajes['subject.required_without'] = 'El asunto es requerido: elige uno del catálogo o escribe uno.';
+
         return $mensajes;
+    }
+
+    /**
+     * Regla de `subject_id`: un asunto del catálogo de ESTE ISP.
+     *
+     * Sólo comprueba pertenencia, no vigencia: un ticket radicado con un asunto
+     * que después se retiró tiene que poder volver a guardarse sin cambiarle el
+     * asunto. La vigencia se exige al CAMBIAR de asunto, en `resolverAsunto()`.
+     *
+     * @return array<int, mixed>
+     */
+    private function reglaDeAsunto(?int $tenantId): array
+    {
+        return [
+            'nullable',
+            'integer',
+            Rule::exists('ticket_subjects', 'id')->where('tenant_id', $tenantId),
+        ];
+    }
+
+    /**
+     * Deja `subject` y `subject_id` coherentes entre sí antes de guardar.
+     *
+     *  · Con asunto del catálogo, el TEXTO se copia de su nombre: lo que el
+     *    navegador mande en `subject` se ignora. Así no puede quedar un ticket
+     *    con `subject_id` de «Sin internet» y texto «Traslado».
+     *  · Si el asunto del catálogo no cambia, no se toca el texto: el ticket
+     *    conserva lo que se radicó ese día aunque el asunto se haya renombrado
+     *    después.
+     *  · «Otro…» es `subject_id = null` + texto libre, que entonces sí es
+     *    obligatorio.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function resolverAsunto(array $data, ?SupportTicket $ticket = null): array
+    {
+        if (!array_key_exists('subject_id', $data)) {
+            // Un cliente que sólo conoce el texto (la pantalla anterior a este
+            // cambio, un integrador) y lo CAMBIA sobre un ticket con asunto de
+            // catálogo: el ticket pasa a «Otro…». Dejar el `subject_id` viejo
+            // lo seguiría agrupando bajo un asunto que ya no dice.
+            if ($ticket && $ticket->subject_id !== null && array_key_exists('subject', $data)
+                && trim((string) $data['subject']) !== (string) $ticket->subject) {
+                $data['subject']    = trim((string) $data['subject']);
+                $data['subject_id'] = null;
+            }
+
+            return $data;
+        }
+
+        $nuevoId  = $data['subject_id'] === null ? null : (int) $data['subject_id'];
+        $actualId = $ticket?->subject_id === null ? null : (int) $ticket->subject_id;
+
+        if ($nuevoId === null) {
+            // Pasar de un asunto del catálogo a «Otro…» exige escribirlo: el
+            // texto viejo era el nombre del catálogo, no lo que se quiere ahora.
+            $respaldo = ($ticket && $actualId === null) ? $ticket->subject : '';
+            $texto    = trim((string) ($data['subject'] ?? $respaldo));
+
+            if ($texto === '') {
+                throw ValidationException::withMessages([
+                    'subject' => 'Escribe el asunto, o elige uno del catálogo.',
+                ]);
+            }
+
+            $data['subject'] = $texto;
+
+            return $data;
+        }
+
+        if ($ticket && $nuevoId === $actualId) {
+            unset($data['subject']);
+
+            return $data;
+        }
+
+        $asunto = TicketSubject::find($nuevoId);
+
+        if (!$asunto || !$asunto->is_active) {
+            throw ValidationException::withMessages([
+                'subject_id' => 'Ese asunto está desactivado: elige uno vigente del catálogo.',
+            ]);
+        }
+
+        $data['subject'] = $asunto->name;
+
+        return $data;
     }
 
     /**
@@ -169,6 +262,8 @@ class SupportTicketController extends Controller
             $query->where('user_id', $request->user_id);
         }
 
+        $this->filtrarPorAsunto($query, $request);
+
         // Búsqueda. whereLike/orWhereLike eligen ilike o like según el motor y
         // escapan los comodines: con `LIKE` a secas, PostgreSQL distingue
         // mayúsculas y buscar "eliud" no encontraba "Eliud" — un fallo que los
@@ -194,7 +289,11 @@ class SupportTicketController extends Controller
         $tenantId = $request->user()?->tenant_id;
 
         $data = $request->validate([
-            'subject' => 'required|string|max:255',
+            // Del catálogo (`subject_id`) o escrito a mano («Otro…»). Uno de
+            // los dos: la API de socios y los tickets viejos siguen mandando
+            // sólo el texto, y eso no cambia.
+            'subject' => 'required_without:subject_id|nullable|string|max:255',
+            'subject_id' => $this->reglaDeAsunto($tenantId),
             'description' => 'nullable|string',
             'category' => ['nullable', $this->reglaDe(TicketCatalogs::CATEGORY)],
             'user_id' => 'required|exists:users,id',
@@ -218,6 +317,8 @@ class SupportTicketController extends Controller
             return $this->negar($falta);
         }
 
+        $data = $this->resolverAsunto($data);
+
         DB::beginTransaction();
 
         try {
@@ -232,6 +333,7 @@ class SupportTicketController extends Controller
                 'staff_id' => $data['staff_id'] ?? null,
                 'sectorial_id' => $data['sectorial_id'] ?? null,
                 'subject' => $data['subject'],
+                'subject_id' => $data['subject_id'] ?? null,
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'] ?? 'general',
                 'priority' => SupportTicket::PRIORITY_MEDIUM,
@@ -320,7 +422,10 @@ class SupportTicketController extends Controller
         $ticket = SupportTicket::findOrFail($id);
 
         $validator = \Validator::make($request->all(), [
-            'subject' => 'sometimes|required|string|max:255',
+            // `subject` ya no es `required` aquí: con un asunto del catálogo el
+            // texto lo pone el servidor. Vacío y sin catálogo se rechaza abajo.
+            'subject' => 'sometimes|nullable|string|max:255',
+            'subject_id' => array_merge(['sometimes'], $this->reglaDeAsunto($ticket->tenant_id)),
             'description' => 'nullable|string',
             'category' => ['sometimes', $this->reglaDe(TicketCatalogs::CATEGORY)],
             'priority' => ['sometimes', $this->reglaDe(TicketCatalogs::PRIORITY)],
@@ -358,6 +463,25 @@ class SupportTicketController extends Controller
         }
 
         $data = $validator->validated();
+
+        if (array_key_exists('subject', $data) && !array_key_exists('subject_id', $data)
+            && trim((string) $data['subject']) === '') {
+            return response()->json([
+                'message' => 'Error de validación.',
+                'errors'  => ['subject' => ['El asunto es requerido.']],
+            ], 422);
+        }
+
+        // Elegir asunto del catálogo cuenta como editar el asunto (`ticket_edit`):
+        // `permisoQueFalta()` compara `subject_id` contra el ticket más abajo.
+        try {
+            $data = $this->resolverAsunto($data, $ticket);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'message' => 'Error de validación.',
+                'errors'  => $e->errors(),
+            ], 422);
+        }
 
         // PR B · AUTORIZACIÓN POR CAMPO.
         //
@@ -494,6 +618,7 @@ class SupportTicketController extends Controller
      */
     private const PERMISO_POR_CAMPO = [
         'subject'         => Permissions::TICKET_EDIT,
+        'subject_id'      => Permissions::TICKET_EDIT,
         'description'     => Permissions::TICKET_EDIT,
         'sectorial_id'    => Permissions::TICKET_EDIT,
         'staff_id'        => Permissions::TICKET_ASSIGN,
@@ -585,6 +710,28 @@ class SupportTicketController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Filtro por asunto del catálogo. `subject_id=other` agrupa los que NO
+     * tienen asunto de catálogo: los escritos a mano («Otro…») y los tickets
+     * anteriores al catálogo. `all` o ausente no filtra.
+     */
+    private function filtrarPorAsunto($query, Request $request): void
+    {
+        $valor = $request->query('subject_id');
+
+        if ($valor === null || $valor === '' || $valor === 'all') {
+            return;
+        }
+
+        if ($valor === 'other') {
+            $query->whereNull('subject_id');
+
+            return;
+        }
+
+        $query->where('subject_id', (int) $valor);
     }
 
     /** 403 uniforme que dice QUÉ permiso falta, sin revelar nada más. */
@@ -1783,6 +1930,8 @@ class SupportTicketController extends Controller
         if ($request->has('user_id')) {
             $query->where('user_id', $request->user_id);
         }
+
+        $this->filtrarPorAsunto($query, $request);
 
         // `whereLike` elige ilike o like según el motor: con LIKE a secas
         // PostgreSQL distingue mayúsculas y la búsqueda falla en producción sin

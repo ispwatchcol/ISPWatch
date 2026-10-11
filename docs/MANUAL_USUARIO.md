@@ -683,6 +683,37 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > y **cobrar no vuelve a descontar el inventario**. Una línea ya agregada no se vuelve a ofrecer
    > mientras no guardes; después de guardar, revisa que no la cobres dos veces. Los servicios
    > (visita, mano de obra) se siguen agregando con **+ Agregar adicional**.
+
+   **Acuerdo de pago: la instalación en cuotas.** Si el cliente no paga todo hoy, marca
+   **Acuerdo de pago**. Lo que queda debiendo **después del valor recibido** se divide en
+   cuotas:
+
+   - **Número de cuotas**: de 1 a 24. Se reparten en pesos enteros y la última lleva el resto
+     ($100.000 en 3 cuotas = $33.333 + $33.333 + $33.334). Debajo ves cuánto se financia y de
+     cuánto queda cada cuota antes de guardar.
+   - **Cómo se cobran**, a elección del asesor:
+     - **Dentro de la mensualidad**: cada factura mensual trae la siguiente cuota como un renglón
+       más («Cuota 2 de 3 · instalación»). El cliente recibe **una sola factura al mes**.
+     - **Facturas aparte**: cada cuota sale como su propia factura, con vencimiento mes a mes desde
+       la fecha que indiques en **Vence la 1.ª cuota** (por defecto, dentro de un mes).
+
+   Al guardar, la factura de la instalación queda **Financiada en N cuotas**: ya no cuenta como
+   deuda vencida ni provoca corte. Las cuotas **sí**: si el cliente no paga la mensualidad que
+   trae su cuota —o una factura de cuota vencida—, aplica la mora de siempre. Debajo del resumen
+   aparece la lista **Cuotas del acuerdo** con cada cuota, en qué factura quedó y si está pagada.
+
+   > **Cambiar el acuerdo después.** Puedes cambiar valores o número de cuotas y volver a guardar:
+   > se reparte de nuevo **sólo lo que falta**. Las cuotas ya cobradas (las que ya salieron en una
+   > mensualidad o cuya factura ya recibió un pago) no cambian, y tampoco se puede cambiar de
+   > «mensualidad» a «facturas aparte» si ya hay cuotas cobradas. Si quitas el acuerdo, lo que no
+   > se ha cobrado vuelve a la factura de la instalación como saldo pendiente.
+   >
+   > **Cliente «No facturar».** Con cuotas *dentro de la mensualidad* no se le cobran mientras
+   > tenga esa marca, porque no se le generan mensualidades: el sistema te avisa al guardar. Usa
+   > *facturas aparte* si las quieres cobrar ya.
+   >
+   > En **Caja** y en la ficha de facturación del cliente verás aparte las *cuotas de instalación
+   > por cobrar*: no se suman todas a la próxima factura, van una por mes.
 5. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
    **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
    para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
@@ -1773,13 +1804,36 @@ Dos opciones importantes:
 
 1. **Soporte → Nuevo Ticket.**
 2. Elige el **cliente**.
-3. Escribe el **asunto** y la **descripción**.
+3. Elige el **asunto** de la lista (por ejemplo *Sin internet*, *Internet lento*, *Traslado*) y
+   escribe la **descripción**. Si ninguno sirve, elige **Otro…** y escríbelo a mano.
+   > Elegir de la lista es lo que permite después **filtrar los tickets por asunto**: «SIN
+   > INTERNET», «sin internet» y «no tiene internet» escritos a mano son tres asuntos distintos
+   > para el sistema. Los escritos a mano se agrupan como **Otro** en el filtro.
 4. Elige **categoría** (Técnico, Facturación, Servicios, General) y **prioridad**
    (Baja, Media, Alta, Urgente).
 5. Si el problema es de un elemento de red concreto, selecciona el **sectorial** afectado.
 6. Si la visita **no se le cobra al cliente**, marca **Sin cobro al cliente** en el bloque
    *Cargo Asociado*. Con eso el ticket no podrá generar cargos — ni hoy ni dentro de un mes.
 7. Guarda.
+
+### 14.1.1 Asuntos frecuentes (la lista del desplegable)
+
+**Soporte → botón Asuntos** (arriba, junto a *Nuevo Ticket*). Lo ve quien tiene el permiso
+*Tickets · administrar asuntos frecuentes*; los roles **Administrador** lo reciben
+automáticamente al actualizar.
+
+- **Agregar**: escribe el nombre y pulsa *Agregar*. No se puede repetir un nombre, aunque cambien
+  las mayúsculas.
+- **Renombrar**: cambia el texto en la fila. Los tickets que ya lo usaban **conservan el texto con
+  que se radicaron**, pero siguen agrupados bajo ese asunto en el filtro.
+- **Ordenar**: flechas ▲▼. Es el orden del desplegable.
+- **Desactivar**: deja de ofrecerse al radicar, pero sus tickets se siguen pudiendo filtrar.
+- **Eliminar** (✕): sólo si **ningún** ticket lo usa. El número junto a cada asunto dice cuántos
+  tickets lo tienen.
+
+**Filtrar por asunto:** en la lista de tickets, el primer filtro es **Todos los asuntos**. Elige
+uno, o **Otro (escrito a mano)** para ver los que no tienen asunto de la lista (incluidos los
+tickets anteriores a este cambio).
 
 ### 14.2 Trabajar el ticket
 
@@ -2039,6 +2093,15 @@ que está bien hecho.
 Si falta algo, el bloque **Ciclo de vida** te lo dice **antes** de abrir el cuadro de cierre, con
 la lista de lo que falta. Cerrar **no borra nada**: la causa sospechada, las notas, los adjuntos
 y los estados anteriores se quedan.
+
+**Revisar el asunto y el diagnóstico al cerrar.** Al pulsar **Proponer cierre**, **Cerrar
+ticket** o **Cierre especial**, el cuadro muestra arriba la sección **Revisa antes de cerrar**,
+con el **asunto** y el **diagnóstico técnico** ya cargados y editables. Corrígelos ahí mismo si
+lo que se encontró en la visita no es lo que se reportó (se radicó como *Sin internet* y era
+*Daño en fibra*), y completa la causa confirmada, la acción y el resultado sin tener que salir a
+*Editar*. Al confirmar se guardan primero esos cambios y después se cierra; si el cierre falla
+(por ejemplo, falta la medición final), lo que corregiste **ya quedó guardado**. Los campos que
+tu rol no puede cambiar aparecen bloqueados. El cambio de asunto queda en el historial.
 
 **Cierre especial.** Para cuando hay que cerrar sin uno de esos requisitos. Exige permiso aparte,
 un motivo de al menos 10 caracteres, y deja en el historial **cuál requisito faltó** y quién lo

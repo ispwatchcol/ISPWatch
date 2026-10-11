@@ -568,7 +568,11 @@
               Factura <span class="font-mono">#{{ installation.invoice_number }}</span>
             </p>
             <p class="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
-              Estado: <span :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
+              Estado:
+              <span v-if="plan" class="text-blue-700 dark:text-blue-300 font-semibold">
+                Financiada en {{ plan.count }} cuota{{ plan.count === 1 ? '' : 's' }}
+              </span>
+              <span v-else :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
             </p>
           </div>
           <!-- El detalle de factura vive en el módulo de facturación y exige sus
@@ -620,13 +624,84 @@
             </p>
           </div>
 
-          <!-- Acuerdo de pago -->
+          <!-- Acuerdo de pago: lo que queda debiendo después del valor
+               recibido se divide en cuotas. La factura de instalación queda
+               saldada (no cuenta para mora ni corte) y las cuotas se cobran
+               dentro de la mensualidad o en facturas aparte, a elección. -->
           <div class="sm:col-span-2">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input v-model="billing.payment_agreement" type="checkbox"
-                class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
-              <span class="text-sm text-gray-700 dark:text-gray-300">Acuerdo de pago</span>
+            <label class="flex items-start gap-2" :class="billing.no_charge ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'">
+              <input v-model="billing.payment_agreement" @change="onAgreementToggle" type="checkbox" :disabled="billing.no_charge"
+                class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+              <span>
+                <span class="text-sm text-gray-700 dark:text-gray-300">Acuerdo de pago</span>
+                <span class="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Divide en cuotas lo que queda debiendo después del valor recibido. La factura de instalación
+                  queda saldada y no cuenta para mora ni corte; las cuotas sí, cuando venzan.
+                </span>
+              </span>
             </label>
+
+            <div v-if="billing.payment_agreement && !billing.no_charge"
+              class="mt-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-3 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Número de cuotas</label>
+                  <input v-model.number="billing.installments_count" type="number" min="1" :max="MAX_CUOTAS" step="1"
+                    class="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+                    :class="{ 'border-red-400 dark:border-red-500': billingErrors.installments_count }" />
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cómo se cobran</label>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label v-for="m in MODOS_CUOTA" :key="m.value"
+                      class="flex items-start gap-2 rounded-lg border p-2 cursor-pointer transition"
+                      :class="billing.installments_mode === m.value
+                        ? 'border-blue-500 bg-white dark:bg-gray-800'
+                        : 'border-gray-200 dark:border-gray-600 bg-white/60 dark:bg-gray-800/60'">
+                      <input v-model="billing.installments_mode" type="radio" :value="m.value"
+                        class="mt-0.5 text-blue-600 focus:ring-blue-500" />
+                      <span>
+                        <span class="block text-sm font-medium text-gray-800 dark:text-gray-100">{{ m.label }}</span>
+                        <span class="block text-[11px] text-gray-500 dark:text-gray-400">{{ m.help }}</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <div v-if="billing.installments_mode === 'separate'">
+                  <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Vence la 1.ª cuota</label>
+                  <input v-model="billing.installments_first_due_date" type="date"
+                    class="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+                    :class="{ 'border-red-400 dark:border-red-500': billingErrors.installments_first_due_date }" />
+                  <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Las demás, mes a mes desde esta fecha.</p>
+                </div>
+              </div>
+
+              <p v-for="campo in ['installments_count', 'installments_mode', 'installments_first_due_date', 'payment_agreement']"
+                :key="campo" v-show="billingErrors[campo]" class="text-xs text-red-600 dark:text-red-400">
+                {{ billingErrors[campo]?.[0] }}
+              </p>
+
+              <p class="text-xs text-blue-900 dark:text-blue-200">
+                <template v-if="billingBalance > 0 && cuotasPrevistas.length">
+                  Se financian <strong>{{ fmtMoney(billingBalance) }}</strong> en
+                  <strong>{{ cuotasPrevistas.length }} cuota{{ cuotasPrevistas.length === 1 ? '' : 's' }}</strong>
+                  de {{ fmtMoney(cuotasPrevistas[0]) }}<template v-if="cuotasPrevistas.length > 1 && cuotasPrevistas.at(-1) !== cuotasPrevistas[0]">
+                  (la última de {{ fmtMoney(cuotasPrevistas.at(-1)) }})</template>,
+                  {{ billing.installments_mode === 'separate' ? 'cada una en su propia factura.' : 'una en cada factura mensual a partir de la próxima.' }}
+                </template>
+                <template v-else-if="billingBalance <= 0">
+                  No queda saldo por financiar: el valor recibido cubre la instalación.
+                </template>
+                <template v-else>
+                  Indica en cuántas cuotas y cómo se cobran.
+                </template>
+              </p>
+              <p v-if="plan && plan.items.some(c => c.locked)" class="text-[11px] text-blue-800/80 dark:text-blue-300/80">
+                Las cuotas ya cobradas no cambian: si modificas valores o número de cuotas, se reparte de nuevo solo lo que falta.
+              </p>
+            </div>
           </div>
 
           <!-- Valor de instalación -->
@@ -792,7 +867,13 @@
           </div>
           <div v-if="billing.payment_agreement">
             <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Acuerdo de pago</p>
-            <p class="text-sm text-gray-700 dark:text-gray-300">Sí</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300">
+              <template v-if="billing.installments_count">
+                {{ billing.installments_count }} cuota{{ billing.installments_count === 1 ? '' : 's' }} ·
+                {{ billing.installments_mode === 'separate' ? 'facturas aparte' : 'dentro de la mensualidad' }}
+              </template>
+              <template v-else>Sí</template>
+            </p>
           </div>
           <div v-if="billing.payment_notes" class="sm:col-span-2">
             <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones del pago</p>
@@ -823,10 +904,42 @@
             <span>{{ fmtMoney(billing.payment_received) }}</span>
           </div>
           <div class="flex justify-between text-sm font-semibold mt-1"
-            :class="billingBalance > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
-            <span>{{ billingBalance > 0 ? 'Saldo pendiente' : 'Pagado en su totalidad' }}</span>
+            :class="billingBalance <= 0
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : (plan ? 'text-blue-700 dark:text-blue-300' : 'text-amber-600 dark:text-amber-400')">
+            <span>
+              {{ billingBalance <= 0
+                ? 'Pagado en su totalidad'
+                : (plan ? `Financiado en ${plan.count} cuota${plan.count === 1 ? '' : 's'}` : 'Saldo pendiente') }}
+            </span>
             <span>{{ fmtMoney(billingBalance) }}</span>
           </div>
+        </div>
+
+        <!-- Plan de cuotas tal como quedó guardado (no la previsión del
+             formulario): qué cuota se cobró en qué factura y cuáles esperan. -->
+        <div v-if="plan" class="mt-4 rounded-lg border border-blue-200 dark:border-blue-800 overflow-hidden">
+          <div class="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-xs font-semibold text-blue-900 dark:text-blue-200 flex justify-between">
+            <span>Cuotas del acuerdo · {{ plan.mode === 'separate' ? 'facturas aparte' : 'dentro de la mensualidad' }}</span>
+            <span>{{ fmtMoney(plan.financed) }}</span>
+          </div>
+          <ul class="divide-y divide-gray-100 dark:divide-gray-700">
+            <li v-for="c in plan.items" :key="c.number" class="px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span class="text-gray-700 dark:text-gray-200">Cuota {{ c.number }} de {{ c.of }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                <template v-if="c.state === 'pending'">Se cobra en la próxima mensualidad</template>
+                <template v-else>
+                  <RouterLink v-if="canEditBilling && c.invoice_id" :to="`/billing/invoices/${c.invoice_id}`" class="underline">
+                    Factura #{{ c.invoice_number }}</RouterLink>
+                  <span v-else>Factura #{{ c.invoice_number }}</span>
+                  <template v-if="c.due_date"> · vence {{ c.due_date }}</template>
+                  · <span :class="c.paid ? 'text-emerald-600 dark:text-emerald-400' : invoiceStatusClass(c.invoice_status)">
+                    {{ c.paid ? 'Pagada' : invoiceStatusLabel(c.invoice_status) }}</span>
+                </template>
+              </span>
+              <span class="font-medium text-gray-800 dark:text-white">{{ fmtMoney(c.amount) }}</span>
+            </li>
+          </ul>
         </div>
 
         <button v-if="canEditBilling" @click="saveBilling" :disabled="savingBilling"
@@ -1007,6 +1120,9 @@ const billing = ref({
   no_charge:          false,
   no_charge_reason:   '',
   payment_agreement:  false,
+  installments_mode:  null,
+  installments_count: null,
+  installments_first_due_date: '',
   installation_cost:  null,
   additional_items:   [],
   discount:           null,
@@ -1346,6 +1462,40 @@ const billingBalance = computed(() =>
   Math.max(0, billingTotal.value - (Number(billing.value.payment_received) || 0))
 )
 
+// ── Acuerdo de pago en cuotas ──
+const MAX_CUOTAS = 24
+const MODOS_CUOTA = [
+  { value: 'monthly',  label: 'Dentro de la mensualidad', help: 'Una sola factura al mes: cada mensualidad trae la siguiente cuota.' },
+  { value: 'separate', label: 'Facturas aparte',          help: 'Cada cuota es su propia factura, con vencimiento mes a mes.' },
+]
+
+// El plan GUARDADO (lo devuelve el servidor). La previsión del formulario es
+// `cuotasPrevistas`; las dos difieren si ya hay cuotas cobradas.
+const plan = computed(() => installation.value?.installment_plan ?? null)
+
+/** Mismo reparto que el servidor: pesos enteros y la última lleva el resto. */
+const cuotasPrevistas = computed(() => {
+  const n = Number(billing.value.installments_count) || 0
+  const total = billingBalance.value
+  if (n < 1 || n > MAX_CUOTAS || total <= 0) return []
+  const base = Math.floor(total / n)
+  return [...Array(n - 1).fill(base), Math.round((total - base * (n - 1)) * 100) / 100]
+})
+
+const enUnMes = () => {
+  const d = new Date()
+  d.setMonth(d.getMonth() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Al marcar el acuerdo se proponen valores para no arrancar con un 422. */
+const onAgreementToggle = () => {
+  if (!billing.value.payment_agreement) return
+  if (!billing.value.installments_count) billing.value.installments_count = 2
+  if (!billing.value.installments_mode) billing.value.installments_mode = 'monthly'
+  if (!billing.value.installments_first_due_date) billing.value.installments_first_due_date = enUnMes()
+}
+
 const fmtMoney = (v) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v) || 0)
 
@@ -1412,6 +1562,9 @@ const loadInstallation = async ({ silent = false } = {}) => {
         no_charge:          !!data.no_charge,
         no_charge_reason:   data.no_charge_reason   ?? '',
         payment_agreement:  data.payment_agreement  ?? false,
+        installments_mode:  data.installments_mode  ?? null,
+        installments_count: data.installments_count ?? null,
+        installments_first_due_date: data.installments_first_due_date ?? '',
         installation_cost:  data.installation_cost  ?? null,
         additional_items:   items,
         discount:           data.discount           ?? null,
@@ -1569,6 +1722,12 @@ const saveBilling = async () => {
       no_charge:          billing.value.no_charge,
       no_charge_reason:   billing.value.no_charge_reason || null,
       payment_agreement:  billing.value.payment_agreement,
+      // Sin acuerdo no viaja plan: el servidor además los limpia.
+      installments_mode:  billing.value.payment_agreement ? (billing.value.installments_mode || null) : null,
+      installments_count: billing.value.payment_agreement ? toNum(billing.value.installments_count) : null,
+      installments_first_due_date: billing.value.payment_agreement && billing.value.installments_mode === 'separate'
+        ? (billing.value.installments_first_due_date || null)
+        : null,
       installation_cost:  toNum(billing.value.installation_cost),
       additional_items:   items,
       additional_charges: items.reduce((s, it) => s + it.amount, 0),
@@ -1589,7 +1748,9 @@ const saveBilling = async () => {
       // gente a ignorar los avisos rojos que sí importan.
       toast.value?.success('Cartera guardada', 'Orden sin cobro: no se generó factura.')
     } else if (data.invoice_warning) {
-      toast.value?.error('Sin factura', data.invoice_warning)
+      // Con factura el aviso es una advertencia (p. ej. cliente «no
+      // facturar» con cuotas en la mensualidad), no un «sin factura».
+      toast.value?.error(data.invoice ? 'Atención' : 'Sin factura', data.invoice_warning)
     } else if (data.invoice) {
       toast.value?.success('Cartera guardada', `Factura #${data.invoice.number} generada correctamente.`)
     } else {

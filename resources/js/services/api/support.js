@@ -41,6 +41,21 @@ export default {
     getStatistics() {
         return apiClient.get('/support/statistics')
     },
+    // Asuntos frecuentes del ISP. Leer: `ticket_view`; crear, renombrar,
+    // ordenar, desactivar y borrar: `ticket_manage_catalogs`. Un asunto que ya
+    // usaron tickets no se borra (409): se desactiva.
+    getSubjects(params = {}) {
+        return apiClient.get('/support/subjects', { params })
+    },
+    createSubject(data) {
+        return apiClient.post('/support/subjects', data)
+    },
+    updateSubject(id, data) {
+        return apiClient.put(`/support/subjects/${id}`, data)
+    },
+    deleteSubject(id) {
+        return apiClient.delete(`/support/subjects/${id}`)
+    },
     // El AUTOR no viaja en el cuerpo. Lo ponía el cliente leyéndolo de
     // localStorage —donde la sesión sólo está si se marcó «recordarme»— y sin
     // ese dato mandaba `user_id: 1`, que no existe: 422 en cada nota. Lo decide

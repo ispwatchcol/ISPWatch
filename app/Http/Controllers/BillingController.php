@@ -1007,6 +1007,10 @@ class BillingController extends Controller
         // verlo: es plata que le va a llegar en la próxima factura.
         $pendingCarryover = \App\Models\InvoiceCarryover::pendingTotalFor((int) $customerId);
 
+        // Cuotas de instalación que esperan la mensualidad: una por factura.
+        // Aparte del arrastre porque NO se suman todas a la próxima factura.
+        $pendingInstallments = \App\Models\InvoiceCarryover::pendingInstallmentsFor((int) $customerId);
+
         // Estado de corte: el cajero tiene que saber ANTES de cobrar que el
         // cliente está suspendido, y que registrar el pago lo va a reconectar.
         $suspension = $this->billingService->suspensionStatusFor((int) $customerId);
@@ -1016,6 +1020,8 @@ class BillingController extends Controller
             'credit_balance'   => $creditBalance,
             'net_balance'      => $netBalance,
             'carryover_balance'=> $pendingCarryover,
+            'installments_balance' => $pendingInstallments['amount'],
+            'installments_pending' => $pendingInstallments['count'],
             'suspension'       => $suspension,
         ]);
     }

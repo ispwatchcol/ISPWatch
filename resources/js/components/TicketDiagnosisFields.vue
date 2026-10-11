@@ -5,7 +5,7 @@
         </legend>
 
         <p class="text-xs text-gray-500 dark:text-gray-400 -mt-1 mb-5">
-            Opcional. Se puede completar más adelante, cuando se cierre la visita.
+            {{ ayuda ?? 'Opcional. Se puede completar más adelante, cuando se cierre la visita.' }}
         </p>
 
         <!-- Cargando: los desplegables vacíos sin explicación parecen un error -->
@@ -51,8 +51,10 @@
 
                 <select
                     :value="modelValue[campo.clave] ?? ''"
+                    :disabled="bloqueados.includes(campo.clave)"
+                    :title="bloqueados.includes(campo.clave) ? 'Tu rol no puede cambiar este campo' : null"
                     @change="actualizar(campo.clave, $event.target.value)"
-                    class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                     :class="{ 'border-red-500': errores[campo.clave] }"
                 >
                     <option value="">— Sin definir —</option>
@@ -103,6 +105,14 @@ const props = defineProps({
     /** Errores de validación del backend, por clave. */
     errores: { type: Object, default: () => ({}) },
     cargando: { type: Boolean, default: false },
+    /**
+     * Campos que quien mira no puede cambiar (p. ej. la causa confirmada sin
+     * `ticket_confirm_cause`). Se muestran deshabilitados en vez de dejar que
+     * el servidor responda 403 al guardar.
+     */
+    bloqueados: { type: Array, default: () => [] },
+    /** Texto de ayuda bajo el título; null deja el de siempre. */
+    ayuda: { type: String, default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'reintentar'])

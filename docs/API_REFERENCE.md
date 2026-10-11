@@ -631,7 +631,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `GET` | `/api/installations/planning-catalog` | `view_support` | Productos del tenant para **planificar** la orden, con disponibilidad agregada (2026-09-30) |
 | `GET` | `/api/installations/{installation}` | auth | Detalle |
 | `PUT` | `/api/installations/{installation}/prospect` | auth | Actualiza el prospecto asociado |
-| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
+| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales, descuento y **acuerdo de pago en cuotas**. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
 | `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
@@ -731,6 +731,50 @@ conciliación es posterior (entrega B).
 >
 > Reenviar el mismo valor no cuenta como cambio (`''` y `null` se normalizan), así que el
 > formulario completo se puede guardar sin permisos de cartera mientras la marca no se mueva.
+
+> 🧾 **Acuerdo de pago en cuotas** (2026-10-11). `PUT /api/installations/{installation}/billing`
+> acepta, junto a `payment_agreement`:
+>
+> | Campo | Valores | Para qué |
+> |---|---|---|
+> | `installments_mode` | `monthly` \| `separate` | Dentro de la mensualidad (cada factura mensual cobra la siguiente cuota) o una factura aparte por cuota |
+> | `installments_count` | entero 1–24 | En cuántas cuotas se divide lo que queda después de `payment_received` |
+> | `installments_first_due_date` | fecha | Vencimiento de la 1.ª cuota en modo `separate` (las demás, mes a mes). Por defecto, dentro de un mes |
+>
+> Con `payment_agreement: false` los tres se guardan en `null`. La factura de instalación
+> queda saldada (`balance_due = 0`, `carried_out` = lo financiado) y no cuenta para mora ni
+> corte; las cuotas sí, cuando vencen. Reparto en pesos enteros: $100.000 en 3 → 33.333 +
+> 33.333 + 33.334.
+>
+> | Situación | Respuesta |
+> |---|---|
+> | Acuerdo marcado, queda saldo y falta `installments_count` o `installments_mode` | **422** en `installments_count`. La orden **no** se guarda (todo va en una transacción) |
+> | Acuerdo marcado y `payment_received` cubre el total | 200, sin plan: no hay nada que financiar |
+> | Menos cuotas de las que ya se cobraron | **422** en `installments_count` |
+> | Cambiar `installments_mode` con cuotas ya cobradas | **422** en `installments_mode` |
+> | Un saldo por debajo de lo ya cobrado en cuotas | **422** (`installments_count` o `payment_agreement`) — se corrige en Facturación |
+> | Modo `monthly` con un cliente «no facturar» | 200 con `invoice_warning`: esas cuotas no se cobran mientras tenga la marca |
+> | La factura de instalación está **anulada** | 200 con `invoice_warning`; se guarda la cartera y la factura **no** se recalcula (antes se «resucitaba») |
+>
+> «Cobrada» quiere decir: en `monthly`, que ya viajó a una mensualidad; en `separate`, que su
+> factura ya recibió algún pago, saldo a favor o abono. Lo cobrado queda fijo y lo que falta
+> se reparte entre las cuotas que faltan; las facturas aparte intactas se **reescriben en su
+> sitio** (mismo número) y las sobrantes se **anulan**.
+>
+> La respuesta (y `GET /api/installations/{installation}` para quien ve la cartera) trae
+> `installment_plan`, o `null` si no hay plan:
+>
+> ```json
+> { "installment_plan": {
+>     "financed": 120000, "count": 3, "mode": "separate", "pending": 0,
+>     "items": [
+>       { "number": 1, "of": 3, "amount": 40000, "state": "billed",
+>         "invoice_id": 812, "invoice_number": "00000812", "invoice_status": "issued",
+>         "due_date": "2026-11-11", "paid": false, "locked": false } ] } }
+> ```
+>
+> `state` es `pending` (espera la próxima mensualidad) o `billed` (ya está en una factura).
+> Los tres campos `installments_*` se filtran por permiso igual que el resto de la cartera.
 
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
@@ -1570,6 +1614,23 @@ Excepciones: los **cargos adicionales** y las **facturas manuales** no absorben
 arrastres, y un **mes de cortesía** (factura en cero) tampoco — el saldo espera a la
 siguiente factura cobrable.
 
+**Cuotas de instalación** (2026-10-11). Las filas con `installment_number` son cuotas de
+un acuerdo de pago, no faltantes: la mensual absorbe **una por acuerdo** (la de número más
+bajo), cada una en su propio ítem `installment` («Cuota 2 de 3 · instalación (factura
+#…)»). El detalle de factura las trae en `carryovers_out` con `installment_number` e
+`installment_count`.
+
+`GET /api/billing/customers/{customerId}/balance` separa las dos cosas:
+
+| Campo | Qué es |
+|---|---|
+| `carryover_balance` | Faltantes de abonos parciales pendientes: se suman **enteros** a la próxima factura |
+| `installments_balance` | Cuotas de instalación que esperan la mensualidad |
+| `installments_pending` | Cuántas son (se cobra una por mensualidad) |
+
+Hasta el 2026-10-11 `carryover_balance` sumaba cualquier arrastre pendiente; las cuotas
+ya no entran ahí.
+
 ### Operaciones del ciclo
 
 | Método | Ruta | Descripción |
@@ -2204,6 +2265,10 @@ la visita.
 | `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
 | `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |
 | `GET` | `/api/support/archived` | `ticket_archive` **o** `ticket_restore` | **Expedientes archivados**, paginado y filtrable |
+| `GET` | `/api/support/subjects` | `ticket_view` | **Asuntos frecuentes** del ISP, retirados incluidos, con `usage` (tickets que lo usan). `?active=1` sólo los vigentes |
+| `POST` | `/api/support/subjects` | `ticket_manage_catalogs` | Crea un asunto (`name` ≤ 120, `sort_order?`, `is_active?`). Duplicado sin importar mayúsculas → **422** |
+| `PUT` | `/api/support/subjects/{subject}` | `ticket_manage_catalogs` | Renombra, reordena o activa/desactiva. Renombrar **no** reescribe el texto de los tickets viejos |
+| `DELETE` | `/api/support/subjects/{subject}` | `ticket_manage_catalogs` | Borra sólo si ningún ticket (ni archivado) lo usa; si no, **409** `subject_in_use` |
 | `POST` | `/api/support/{ticket}/archive` | `ticket_archive` | **Archiva** el expediente (reversible y auditado) |
 | `POST` | `/api/support/{ticket}/restore` | `ticket_restore` | **Restaura** un expediente archivado |
 
@@ -2216,7 +2281,7 @@ la visita.
 >
 > | Campo | Permiso |
 > |---|---|
-> | `subject`, `description`, `sectorial_id` | `ticket_edit` |
+> | `subject`, `subject_id`, `description`, `sectorial_id` | `ticket_edit` |
 > | `staff_id` | `ticket_assign` |
 > | `priority` | `ticket_set_priority` |
 > | `category` | `ticket_set_category` |
@@ -2255,6 +2320,27 @@ siempre.
 | Cambiar `no_charge` con permiso | 200, y evento `no_charge_changed` en el historial (`old_value`/`new_value` legibles, motivo en `metadata.reason`) |
 
 Marcarlo al **crear** el ticket no exige permiso aparte: va dentro de `ticket_create`.
+
+**Asunto del catálogo** (2026-10-11). `POST /api/support` y `PUT /api/support/{id}` aceptan
+`subject_id` (asunto de `ticket_subjects` del **mismo** ISP; de otro → **422**):
+
+| Envío | Resultado |
+|---|---|
+| `subject_id` | El servidor copia el nombre del asunto a `subject`; lo que venga en `subject` se ignora |
+| `subject_id: null` + `subject` | «Otro…»: texto libre, como siempre. Sin texto → **422** en `subject` |
+| Sólo `subject` (cliente que no conoce el catálogo) | Igual que antes al crear. Al editar, si el texto **cambia** sobre un ticket con asunto de catálogo, el ticket pasa a «Otro» (`subject_id = null`) |
+| Elegir un asunto **desactivado** | **422** en `subject_id`. Reenviar el que el ticket ya tiene sí vale |
+| `subject_id` igual al actual | No toca el texto: el ticket conserva lo que se radicó aunque el asunto se haya renombrado |
+
+`POST` exige uno de los dos (`subject_id` o `subject`). El listado `GET /api/support` y el de
+archivados filtran con `?subject_id=<id>`; `?subject_id=other` devuelve los que **no** tienen
+asunto de catálogo (escritos a mano y anteriores al catálogo). Cambiar el asunto deja el
+evento `subject_changed` en el historial (textos viejo y nuevo en `old_value`/`new_value`,
+`metadata.from_catalog`).
+
+`GET /api/catalogs/ticket` añade `subjects`: `[{ "id": 3, "name": "Sin internet" }]`, sólo los
+vigentes del ISP de la sesión y en su orden. Es aditivo: las demás claves no cambian. La API
+de socios (`/v1/partner`) **no** cambia: sigue exponiendo sólo `subject` (el texto).
 
 ### Pruebas técnicas del ticket (PR F2 · 2026-09-25)
 

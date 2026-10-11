@@ -52,6 +52,9 @@ class SupportTicket extends Model
         'sectorial_id',
         'tenant_id',
         'subject',
+        // Asunto del catálogo del ISP (`ticket_subjects`), o null si se
+        // escribió a mano («Otro…») o el ticket es anterior al catálogo.
+        'subject_id',
         'description',
         // R3: estas tres ya NO son columnas. Siguen aquí porque son el nombre
         // con el que entran los datos —`create(['status' => 'open'])` es lo que

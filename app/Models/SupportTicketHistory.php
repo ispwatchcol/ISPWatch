@@ -47,6 +47,13 @@ class SupportTicketHistory extends Model
     public const CHARGE_CREATED    = 'charge_created';
 
     /**
+     * Cambió el asunto del ticket (texto y/o asunto del catálogo). Se registra
+     * porque desde el catálogo de asuntos el asunto es una CLASIFICACIÓN que
+     * alimenta el filtro, y se puede corregir al cerrar la visita.
+     */
+    public const SUBJECT           = 'subject_changed';
+
+    /**
      * PR F3 · Movimiento de inventario hecho desde el ticket.
      *
      * Eventos propios y no `note_added`, aunque la nota fuera más barata: esto

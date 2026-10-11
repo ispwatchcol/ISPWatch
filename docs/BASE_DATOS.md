@@ -132,7 +132,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `invoices` | 1 168 | Facturas |
 | `invoice_items` | 1 166 | Ítems de factura |
 | `invoice_types` | 4 + propios | **Catálogo de tipos de factura** (4 del sistema + los del tenant) |
-| `invoice_carryovers` | 0 | **Arrastre de saldo** por abono parcial (factura vieja → factura nueva) |
+| `invoice_carryovers` | 0 | **Arrastre de saldo** por abono parcial (factura vieja → factura nueva) y **cuotas** de un acuerdo de pago de instalación (`installment_number`) |
 | `customer_credits` | 0 | **Libro del saldo a favor** (espejo positivo del anterior). La verdad del saldo; `customer_profile.credit_balance` es su caché |
 | `payments` | 1 086 | Pagos recibidos |
 | `payment_allocations` | 1 061 | Asignación pago → factura (N:M con importe) |
@@ -157,6 +157,7 @@ Volumetría medida en producción con **`COUNT(*)` real** (2026-07-30).
 | `ticket_status` / `_priority` / `_category` | 4 / 4 / 4 | **Catálogos versionados** que sustituyen a los enums del ticket (Fase 1 R1) |
 | `ticket_symptom` / `_cause` / `_solution` / `_result` | 16 / 7 / 20 / 15 | Vocabulario de diagnóstico del **Anexo A** del cliente. Las 48 subcausas no tienen código y viajan como texto en `description` (D-06) |
 | `ticket_catalog_version` | 7 | Versión de cada catálogo, para que un integrador sepa si su copia sigue vigente |
+| `ticket_subjects` | 0 | **Asuntos frecuentes** del ticket, propios de cada ISP. Alimentan el desplegable de Asunto y el filtro del listado (§ 4.15b) |
 | `inventory_stock` / `_device` / `_provider` / `_branch` | 0 / 0 / 2 / 0 | Inventario de equipos |
 | `help_categories` / `help_articles` | 9 / 30 | Centro de ayuda embebido |
 | `bulk_provision_runs` | 50 | Progreso de aprovisionamiento masivo asíncrono |
@@ -350,9 +351,11 @@ erDiagram
         bigint id PK
         bigint from_invoice_id FK
         bigint to_invoice_id FK "NULL mientras pending"
-        bigint payment_id FK
+        bigint payment_id FK "NULL en las cuotas"
         numeric amount
         varchar status "pending|applied"
+        smallint installment_number "cuota k (NULL = abono parcial)"
+        smallint installment_count "de N"
     }
     customer_credits {
         bigint id PK
@@ -734,6 +737,8 @@ de `customer_profile.credit_balance` (que guarda el excedente de un pago de más
 | `amount` | numeric(12,2) | NN | Monto arrastrado |
 | `status` | varchar(20) | NN | `pending` \| `applied` |
 | `applied_at` | timestamp | | Cuándo lo absorbió `to_invoice_id` |
+| `installment_number` | smallint | | **Cuota k** de un acuerdo de pago de instalación. NULL = faltante de abono parcial (migración `2026_10_11_000003`) |
+| `installment_count` | smallint | | **De N** cuotas. Se actualiza en todas las filas del plan si el plan cambia |
 
 Ciclo de vida:
 
@@ -748,6 +753,20 @@ Ciclo de vida:
 > Sólo la generación **mensual** absorbe arrastres. Un cargo adicional o una factura
 > manual no cargan deuda ajena encima. Un mes de cortesía (factura en cero) tampoco:
 > el saldo espera a la siguiente factura cobrable.
+
+**Cuotas de un acuerdo de pago** (desde 2026-10-11). Una fila con `installment_number` es
+una cuota: `from_invoice_id` es la factura de instalación, que sacó lo financiado por
+`carried_out` y quedó saldada; `payment_id` es NULL porque ningún pago la originó.
+
+| Modo (`customer_installations.installments_mode`) | Estado de la fila | Quién la cobra |
+|---|---|---|
+| `monthly` | `pending` hasta que la cobra una mensualidad | Cada factura mensual absorbe **una** cuota por plan (la de número más bajo pendiente), como ítem `installment` |
+| `separate` | `applied` desde que se crea | Su propia factura (`invoice_type = installation`, sin `installation_id`, `carried_in = amount`), con vencimiento mes a mes |
+
+Las reglas de anulación, borrado y «marcar como no pagada» son las del arrastre, sin
+excepción: anular la mensual que cobró una cuota la devuelve a `pending` (se corre un mes);
+anular la factura de instalación borra las cuotas que nadie cobró. Ver
+`InstallationInstallmentPlanner` y la bitácora § 113.
 
 ### 4.9 `invoice_items`, `payments`, `payment_allocations`, `payment_methods`
 
@@ -929,6 +948,7 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 | Cobro | `payment_agreement`, `installation_cost`, `additional_charges`, `additional_items` (json), `discount`, `discount_reason`, `payment_method`, `payment_received`, `payment_notes` |
 | Comercial | `customer_retention`, `special_attention`, `promotion_notes` |
 | Sin cobro | `no_charge` (boolean NOT NULL, default `false`), `no_charge_reason` (varchar(255) null) |
+| Acuerdo de pago | `installments_mode` (varchar(20) null: `monthly`\|`separate`), `installments_count` (smallint null, 1–24), `installments_first_due_date` (date null, sólo `separate`) |
 
 **`no_charge`** (migración `2026_09_21_000001`) es la orden que **no se le factura al
 cliente**: mantenimiento o garantía. Con ella puesta, guardar la cartera NO emite factura
@@ -940,6 +960,13 @@ No es un «tipo de orden»: hay mantenimientos que sí se cobran y traslados reg
 retención, así que atar el cobro a un catálogo de tipos obligaría a desdoblarlo en cuanto
 apareciera la primera excepción. El motivo es opcional a propósito — un campo obligatorio
 acaba lleno de «.», que informa menos que un vacío porque además miente.
+
+**Acuerdo de pago** (migración `2026_10_11_000003`). `payment_agreement` existía desde el
+2026-06-01 y no hacía nada. Ahora, con la casilla marcada, lo que la orden queda debiendo
+después de `payment_received` se reparte en `installments_count` cuotas (pesos enteros; la
+última lleva el resto) que viven en `invoice_carryovers` (§ 4.8.2). Sin la casilla, el
+controlador deja los tres campos en NULL. Validarlos juntos es del planificador, no de la
+base: si todo se pagó, la casilla no exige número de cuotas.
 
 ### 4.14 `customer_documents` y `document_templates`
 
@@ -1432,6 +1459,26 @@ exista **exactamente un** estado inicial.
 `ticket_catalog_version`: una fila por catálogo (`catalog` PK, `version`, `updated_at`).
 Sube en cada alta, retiro o reetiquetado.
 
+**`ticket_subjects` — asuntos frecuentes** (migración `2026_10_11_000001`). No sigue el
+modelo de los siete de arriba, a propósito: es vocabulario **propio de cada ISP** (no hay
+filas de plataforma), sin código estable que un integrador pueda conocer, y lo administra el
+ISP desde la pantalla de Soporte con `ticket_manage_catalogs`.
+
+| Columna | Tipo | Nulo | Descripción |
+|---|---|---|---|
+| `id` | bigint | NN | **PK** |
+| `tenant_id` | bigint | NN | **FK** → `tenant.id` (CASCADE) |
+| `name` | varchar(120) | NN | Nombre visible. **UNIQUE(`tenant_id`, `name`)**; el controlador además rechaza duplicados que sólo cambian mayúsculas |
+| `sort_order` | integer | NN | Orden del desplegable (default 0; los nuevos van al final) |
+| `is_active` | boolean | NN | `false` = retirado: deja de ofrecerse pero sus tickets siguen agrupados bajo él |
+
+`support_ticket.subject_id` (bigint null, **FK** → `ticket_subjects.id` **SET NULL**, con
+índice) dice qué asunto del catálogo se eligió. NULL = asunto escrito a mano («Otro…») o
+ticket anterior al catálogo. `support_ticket.subject` (el texto) **se conserva**: al elegir
+del catálogo se le copia el nombre, y renombrar después el asunto no reescribe los tickets
+viejos. El filtro va por `subject_id`, así que siguen agrupados. Un asunto que usan tickets
+—archivados incluidos— no se puede borrar (409): se desactiva.
+
 ### 4.16 Inventario
 
 | Tabla | Columnas |
@@ -1646,6 +1693,7 @@ Agregado permanente.
 | `ticket_equipment.stock_id` | `inventory_stock.id` | SET NULL |
 | `ticket_equipment.tenant_id` | `tenant.id` | CASCADE |
 | `ticket_equipment.created_by` | `users.id` | SET NULL |
+| `ticket_subjects.tenant_id` | `tenant.id` | CASCADE |
 | `inventory_provider.tenant_id` | `tenant.id` | SET NULL |
 | `inventory_stock.tenant_id` | `tenant.id` | SET NULL |
 | `invoice_carryovers.customer_id` | `users.id` | **SET NULL** (P-43) |
@@ -1697,6 +1745,7 @@ Agregado permanente.
 | `staff_profile.user_id` | `users.id` | CASCADE |
 | `support_ticket.sectorial_id` | `sectorial.id` | SET NULL |
 | `support_ticket.staff_id` | `users.id` | SET NULL |
+| `support_ticket.subject_id` | `ticket_subjects.id` | **SET NULL** — el texto del asunto vive en el propio ticket; borrar el asunto (sólo si nadie lo usa) no lo deja sin asunto |
 | `support_ticket.archived_by` | `users.id` | SET NULL |
 | `support_ticket.tenant_id` | `tenant.id` | SET NULL |
 | `support_ticket.user_id` | `users.id` | SET NULL |
@@ -1740,6 +1789,7 @@ Agregado permanente.
 | `sectorial_name_tenant_id_unique` | `sectorial` | `(name, tenant_id)` | |
 | `service_plan_name_tenant_id_unique` | `service_plan` | `(name, tenant_id)` | |
 | `document_templates_tenant_id_type_unique` | `document_templates` | `(tenant_id, type)` | Una plantilla por tipo y tenant |
+| `ticket_subjects_tenant_id_name_unique` | `ticket_subjects` | `(tenant_id, name)` | Un asunto por nombre en cada ISP. Distingue mayúsculas en PostgreSQL; el duplicado «SIN INTERNET» / «Sin internet» lo frena `TicketSubjectController` |
 | `traffic_daily_router_id_day_unique` | `traffic_daily` | `(router_id, day)` | Upsert diario |
 | `tenant_uuid_unique` | `tenant` | `(uuid)` | |
 | `type_plans_code_unique` | `type_plans` | `(code)` | |
