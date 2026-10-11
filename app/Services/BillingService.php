@@ -777,9 +777,11 @@ class BillingService
         // ── Le corresponde y no la tiene: vista previa exacta ───────────────
         $free       = (bool) ($charge['free'] ?? false);
         $planAmount = $free ? 0.0 : (float) $charge['amount'];
-        $carry      = $free ? 0.0 : round((float) InvoiceCarryover::pending()
-            ->where('tenant_id', $tenantId)
-            ->where('customer_id', $customerId)
+        // Lo MISMO que cobraría applyPendingCarryoversTo(): todos los
+        // faltantes de abonos parciales, pero de cada acuerdo de pago sólo la
+        // cuota que toca este mes. Sumar todas las pendientes inflaría la
+        // vista previa con cuotas que todavía no se cobran.
+        $carry      = $free ? 0.0 : round((float) $this->chargeablePendingCarryovers($tenantId, $customerId)
             ->sum('amount'), 2);
         $extras     = round((float) collect($this->chargeableAdditionalServices(
             $tenantId, $customerId, $periodStart, $periodEnd, $free
@@ -830,6 +832,16 @@ class BillingService
             ->where('customer_id', $customerId)
             ->where('balance_due', '>', 0)
             ->whereNotIn('status', ['paid', 'void', 'cancelled'])
+            // Las cuotas de un acuerdo de pago en facturas aparte se emiten
+            // TODAS el día del acuerdo, con vencimientos mes a mes. Las que aún
+            // no vencen no son deuda atrasada: contarlas aquí haría que un
+            // acuerdo de 3 cuotas alcanzara el tope (`overdue_invoices` + 2 por
+            // defecto) y dejara al cliente sin mensualidad sin que nadie lo
+            // notara. Una factura de instalación normal vence el mismo día que
+            // se emite, así que esto sólo deja fuera a las cuotas futuras.
+            ->where(fn ($q) => $q->where('invoice_type', '!=', Invoice::TYPE_INSTALLATION)
+                ->orWhereNull('invoice_type')
+                ->orWhereDate('due_date', '<=', now()->toDateString()))
             ->count();
     }
 
@@ -2739,13 +2751,46 @@ class BillingService
             ->exists();
     }
 
-    protected function applyPendingCarryoversTo(Invoice $invoice): void
+    /**
+     * Arrastres que la PRÓXIMA factura mensual del cliente tiene que cobrar.
+     *
+     *  · Faltantes de abonos parciales: todos, como siempre.
+     *  · Cuotas de acuerdos de pago de instalación: de cada acuerdo, sólo la
+     *    de número más bajo que siga pendiente. Una cuota por factura es justo
+     *    lo que se pactó; si una factura mensual se anula, su cuota vuelve a
+     *    pendiente y la cobra la siguiente — se corre un mes, no se pierde.
+     *
+     * Lo usan la generación (applyPendingCarryoversTo) y la vista previa de
+     * facturas faltantes: si cada una calculara por su lado, la vista previa
+     * mentiría el día que alguien tocara sólo una.
+     *
+     * @return \Illuminate\Support\Collection<int, InvoiceCarryover>
+     */
+    protected function chargeablePendingCarryovers(int $tenantId, int $customerId)
     {
         $pending = InvoiceCarryover::pending()
-            ->where('tenant_id', $invoice->tenant_id)
-            ->where('customer_id', $invoice->customer_id)
-            ->with('fromInvoice:id,number')
+            ->where('tenant_id', $tenantId)
+            ->where('customer_id', $customerId)
+            ->orderBy('installment_number')
+            ->orderBy('id')
             ->get();
+
+        $faltantes = $pending->filter(fn (InvoiceCarryover $r) => !$r->isInstallment());
+
+        $cuotas = $pending->filter(fn (InvoiceCarryover $r) => $r->isInstallment())
+            ->groupBy('from_invoice_id')
+            ->map(fn ($filas) => $filas->sortBy('installment_number')->first());
+
+        // Colección de Eloquent explícita: el que llama hace `load()` sobre ella.
+        return new \Illuminate\Database\Eloquent\Collection(
+            $faltantes->concat($cuotas->values())->values()->all()
+        );
+    }
+
+    protected function applyPendingCarryoversTo(Invoice $invoice): void
+    {
+        $pending = $this->chargeablePendingCarryovers((int) $invoice->tenant_id, (int) $invoice->customer_id);
+        $pending->load('fromInvoice:id,number');
 
         $total = round((float) $pending->sum('amount'), 2);
 
@@ -2753,18 +2798,41 @@ class BillingService
             return;
         }
 
-        $numbers = $pending->pluck('fromInvoice.number')->filter()->unique()->values();
-        $description = 'Saldo pendiente de facturas anteriores'
-            . ($numbers->isNotEmpty() ? ' (#' . $numbers->implode(', #') . ')' : '');
+        // Los faltantes de abonos parciales van juntos en un renglón, como
+        // siempre. Cada cuota va en el suyo: el cliente tiene que poder leer
+        // «cuota 2 de 3» en su factura, no un «saldo pendiente» genérico.
+        $faltantes = $pending->filter(fn (InvoiceCarryover $r) => !$r->isInstallment());
+        $cuotas    = $pending->filter(fn (InvoiceCarryover $r) => $r->isInstallment());
 
-        InvoiceItem::create([
-            'invoice_id'  => $invoice->id,
-            'type'        => 'carryover',
-            'description' => $description,
-            'quantity'    => 1,
-            'unit_price'  => $total,
-            'amount'      => $total,
-        ]);
+        $totalFaltantes = round((float) $faltantes->sum('amount'), 2);
+
+        if ($totalFaltantes > 0) {
+            $numbers = $faltantes->pluck('fromInvoice.number')->filter()->unique()->values();
+            $description = 'Saldo pendiente de facturas anteriores'
+                . ($numbers->isNotEmpty() ? ' (#' . $numbers->implode(', #') . ')' : '');
+
+            InvoiceItem::create([
+                'invoice_id'  => $invoice->id,
+                'type'        => 'carryover',
+                'description' => $description,
+                'quantity'    => 1,
+                'unit_price'  => $totalFaltantes,
+                'amount'      => $totalFaltantes,
+            ]);
+        }
+
+        foreach ($cuotas as $cuota) {
+            $monto = round((float) $cuota->amount, 2);
+
+            InvoiceItem::create([
+                'invoice_id'  => $invoice->id,
+                'type'        => 'installment',
+                'description' => InvoiceCarryover::installmentDescription($cuota, $cuota->fromInvoice?->number),
+                'quantity'    => 1,
+                'unit_price'  => $monto,
+                'amount'      => $monto,
+            ]);
+        }
 
         $invoice->subtotal    = (float) $invoice->subtotal + $total;
         $invoice->total       = (float) $invoice->total + $total;
