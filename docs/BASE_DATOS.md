@@ -943,7 +943,7 @@ Modela **tanto la red inalámbrica como la planta externa de fibra**, en un árb
 |---|---|
 | Vínculo | `customer_id` (**nullable**: la orden puede colgar sólo de un prospecto), `prospect_id`, `created_by`, `technician_id`, `technician` |
 | Agenda | `scheduled_date`, `status` (CHECK `pendiente`\|`completada`\|`cancelada`), `completed_at` |
-| Contenido | `address`, `equipment`, `notes`, `sheet` (json: acta) |
+| Contenido | `address`, `equipment`, `notes`, `sheet` (json: red de la orden + `signal_level` y `observations`; ver nota) |
 | Firma | `customer_signature_path`, `technician_signature_path`, `signed_at` |
 | Cobro | `payment_agreement`, `installation_cost`, `additional_charges`, `additional_items` (json), `discount`, `discount_reason`, `payment_method`, `payment_received`, `payment_notes` |
 | Comercial | `customer_retention`, `special_attention`, `promotion_notes` |
@@ -960,6 +960,12 @@ No es un «tipo de orden»: hay mantenimientos que sí se cobran y traslados reg
 retención, así que atar el cobro a un catálogo de tipos obligaría a desdoblarlo en cuanto
 apareciera la primera excepción. El motivo es opcional a propósito — un campo obligatorio
 acaba lleno de «.», que informa menos que un vacío porque además miente.
+
+**`sheet` sin datos de equipo** (2026-10-11, bitácora § 114). Las claves `modem_brand`,
+`modem_model`, `modem_mac`, `onu_serial`, `antenna_model`, `materials` y `cable_meters` ya no se
+escriben: lo instalado es `installation_equipment`. Siguen existiendo en órdenes anteriores
+—no hay migración que las borre, a propósito: son lo que el cliente firmó— y el controlador las
+conserva en cada guardado. Sin cambio de esquema: `sheet` es JSON.
 
 **Acuerdo de pago** (migración `2026_10_11_000003`). `payment_agreement` existía desde el
 2026-06-01 y no hacía nada. Ahora, con la casilla marcada, lo que la orden queda debiendo

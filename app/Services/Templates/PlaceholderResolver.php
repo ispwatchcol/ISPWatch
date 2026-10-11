@@ -156,7 +156,11 @@ class PlaceholderResolver
         return $installation->equipmentItems
             ->map(function ($item) {
                 if ($item->device_id) {
-                    return $item->label();
+                    // La MAC va aquí y no en label(): label() es también la
+                    // descripción con que se COBRA el equipo, y no se quiere
+                    // en la factura. En el acta sí: desde § 114 es la única
+                    // fuente de la MAC del módem (la casilla manual se retiró).
+                    return $item->label() . ($item->device?->mac ? ' · MAC ' . $item->device->mac : '');
                 }
 
                 $qty = rtrim(rtrim(number_format((float) $item->quantity, 2, ',', '.'), '0'), ',');

@@ -601,10 +601,10 @@ El prospecto queda en estado **agendado**.
 
 El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
 
-1. **Llena los datos técnicos**: en *Conexión / Red* elige sectorial, core, plan y la
-   **IP del cliente**; en *Hoja técnica de instalación* van equipos, mediciones y
-   observaciones. Al terminar pulsa **Guardar datos técnicos** (el botón guarda las dos
-   partes de una vez).
+1. **Llena los datos técnicos** en *Conexión / Red*: sectorial, core, plan, la **IP del
+   cliente**, el **nivel de señal** medido y las **observaciones técnicas** de la visita. Al
+   terminar pulsa **Guardar datos técnicos**. Los equipos y materiales van aparte, en el paso
+   2, y se guardan solos al agregarlos.
    > **La IP del cliente no es la IP local del PPPoE.** La primera es la que queda
    > asignada al abonado y es la que viaja al alta cuando conviertes el prospecto en
    > cliente; la *IP local* es la punta del router dentro del secret PPPoE. Cada campo
@@ -626,14 +626,16 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
      disponible, o decimales en un producto que se cuenta entero (un conector), el botón se
      desactiva y te dice por qué. Si la señal se cae y pulsas **Agregar** otra vez, el sistema
      reconoce que es el mismo registro y **no descuenta dos veces**.
-   - **Cable utilizado** ya no se escribe a mano: es la **suma calculada** del cable que
-     registraste arriba en metros (por ejemplo «120 m · FIBRA ÓPTICA 120 m»). En órdenes antiguas
-     que tenían un valor escrito a mano, ese valor se sigue viendo como *Registro manual
-     anterior*: no se borra, pero tampoco cuenta como consumo de inventario.
-   - **Otros insumos no inventariados (nota)** es sólo una nota para lo que no se lleva en el
-     inventario (silicona, cinta). **No descuenta nada**: lo que esté en el inventario regístralo
-     arriba con su cantidad. Señal, marca, modelo, MAC, serial y observaciones siguen igual; marca,
-     modelo, MAC y serial se llenan solos con la unidad registrada si estaban vacíos.
+   - **Todo lo instalado va anclado al inventario.** La hoja ya **no** tiene casillas para
+     escribir a mano marca, modelo o MAC del módem, serial de la ONU, cable ni «otros insumos»:
+     esos datos son los del equipo y los materiales que registras aquí, que sí descuentan del
+     inventario. El **cable** se ve sumado debajo de la lista (por ejemplo «Cable: 120 m ·
+     FIBRA ÓPTICA 120 m»), y la hoja firmada imprime cada equipo con su **serial y su MAC**.
+     Si algo que usaste no está en el inventario, hay que crearlo allí primero (*Inventarios →
+     Agregar material* o *Agregar equipo con serial*).
+   - En órdenes **anteriores** que tenían esos datos escritos a mano, se siguen viendo en un
+     recuadro **Registro manual anterior**, sólo de lectura: no se borran, pero tampoco cuentan
+     como consumo de inventario.
    > Sólo aparece lo que **tú** puedes registrar: lo tuyo, lo del técnico de esa orden y —si
    > administras inventario— las bodegas. El apartado de equipos con serial **siempre se ve**; si
    > no tienes ninguna unidad a mano, te lo explica y te dice el siguiente paso: pedir que te la
@@ -717,8 +719,8 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
 5. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
    **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
    para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
-   hayas pulsado *Guardar hoja*, y **no guarda ni cierra nada**: puedes abrirlo las veces que
-   necesites.
+   hayas pulsado *Guardar datos técnicos*, y **no guarda ni cierra nada**: puedes abrirlo las
+   veces que necesites.
    > Esto importa sobre todo con un **prospecto**, que aún no es cliente y no tiene ficha
    > donde consultar el documento después.
    >
@@ -760,8 +762,9 @@ Al completar la instalación se genera automáticamente la **factura de instalac
    - datos personales del prospecto (nombre, cédula, teléfono, dirección, estrato);
    - la **fecha de instalación**, que decide el prorrateo de la primera factura;
    - los **datos técnicos** de la orden: core, plan, sectorial (o caja NAP), **IP del
-     cliente**, credenciales PPPoE y MAC del módem. Si la caja es una NAP, el alta entra
-     sola en modo **fibra** y deduce la OLT.
+     cliente**, credenciales PPPoE y la **MAC del equipo instalado** (la del primer equipo con
+     serial registrado en la orden). Si la caja es una NAP, el alta entra sola en modo
+     **fibra** y deduce la OLT.
 3. Revisa, completa lo que falte y guarda.
 
 Al guardar, el prospecto queda enlazado al cliente, su estado pasa a **convertido** y sus

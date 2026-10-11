@@ -899,7 +899,9 @@ class CustomerInstallationController extends Controller
 
         $data = $request->validate($this->sheetValidationRules('required'));
 
-        $installation->update(['sheet' => $this->withStoredCable($installation, $data['sheet'])]);
+        // `?? []`: Laravel descarta las claves de `sheet` sin regla, así que
+        // una petición que sólo trae campos retirados llega sin `sheet`.
+        $installation->update(['sheet' => $this->withStoredLegacy($installation, $data['sheet'] ?? [])]);
 
         return response()->json([
             'message'      => 'Hoja de instalación guardada.',
@@ -908,27 +910,45 @@ class CustomerInstallationController extends Controller
     }
 
     /**
-     * «Cable utilizado (metros)» ya no se escribe desde la hoja.
+     * Campos de la hoja que YA NO SE ESCRIBEN: lo que registraban sale ahora
+     * del inventario de la orden (`installation_equipment`).
      *
-     * Era una cifra a mano, paralela al inventario: se podía declarar 120 m
-     * sin que salieran de ningún saldo, o descontar 120 m del inventario y
-     * escribir 80 en la hoja. El cable usado es ahora lo que se registró como
-     * consumo de productos (installation_equipment), y la pantalla muestra
-     * ese resumen calculado.
+     *  · `cable_meters` (2026-10-10, § 111): era una cifra a mano, paralela al
+     *    inventario — se podían declarar 120 m sin que salieran de ningún
+     *    saldo. Ahora es la suma calculada de los materiales en metros.
+     *  · marca, modelo y MAC del módem, serial ONU, antena y «otros insumos»
+     *    (2026-10-11, § 114): repetían a mano lo que ya dice la línea del
+     *    equipo con serial —y podían contradecirla—, o eran insumos fuera del
+     *    inventario. Decisión de operación: todo lo que se instala va anclado
+     *    al inventario.
      *
-     * El valor que ya estaba guardado NO se borra: es el registro histórico
-     * de órdenes anteriores al inventario y se sigue mostrando como tal. Lo
-     * que llegue en la petición se ignora —la pantalla vieja en caché, un
-     * cliente de la API— y se conserva el guardado.
+     * Señal y observaciones técnicas NO están aquí: no son inventario y se
+     * siguen capturando (ahora en la tarjeta Conexión / Red).
      */
-    private function withStoredCable(CustomerInstallation $installation, array $sheet): array
+    private const LEGACY_SHEET_FIELDS = [
+        'cable_meters', 'modem_brand', 'modem_model', 'modem_mac',
+        'onu_serial', 'antenna_model', 'materials',
+    ];
+
+    /**
+     * Lo guardado en un campo retirado NO se borra: es el registro histórico
+     * de órdenes anteriores y la hoja en PDF lo sigue imprimiendo. Lo que
+     * llegue en la petición se ignora —la pantalla vieja en caché, un cliente
+     * de la API— y se conserva el guardado. Como el guardado reemplaza la hoja
+     * entera, el valor viejo se vuelve a poner aunque la petición no lo traiga.
+     */
+    private function withStoredLegacy(CustomerInstallation $installation, array $sheet): array
     {
-        unset($sheet['cable_meters']);
+        $stored = $installation->getOriginal('sheet') ?? [];
 
-        $stored = ($installation->getOriginal('sheet') ?? [])['cable_meters'] ?? null;
+        foreach (self::LEGACY_SHEET_FIELDS as $campo) {
+            unset($sheet[$campo]);
 
-        if ($stored !== null && $stored !== '') {
-            $sheet['cable_meters'] = $stored;
+            $valor = $stored[$campo] ?? null;
+
+            if ($valor !== null && $valor !== '') {
+                $sheet[$campo] = $valor;
+            }
         }
 
         return $sheet;
@@ -942,14 +962,10 @@ class CustomerInstallationController extends Controller
     {
         return [
             'sheet'                  => $presence . '|array',
-            'sheet.cable_meters'     => 'nullable|numeric',
-            'sheet.modem_brand'      => 'nullable|string|max:80',
-            'sheet.modem_model'      => 'nullable|string|max:80',
-            'sheet.modem_mac'        => 'nullable|string|max:80',
-            'sheet.onu_serial'       => 'nullable|string|max:120',
+            // Los campos de equipo (marca, modelo, MAC, serial, cable, otros
+            // insumos) ya no tienen regla: si llegan, `withStoredLegacy()` los
+            // descarta. Ver LEGACY_SHEET_FIELDS.
             'sheet.signal_level'     => 'nullable|string|max:40',
-            'sheet.antenna_model'    => 'nullable|string|max:120',
-            'sheet.materials'        => 'nullable|string|max:1000',
             'sheet.observations'     => 'nullable|string|max:2000',
             'sheet.inventory_device_id'  => 'nullable|integer',
             // Conexión / red
@@ -985,7 +1001,7 @@ class CustomerInstallationController extends Controller
 
         if (!empty($data['sheet'])) {
             $draft = array_filter($data['sheet'], fn ($v) => $v !== null && $v !== '');
-            $installation->sheet = $this->withStoredCable($installation, array_merge($installation->sheet ?? [], $draft));
+            $installation->sheet = $this->withStoredLegacy($installation, array_merge($installation->sheet ?? [], $draft));
         }
 
         $pdf = $this->buildSheetPdf($installation, '', null);

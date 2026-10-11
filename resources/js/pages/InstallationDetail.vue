@@ -224,16 +224,29 @@
           </div>
         </div>
 
-        <!-- El único botón de guardado vivía en la tarjeta de abajo, así que estos
-             campos se llenaban y se perdían al salir de la pantalla. Es el mismo
-             saveSheet: persiste conexión + hoja técnica en una sola llamada. -->
+        <!-- Lo único de la antigua hoja manual que NO es inventario: la medición
+             y la nota de la visita. Marca, modelo, MAC, serial, cable y demás
+             insumos salen de «Equipos y materiales usados». -->
+        <div class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Nivel de señal</label>
+            <input v-model="sheet.signal_level" type="text" placeholder="-25 dBm" maxlength="40"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones técnicas</label>
+            <textarea v-model="sheet.observations" rows="2" maxlength="2000"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
+          </div>
+        </div>
+
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button @click="saveSheet" :disabled="savingSheet"
             class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
             {{ savingSheet ? 'Guardando...' : 'Guardar datos técnicos' }}
           </button>
           <p class="text-[11px] text-gray-500 dark:text-gray-400">
-            Guarda conexión y hoja técnica. Estos datos se cargan solos al convertir el prospecto en cliente.
+            Guarda conexión, señal y observaciones. Estos datos se cargan solos al convertir el prospecto en cliente.
           </p>
         </div>
       </div>
@@ -338,6 +351,12 @@
             Todavía no has cargado equipos a esta instalación.
           </p>
 
+          <!-- Total de cable, calculado de las líneas en metros: no se digita. -->
+          <p v-if="cable.total > 0" data-testid="cable-summary" class="mb-3 text-xs text-gray-700 dark:text-gray-300">
+            <span class="font-semibold">Cable: {{ fmtQty(cable.total) }} m</span>
+            <span class="text-gray-500 dark:text-gray-400"> · {{ cable.lines.map(l => `${l.label} ${fmtQty(l.quantity)} m`).join(' · ') }}</span>
+          </p>
+
           <!-- Agregar equipo con serial. Se ve SIEMPRE, aunque no haya
                unidades: vacío, explica por qué y cuál es el siguiente paso. -->
           <div v-if="!equipmentLock.is_locked" class="space-y-3">
@@ -410,72 +429,18 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <!-- El cable ya no se digita: es la suma de lo registrado en metros
-               arriba, que sí descuenta inventario. Un valor manual guardado
-               antes se conserva y se muestra como histórico. -->
-          <div data-testid="cable-summary">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cable utilizado (del inventario)</label>
-            <div class="w-full bg-gray-100 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-white">
-              <template v-if="cable.total > 0">
-                <span class="font-semibold">{{ fmtQty(cable.total) }} m</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400"> · {{ cable.lines.map(l => `${l.label} ${fmtQty(l.quantity)} m`).join(' · ') }}</span>
-              </template>
-              <span v-else class="text-gray-500 dark:text-gray-400">Sin cable registrado en esta orden.</span>
-            </div>
-            <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-              Se calcula de los materiales en metros de «Equipos y materiales usados».
-            </p>
-            <p v-if="legacyCable" class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-              Registro manual anterior: {{ legacyCable }} m (no descontó inventario; se conserva como histórico).
-            </p>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Nivel de señal</label>
-            <input v-model="sheet.signal_level" type="text" placeholder="-25 dBm"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Marca del módem</label>
-            <input v-model="sheet.modem_brand" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Modelo del módem</label>
-            <input v-model="sheet.modem_model" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">MAC del módem</label>
-            <input v-model="sheet.modem_mac" type="text" placeholder="AA:BB:CC:DD:EE:FF"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Serial ONU</label>
-            <input v-model="sheet.onu_serial" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-              Otros insumos no inventariados (nota)
-            </label>
-            <p class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
-              Sólo una nota: no descuenta inventario. Lo que exista en el inventario se registra arriba con su cantidad.
-            </p>
-            <textarea v-model="sheet.materials" rows="2"
-              placeholder="Lo que no se lleva en el inventario: silicona, cinta aislante…"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones técnicas</label>
-            <textarea v-model="sheet.observations" rows="3"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
-          </div>
+        <!-- La hoja ya no lleva campos a mano: lo instalado es lo registrado
+             arriba, que descuenta del inventario. Una orden anterior que tenía
+             datos digitados los conserva y aquí se ven, sólo en lectura. -->
+        <div v-if="legacyManual.length" data-testid="legacy-sheet"
+          class="p-3 rounded-lg border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-900/10">
+          <p class="text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">
+            Registro manual anterior (no descontó inventario; se conserva como histórico)
+          </p>
+          <ul class="text-xs text-gray-700 dark:text-gray-300 space-y-0.5">
+            <li v-for="f in legacyManual" :key="f.label"><span class="text-gray-500 dark:text-gray-400">{{ f.label }}:</span> {{ f.value }}</li>
+          </ul>
         </div>
-        <button @click="saveSheet" :disabled="savingSheet"
-          class="mt-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
-          {{ savingSheet ? 'Guardando...' : 'Guardar hoja' }}
-        </button>
       </div>
 
       <!-- Documentos generados (hoja de instalación firmada) -->
@@ -1102,18 +1067,24 @@ const sheet = ref({
   pppoe_password: '',
   pppoe_local_address: '',
   local_address_manual: false,
-  // Hoja técnica. Los equipos ya NO viven aquí: son filas de
-  // installation_equipment, porque una visita lleva varios y hay que
-  // descontarlos del inventario.
-  cable_meters: '',
+  // Lo que no es inventario: medición y nota de la visita.
   signal_level: '',
+  observations: '',
+  // Retirados (§ 114): todo lo instalado va anclado al inventario
+  // (installation_equipment). Se cargan sólo para mostrar el registro de
+  // órdenes anteriores; no se editan ni viajan al guardar.
+  cable_meters: '',
   modem_brand: '',
   modem_model: '',
   modem_mac: '',
   onu_serial: '',
+  antenna_model: '',
   materials: '',
-  observations: '',
 })
+
+// Campos de la hoja que ya no se escriben. El servidor los ignora si llegan y
+// conserva lo que estaba guardado.
+const LEGACY_SHEET_FIELDS = ['cable_meters', 'modem_brand', 'modem_model', 'modem_mac', 'onu_serial', 'antenna_model', 'materials']
 const savingSheet = ref(false)
 
 const billing = ref({
@@ -1178,10 +1149,18 @@ const materialRow = ref(null)
  */
 // Cable usado: calculado de las líneas en metros, no digitado aparte.
 const cable = computed(() => cableSummary(equipmentItems.value))
-// Lo que se digitó a mano antes de que el cable saliera del inventario.
-const legacyCable = computed(() => {
-  const v = sheet.value.cable_meters
-  return v === '' || v === null || v === undefined ? '' : fmtQty(v)
+// Lo que se digitó a mano antes de que todo saliera del inventario.
+const legacyManual = computed(() => {
+  const sh = sheet.value
+  const has = (v) => v !== '' && v !== null && v !== undefined
+  const out = []
+  if (has(sh.cable_meters)) out.push({ label: 'Cable', value: `${fmtQty(sh.cable_meters)} m` })
+  if (has(sh.modem_brand) || has(sh.modem_model)) out.push({ label: 'Módem', value: `${sh.modem_brand || ''} ${sh.modem_model || ''}`.trim() })
+  if (has(sh.modem_mac)) out.push({ label: 'MAC del módem', value: sh.modem_mac })
+  if (has(sh.onu_serial)) out.push({ label: 'Serial ONU', value: sh.onu_serial })
+  if (has(sh.antenna_model)) out.push({ label: 'Antena', value: sh.antenna_model })
+  if (has(sh.materials)) out.push({ label: 'Otros insumos', value: sh.materials })
+  return out
 })
 
 const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).map(p => {
@@ -1294,19 +1273,6 @@ const loadAvailableEquipment = async () => {
   } catch { /* non-blocking: sin permiso de inventario se digita manual */ }
 }
 
-/**
- * Al cargar el primer equipo con serial se rellenan marca/modelo/MAC/serial de
- * la hoja: son los mismos datos y volver a digitarlos sólo genera diferencias
- * entre el inventario y el acta. Si el técnico ya escribió algo, no se pisa.
- */
-const applyDeviceToSheet = (device) => {
-  if (!device) return
-  if (!sheet.value.modem_brand && device.brand)  sheet.value.modem_brand = device.brand
-  if (!sheet.value.modem_model && device.model)  sheet.value.modem_model = device.model
-  if (!sheet.value.modem_mac   && device.mac)    sheet.value.modem_mac   = device.mac
-  if (!sheet.value.onu_serial  && device.serial) sheet.value.onu_serial  = device.serial
-}
-
 /** Registra la unidad elegida en el selector (el botón «Agregar» de allí). */
 const addDevice = async (device) => {
   if (!device) return
@@ -1321,7 +1287,6 @@ const addDevice = async (device) => {
     })
     deviceKeys.delete(device.id)
     equipmentItems.value = data.equipment ?? equipmentItems.value
-    applyDeviceToSheet(device)
     await loadAvailableEquipment()
     toast.value?.success('Equipo cargado', data.replayed
       ? `${deviceFullLabel(device)} ya estaba registrado: no se descontó otra vez.`
@@ -1655,9 +1620,9 @@ const loadNetworkResources = async () => {
  */
 const buildSheetPayload = () => {
   const payload = { ...sheet.value }
-  // El cable no viaja: el servidor conserva el valor histórico y el actual
-  // sale de las líneas de material.
-  delete payload.cable_meters
+  // Los campos retirados no viajan: el servidor conserva el valor histórico y
+  // lo instalado sale de las líneas de equipos y materiales.
+  for (const k of LEGACY_SHEET_FIELDS) delete payload[k]
 
   for (const k of ['sectorial_id', 'router_id', 'plan_id']) {
     if (payload[k] == null || payload[k] === '') delete payload[k]
@@ -2039,9 +2004,6 @@ onMounted(async () => {
     loadAvailableEquipment(),
     loadPaymentMethods(),
   ])
-  // Marca, modelo, MAC y serial salen del equipo registrado cuando la hoja
-  // los tiene vacíos (no se pisa lo que alguien ya escribió).
-  applyDeviceToSheet(equipmentItems.value.find(it => it.is_device))
   await nextTick()
   // Pre-inicializa los contextos si los canvas ya existen; si no, getCtx()
   // los inicializa en el primer trazo.

@@ -139,7 +139,12 @@
         </table>
     @endif
 
-    @if(!empty($sheet))
+    {{-- Sólo si hay algo que imprimir: la hoja guarda también los datos de
+         red, y el título salía solo, con la tabla vacía. Los campos de equipo
+         (módem, MAC, serial, cable, materiales) ya no se escriben —§ 114—; se
+         imprimen únicamente en órdenes anteriores que los tenían. --}}
+    @php($tecnica = array_filter(array_intersect_key($sheet ?? [], array_flip(['cable_meters', 'modem_brand', 'modem_model', 'modem_mac', 'onu_serial', 'signal_level', 'antenna_model', 'materials', 'observations'])), fn ($v) => $v !== null && $v !== ''))
+    @if(!empty($tecnica))
         <h2>Hoja Técnica</h2>
         <table class="info">
             @if(!empty($sheet['cable_meters']))<tr><td class="label">Cable (registro manual anterior)</td><td>{{ $sheet['cable_meters'] }} m</td></tr>@endif
@@ -166,7 +171,7 @@
                     <td class="label">
                         @if(!$item->device_id){{ rtrim(rtrim(number_format((float) $item->quantity, 2, ',', '.'), '0'), ',') }}@if($item->stock?->unit) {{ $item->stock->unit }}@endif @else 1 @endif
                     </td>
-                    <td>{{ $item->label() }}</td>
+                    <td>{{ $item->label() }}@if($item->device?->mac) · MAC {{ $item->device->mac }}@endif</td>
                 </tr>
             @endforeach
         </table>
