@@ -4,9 +4,17 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-10-02 · Rama: `fix/scheduler-mutex-24h-lockout`
+**Última actualización:** 2026-10-11 · Rama: `feat/ticket-asunto-catalogo-y-cuotas-instalacion`
 
 Últimos bloques de trabajo, unificados en esta rama:
+
+- **El «Acuerdo de pago» de la instalación no hacía nada, y el asunto del ticket no servía
+  para filtrar (2026-10-11, § 113):** la casilla se guardaba y la factura de instalación nacía
+  vencida por todo el saldo, así que al cliente que pactó cuotas se le cortaba al día
+  siguiente. Ahora lo financiado sale de la factura por `carried_out` y se cobra en cuotas
+  —dentro de la mensualidad o en facturas aparte, a elección del asesor— reutilizando el
+  arrastre. El asunto pasa a elegirse de un catálogo propio de cada ISP (`ticket_subjects`),
+  con filtro en el listado y corrección del asunto y el diagnóstico en el modal de cierre.
 
 - **La facturación de octubre salió un día tarde y ningún detector lo vio (2026-10-02, § 89):**
   la corrida del día 1 murió a los dos minutos con el candado de `withoutOverlapping` tomado. Ese
@@ -10374,3 +10382,143 @@ inconsistentes. La consulta de § 111 (columna `equipos`) detecta si eso pasó e
 - Producción: correr la consulta de § 111. Si hay filas con serial sobre la fibra, darlas de baja
   y registrar la entrada real de su material.
 - P-93 (precio único para costo y venta), P-94 (Entregas sigue listando esas filas viejas).
+
+## 113. Acuerdo de pago en cuotas y asunto del ticket desde un catálogo — 2026-10-11
+
+**Pedido** (usuario, con capturas): (1) que el **asunto** del ticket sea seleccionable, para
+poder filtrar el listado, con las opciones administrables «en otro apartado de tickets», y que
+al cerrar se pueda corregir; (2) que **«Acuerdo de pago»** de la cartera de instalación permita
+dividir la instalación en cuotas, «porque en este momento no hace nada».
+
+Decisiones del usuario (2026-10-11): las cuotas se cobran **de las dos formas, a elección del
+asesor** en cada orden; y el asunto es **catálogo + «Otro…»** con texto libre.
+
+### Lo que había
+
+- `customer_installations.payment_agreement` (migración del 2026-06-01) no lo leía nadie. La
+  factura de instalación se emitía con `due_date = hoy` por el total menos el abono; al día
+  siguiente contaba como vencida para el corte (`OverdueSuspensionService`, `overdue_invoices`).
+  Es decir: la casilla no sólo no hacía nada, sino que el cliente con acuerdo quedaba expuesto
+  al corte por una deuda pactada.
+- `support_ticket.subject` era texto libre. «SIN INTERNET», «sin internet» y «no tiene internet»
+  eran tres asuntos. `ticket_category` existe pero es de plataforma (4 filas, contrato de socios).
+- El permiso `ticket_manage_catalogs` estaba declarado «aún sin uso» (D-13, delegada en el
+  equipo el 2026-09-11) y no lo tenía ningún rol.
+- El diagnóstico sólo se podía completar desde *Editar*; el modal de cierre pedía únicamente el
+  motivo, aunque los requisitos de cierre son justamente causa confirmada, acción y resultado.
+
+### Diseño de las cuotas: arrastres numerados
+
+No se creó un concepto contable nuevo. La factura de instalación («madre») conserva el detalle
+y saca lo financiado por `carried_out`, igual que el faltante de un abono parcial; cada cuota es
+una fila de `invoice_carryovers` con `installment_number` / `installment_count` y `payment_id`
+NULL. Por eso la ecuación de la factura (C1), la coherencia del arrastre (C13), anular, borrar y
+«marcar como no pagada» funcionan sin regla nueva, y las pruebas lo comprueban corriendo
+`BooksAuditService` (C1, C2, C3, C4, C13) en cada escenario.
+
+| Modo | Cómo vive la cuota | Quién la cobra |
+|---|---|---|
+| `monthly` | Fila `pending` | La siguiente mensualidad: **una por acuerdo**, la de número más bajo, en un ítem `installment` |
+| `separate` | Fila `applied` a su propia factura (`invoice_type = installation`, sin `installation_id`, `carried_in = monto`) | El cliente, al vencimiento (mes a mes desde `installments_first_due_date`, por defecto +1 mes) |
+
+Piezas:
+
+- `InstallationInstallmentPlanner` (nuevo). `sync()` recibe lo que la madre debe **antes** de
+  financiar, deja fijo lo ya cobrado y reparte el resto en pesos enteros (la última cuota lleva
+  el resto). «Cobrada» = en `monthly`, ya viajó a una mensualidad; en `separate`, su factura ya
+  recibió dinero. Las facturas aparte intactas se reescriben en su sitio (no se gastan números)
+  y las sobrantes se anulan con `voidInvoice()`. Lo que no cuadra es 422: menos cuotas que las
+  cobradas, cambiar de modo con cuotas cobradas, un saldo por debajo de lo cobrado, o acuerdo
+  marcado sin número de cuotas cuando queda saldo.
+- `BillingService::chargeablePendingCarryovers()` (nuevo): la selección de qué arrastres cobra
+  una mensualidad. La usan `applyPendingCarryoversTo()` y la vista previa de `explainMonthlyInvoice()`;
+  si cada una filtrara por su lado, la vista previa del runbook de facturas faltantes mentiría.
+- `BillingService::pendingInvoiceCount()` (tope de facturación) ya no cuenta las facturas de
+  **instalación que todavía no vencen**. Sin esto, un acuerdo de 3 cuotas aparte alcanzaba el
+  tope por defecto (`overdue_invoices` 1 + 2) y el cliente se quedaba **sin mensualidad** en
+  silencio — exactamente la clase de fallo de § 88/§ 89. Una factura de instalación normal vence
+  el día que se emite, así que la condición sólo deja fuera a las cuotas futuras.
+- `CustomerInstallationController::updateBilling()`: la orden y su factura se guardan en **una
+  transacción**; antes la orden se actualizaba fuera, y un rechazo del plan la habría dejado a
+  medias. Sin acuerdo, los tres campos `installments_*` se guardan en NULL.
+- Caja: `GET /billing/customers/{id}/balance` separa `carryover_balance` (faltantes, se cobran
+  enteros en la próxima) de `installments_balance` / `installments_pending`. Antes de separarlo,
+  un acuerdo de 6 cuotas se habría anunciado como «$X para la próxima factura».
+
+### Dos defectos que aparecieron en el camino (corregidos)
+
+1. **`syncPayment()` ignoraba los faltantes ya arrastrados.** Recalculaba
+   `balance_due = total − asignado − saldo a favor`. Si la factura de instalación había recibido
+   un abono parcial en Facturación (que la cierra y manda el faltante a la mensualidad), volver a
+   guardar la cartera le devolvía ese faltante: se debía en dos facturas y C1 dejaba de cuadrar.
+   Ahora resta también los arrastres de abono parcial que salieron de ella.
+2. **Guardar la cartera resucitaba una factura anulada.** `upsertInstallationInvoice()` buscaba
+   la factura por `installation_id` sin mirar el estado y le reescribía ítems y estado. Con
+   cuotas, además, habría colgado un plan de una factura sin efecto (C13). Ahora una anulada no
+   se toca y la respuesta lo avisa. Volver a facturar queda como P-97.
+
+Y un tercero, de pantalla: el historial pintaba el **motivo** de una transición
+(`transition_note`) como «Cambió el estado: sin definir → sin definir», porque el componente no
+tenía caso para ese evento. Se vio en el recorrido de navegador y se corrigió.
+
+`syncPayment()` tiene además un defecto que **no** se corrigió aquí (P-95): toma la primera
+asignación de la factura como «el pago de la cartera», así que guardar con valor recibido 0 puede
+borrar un abono hecho en Facturación. Cambia cómo se identifica un pago y merece su propia prueba.
+
+### Asunto del ticket
+
+- `ticket_subjects` (por tenant, `name` único por tenant, `sort_order`, `is_active`) y
+  `support_ticket.subject_id` (FK SET NULL). **El texto `subject` se conserva**: el servidor le
+  copia el nombre del asunto elegido (`SupportTicketController::resolverAsunto()`), la API de
+  socios no cambia, y renombrar un asunto no reescribe expedientes. «Otro…» = `subject_id` NULL
+  con texto; un cliente que sólo manda texto y lo cambia sobre un ticket con asunto de catálogo lo
+  pasa a «Otro». Un asunto desactivado no se puede elegir pero un ticket que ya lo tiene se puede
+  volver a guardar.
+- `TicketSubjectController` (`/support/subjects`): leer con `ticket_view`, administrar con
+  `ticket_manage_catalogs`, que por fin gobierna algo y se reparte a `admin` por la migración
+  `2026_10_11_000002` (regla 5: sin backfill el botón no le aparecería a ningún administrador).
+  Borrar un asunto en uso —archivados incluidos— es 409: se desactiva.
+- Filtro: `?subject_id=<id>` y `?subject_id=other` en el listado y en archivados. El filtro de la
+  pantalla usa la lista completa (desactivados incluidos); el desplegable de radicar, sólo los
+  vigentes (`subjects` en `/catalogs/ticket`).
+- Historial: evento nuevo `subject_changed` con el texto viejo y el nuevo.
+- Cierre: el modal de *Proponer cierre / Cerrar / Cierre especial* incluye «Revisa antes de
+  cerrar» con `TicketSubjectField` y `TicketDiagnosisFields` precargados; al confirmar guarda lo
+  que cambió con el `PUT` de siempre y **después** cierra, porque los requisitos se evalúan sobre
+  lo guardado. Los campos que el rol no puede cambiar salen bloqueados (prop nueva `bloqueados`).
+
+Se interpretó «cuando el técnico vaya a cerrar la instalación» como el cierre de la **visita del
+ticket**: el asunto y el diagnóstico son del ticket, y la orden de instalación no tiene ninguno de
+los dos.
+
+### Pruebas
+
+- `tests/Feature/Support/InstallationInstallmentsTest.php` (17): el acuerdo saca lo financiado y
+  deja la factura saldada; no cuenta como vencida; una cuota por mensualidad y en orden; la vista
+  previa suma sólo la del mes; caja separa cuotas de arrastre; reparto en pesos enteros;
+  re-guardar reparte lo no cobrado; lo cobrado queda fijo; acuerdo sin cuotas → 422 sin dejar la
+  orden a medias; acuerdo con todo pagado no exige cuotas; quitar el acuerdo devuelve el saldo;
+  facturas aparte con vencimientos; las cuotas futuras no frenan la mensualidad con tope estricto;
+  una cuota aparte vencida sí cuenta para el corte; reescritura en su sitio y anulación de la
+  sobrante; una cuota pagada bloquea el cambio de modo; no se resucita una anulada.
+- `tests/Feature/Support/TicketSubjectCatalogTest.php` (14): permisos, duplicados por mayúsculas,
+  aislamiento entre ISP (404), 409 en uso / desactivar / borrar libre, copia del nombre al radicar,
+  «Otro», asunto ajeno o desactivado → 422, reclasificar con historial, re-guardar un asunto
+  desactivado, texto solo saca del catálogo, `ticket_edit` exigido, filtros `id`/`other`/`all`,
+  catálogo ordenado, migración de permiso idempotente y reversible.
+- Suite completa SQLite: 1943 en verde (8 omitidas preexistentes). PostgreSQL: CI.
+- Navegador, contra un backend **aislado** (SQLite en archivo, `APP_ENV=testing`, sólo
+  127.0.0.1; bundle con `ASSET_URL= VITE_API_URL=`, porque el build por defecto toma las URLs de
+  `.env.production` y carga los chunks desde producción): login → *Asuntos* (tres altas y el
+  duplicado rechazado) → filtro «Otro» → alta con desplegable y «Otro…» → cierre reclasificando a
+  «Daño en fibra» con diagnóstico completo (ticket `cerrado`) → acuerdo de 3 cuotas en la
+  mensualidad → cambio a facturas aparte (facturas 2, 3 y 4 con vencimientos mes a mes).
+
+### Pendiente
+
+- `php artisan migrate:both` (tres migraciones: `ticket_subjects` + `subject_id`, reparto de
+  `ticket_manage_catalogs`, columnas de cuotas). Son aditivas y rápidas; correrlas **antes** de
+  desplegar el código, que ya las lee.
+- P-95 (pago de la cartera identificado por «la primera asignación»), P-96 (cuotas en la hoja de
+  instalación), P-97 (re-facturar una instalación anulada), P-98 (estadísticas por asunto), P-99
+  (`TicketDiagnosisFields` y dos cambios en el mismo tick).

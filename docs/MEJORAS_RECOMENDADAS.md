@@ -1567,6 +1567,11 @@ ver es parte del contrato y hay que acordarlo con CNO antes de sembrarlo. Los c�
 propios de un ISP, en cambio, van como filas con su `tenant_id` y no tocan el contrato —
 para eso sí hace falta la pantalla, que no existe (**D-13**, ver P-21 y P-24).
 
+> **2026-10-11.** `ticket_manage_catalogs` ya gobierna una pantalla, pero es la de los
+> **asuntos frecuentes** (`ticket_subjects`, bitácora § 113), no la de este vocabulario de
+> diagnóstico: síntomas, causas y acciones propios de un ISP siguen sin administrarse por
+> interfaz.
+
 ### ✅ P-23 · `support_ticket` ya no tiene columnas enum (R3, 2026-08-15)
 
 **Resuelto en la rama, pendiente de desplegar.** La R3 eliminó `status`, `priority` y
@@ -2464,7 +2469,7 @@ Mismo defecto que dejó la reapertura sin botón, y **no se corrigió en el mism
 El PR #4 activó el endpoint `POST /support/{id}/close-exception` y su permiso, pero ninguna
 migración repartió `ticket_close_override`. Medido en la base: los cinco roles `admin` tienen 17
 de los 20 permisos `ticket_*`; faltan `ticket_reopen` —repartido por el correctivo de
-2026-09-21—, `ticket_manage_catalogs` (sin endpoint, **D-13**) y éste.
+2026-09-21—, `ticket_manage_catalogs` (sin endpoint, **D-13**; desde 2026-10-11 gobierna los asuntos frecuentes y se reparte a `admin`, § 113) y éste.
 
 **Por qué no se repartió junto con la reapertura.** Son cosas distintas:
 
@@ -2831,6 +2836,67 @@ catálogo desde ya.
 
 Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 
+### 📋 P-95 · Guardar la cartera con «Valor recibido» en 0 puede borrar un pago hecho en Facturación
+
+Detectado el 2026-10-11 (bitácora § 113) leyendo `InstallationBillingService::syncPayment()`;
+**no se corrigió** en ese trabajo porque cambia cómo se identifica un pago y merece su propia
+prueba.
+
+`syncPayment()` da por hecho que la factura de instalación tiene a lo sumo **un** pago y que es
+el que creó la cartera: lo busca con `PaymentAllocation::where('invoice_id', …)->first()`. Si
+alguien abonó esa factura desde **Facturación** y después se guarda la cartera con
+`payment_received` vacío o en 0, la rama «quitar el pago de la instalación» borra **esa**
+asignación y, si el pago no financiaba otra factura, borra el pago. El dinero que entró por caja
+deja de figurar.
+
+Con cuotas el riesgo no crece (los pagos van a las mensualidades o a las facturas de cuota, no a
+la madre), pero sigue abierto para las instalaciones sin acuerdo.
+
+**Recomendación.** Marcar el pago que crea la cartera (p. ej. `payments.installation_id` o un
+`source = installation`) y que `syncPayment()` sólo gestione ése; cualquier otra asignación es
+de Facturación y se respeta. Prueba: abono manual + guardar cartera con 0 → el pago sigue.
+
+### 📋 P-96 · La hoja de instalación y las plantillas no muestran el acuerdo de pago
+
+El plan de cuotas existe en la base (bitácora § 113) y en la pantalla de la orden, pero no hay
+placeholders para imprimirlo en la hoja de instalación que firma el cliente ni en la factura de
+instalación. El cliente firma sin ver «3 cuotas de $40.000».
+
+**Recomendación.** Placeholders `{{instalacion.cuotas}}`, `{{instalacion.valor_cuota}}`,
+`{{instalacion.modo_cuotas}}` y un bloque con la tabla de cuotas (ver «Ejemplo: nuevo
+placeholder de documento» en el manual del desarrollador).
+
+### 📋 P-97 · Volver a facturar una instalación cuya factura se anuló
+
+Desde § 113, guardar la cartera **ya no resucita** una factura de instalación anulada (antes le
+reescribía ítems y estado sin que nadie lo decidiera). Pero tampoco emite una nueva: si la
+anulación fue para corregir y hay que volver a cobrar, hoy se hace a mano en Facturación, y la
+orden sigue apuntando a la anulada.
+
+**Recomendación.** Un botón «Emitir nueva factura» en la cartera cuando la vinculada está
+anulada, que cree la nueva y re-apunte `installation_id` (la anulada lo conserva en su nota).
+
+### 📋 P-98 · Estadísticas y API de socios no usan el asunto del catálogo
+
+El listado filtra por asunto (§ 113), pero *Soporte → Estadísticas* no agrupa por asunto, que
+era la siguiente pregunta natural («¿cuántos *Sin internet* entraron este mes?»). La API de
+socios expone sólo el texto `subject`, sin `subject_id`, a propósito: el catálogo es de cada ISP
+y no tiene código estable.
+
+**Recomendación.** Una tarjeta «Tickets por asunto» en estadísticas (agrupar por `subject_id`,
+con «Otro» para los NULL). Para socios, esperar a que lo pidan.
+
+### 📋 P-99 · `TicketDiagnosisFields` pierde cambios hechos en el mismo instante
+
+El componente emite `{ ...props.modelValue, [campo]: valor }`. Dos cambios en el mismo tick
+—antes de que el padre actualice la prop— se pisan y sólo sobrevive el último. Una persona
+cambia un desplegable a la vez y no lo nota; se descubrió al automatizar el recorrido de
+navegador de § 113. Le pasaría a cualquier autocompletado futuro («copiar el diagnóstico del
+ticket anterior»).
+
+**Recomendación.** Emitir sobre una copia local que se sincroniza con la prop, o un evento por
+campo (`update:symptom`, …).
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -2975,6 +3041,11 @@ Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 | **P-91** | `POST /api/inventory/transfers` recorre equipos y materiales sin una transacción que los envuelva: si el tercer material falla (saldo, precisión), los dos primeros ya quedaron movidos | Una entrega a medias que la pantalla muestra como error; hay que revisar Movimientos para saber qué sí pasó | 🟡 Media | 📋 Pendiente · visto en § 111, no tocado para no cambiar la semántica de Entregas en este PR |
 | **P-93** | `inventory_stock.price` es un único número por unidad de medida que el sistema usa a la vez como **precio sugerido de cobro** (línea consumida) y como **costo** (gasto automático de entrada, si está activo) | Quien lo carga como costo de compra subcobra al cliente; quien lo carga como precio de venta infla los gastos. El manual lo explica, pero el dato no distingue | 🟡 Media | 📋 Pendiente · decisión de negocio: separar costo y precio de venta (no se inventó regla en § 112) |
 | **P-94** | En Entregas y traspasos, «Equipos con serial» sigue listando filas antiguas de `inventory_device` colgadas de un material (las que creaba el formulario de equipos antes de § 112) | Se pueden traspasar como si fueran equipos; no afectan saldos ni existencia, pero confunden | 🟢 Baja | 📋 Pendiente · Stock ya las señala (`serial_rows`); limpiarlas en producción es tarea de datos, dando de baja cada fila |
+| **P-95** | `InstallationBillingService::syncPayment()` trata la primera asignación de la factura de instalación como «el pago de la cartera»: guardar con valor recibido 0 borra un abono hecho en Facturación | Dinero recibido que deja de figurar en los libros | 🟠 Alta | 📋 Pendiente · detectado en § 113, no corregido ahí: marcar el pago que crea la cartera y gestionar sólo ése |
+| **P-96** | La hoja de instalación y las plantillas no muestran el acuerdo de pago en cuotas | El cliente firma sin ver las cuotas pactadas | 🟡 Media | 📋 Pendiente · placeholders nuevos |
+| **P-97** | Guardar la cartera ya no resucita una factura de instalación anulada (§ 113), pero tampoco emite una nueva | Re-facturar una instalación corregida es manual | 🟢 Baja | 📋 Pendiente · botón «Emitir nueva factura» |
+| **P-98** | Estadísticas de soporte no agrupan por asunto del catálogo; la API de socios sólo da el texto | Falta el «cuántos de cada asunto» | 🟢 Baja | 📋 Pendiente |
+| **P-99** | `TicketDiagnosisFields` pierde cambios hechos en el mismo tick (emite sobre la prop sin actualizar) | Sin impacto manual; rompería un autocompletado | 🟢 Baja | 📋 Pendiente |
 | **P-92** | La unidad del producto es texto libre (`m`, `metro`, `mts` conviven) y no hay catálogo de unidades; el resumen de cable de la orden reconoce una lista fija de unidades de longitud | Un producto en «mtrs.» o «rollo de 305 m» no suma en el cable calculado, aunque sí descuenta bien | 🟢 Baja | 📋 Pendiente · candidato: catálogo cerrado de unidades con su magnitud |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
