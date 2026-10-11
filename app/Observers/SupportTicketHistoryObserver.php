@@ -107,6 +107,44 @@ class SupportTicketHistoryObserver
         if (array_key_exists('staff_id', $cambios)) {
             $this->registrarTecnico($ticket, $cambios['staff_id']);
         }
+
+        if (array_key_exists('subject', $cambios) || array_key_exists('subject_id', $cambios)) {
+            $this->registrarAsunto($ticket);
+        }
+    }
+
+    /**
+     * Cambio de asunto. Un solo evento aunque cambien el texto y el
+     * `subject_id` a la vez: para quien lee el historial es una sola decisión
+     * («se reclasificó de Sin internet a Daño en fibra»).
+     *
+     * El valor es el TEXTO, no el id: es lo que se vio en pantalla ese día, y
+     * un asunto renombrado o borrado después no debe cambiar lo que dice el
+     * historial.
+     */
+    private function registrarAsunto(SupportTicket $ticket): void
+    {
+        $anterior = $ticket->getOriginal('subject');
+        $nuevo    = $ticket->subject;
+
+        $idAntes = $ticket->getOriginal('subject_id');
+        $idAhora = $ticket->subject_id;
+
+        if ((string) $anterior === (string) $nuevo && $this->mismoId($idAntes, $idAhora)) {
+            return;
+        }
+
+        SupportTicketHistory::registrar(
+            $ticket,
+            SupportTicketHistory::SUBJECT,
+            field: 'subject',
+            oldValue: $anterior,
+            newValue: $nuevo,
+            metadata: [
+                // Si el asunto quedó del catálogo o escrito a mano («Otro…»).
+                'from_catalog' => $idAhora !== null,
+            ],
+        );
     }
 
     /** Reasignación de técnico. El valor es el id; el nombre va en metadata. */

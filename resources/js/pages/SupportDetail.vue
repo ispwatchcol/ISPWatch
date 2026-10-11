@@ -1100,7 +1100,8 @@
                 @click="cerrarAccion"
             >
                 <div
-                    class="w-full max-w-lg overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    class="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    :class="revisaAlCerrar ? 'max-w-3xl' : 'max-w-lg'"
                     @click.stop
                 >
                     <div class="border-b border-gray-100 p-6 dark:border-gray-700" :class="accion.cabecera">
@@ -1108,7 +1109,37 @@
                         <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">{{ accion.descripcion }}</p>
                     </div>
 
-                    <div class="space-y-4 p-6">
+                    <div class="flex-1 space-y-4 overflow-y-auto p-6">
+                        <!-- Revisión antes de cerrar: el asunto con el que se radicó
+                             y el diagnóstico se pueden corregir AQUÍ, sin salir a
+                             «Editar». Lo que se reportó por teléfono («Sin
+                             internet») muchas veces no es lo que se encontró en la
+                             visita, y el filtro por asunto sólo sirve si el asunto
+                             final es el real. Se guarda antes de cerrar, con los
+                             permisos de siempre (ticket_edit, ticket_diagnose,
+                             ticket_confirm_cause). -->
+                        <div v-if="revisaAlCerrar" class="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-gray-700">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                Revisa antes de cerrar
+                            </p>
+
+                            <TicketSubjectField
+                                v-model="revision.asunto"
+                                :deshabilitado="!canEdit"
+                                :error="erroresRevision.subject || erroresRevision.subject_id"
+                            />
+                            <p v-if="!canEdit" class="-mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                Cambiar el asunto exige el permiso «Tickets · editar».
+                            </p>
+
+                            <TicketDiagnosisFields
+                                v-model="revision.diagnostico"
+                                :errores="erroresRevision"
+                                :bloqueados="camposDeDiagnosticoBloqueados"
+                                ayuda="Lo que se encontró y se hizo en la visita. La causa confirmada, la acción y el resultado son requisitos de cierre."
+                            />
+                        </div>
+
                         <!-- El cierre especial deja constancia de QUÉ faltó: se
                              enseña aquí para que quien autoriza sepa qué firma. -->
                         <div
@@ -1213,6 +1244,8 @@ import { useAuthStore } from '../stores/auth'
 import NotificationToast from '../components/NotificationToast.vue'
 import TicketInterventions from '../components/TicketInterventions.vue'
 import TicketMeasurements from '../components/TicketMeasurements.vue'
+import TicketSubjectField from '../components/TicketSubjectField.vue'
+import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import ticketEquipmentApi from '@/services/api/ticket-equipment'
 import SerialDevicePicker from '../components/SerialDevicePicker.vue'
@@ -1998,6 +2031,7 @@ const NOMBRE_DE_CAMPO = {
     solution: 'la acción realizada',
     result: 'el resultado',
     no_charge: 'si la visita se le cobra al cliente',
+    subject: 'el asunto',
 }
 
 /** Etiqueta guardada en el evento; si no la hay, el código; si tampoco, «sin definir». */
@@ -2042,6 +2076,11 @@ const etiquetaDeEvento = (evento) => {
             const por = meta.reason ? ` · «${meta.reason}»` : ''
             return `Se deshizo ${que} de ${meta.label || 'un equipo'}${por}`
         }
+        // El motivo que acompaña a un cambio de estado. Sin este caso caía en
+        // el genérico y se leía «Cambió el estado: sin definir → sin definir»,
+        // que no dice nada: el cambio en sí ya tiene su propio evento.
+        case 'transition_note':
+            return meta.reason ? `Motivo del cambio de estado: «${meta.reason}»` : 'Nota del cambio de estado'
         case 'no_charge_changed': {
             const sinCobro = evento.new_value === 'sin cobro al cliente'
             const motivo = meta.reason ? ` (${meta.reason})` : ''
@@ -2325,8 +2364,73 @@ const accionDestino = ref(null)
 const motivoAccion = ref('')
 const ejecutandoAccion = ref(false)
 
+// ── Revisión del asunto y del diagnóstico al cerrar ──────────────────────
+//
+// Proponer cierre, cerrar y cierre especial muestran el asunto y el
+// diagnóstico ya cargados y editables. Al confirmar, si algo cambió, se guarda
+// con el `PUT` de siempre ANTES de la acción: los requisitos de cierre (causa
+// confirmada, acción, resultado) se evalúan sobre lo guardado, así que el
+// orden importa.
+const ACCIONES_DE_CIERRE = ['propose', 'close', 'exception']
+const revisaAlCerrar = computed(() => ACCIONES_DE_CIERRE.includes(accion.value?.clave))
+
+const CAMPOS_DIAGNOSTICO = ['symptom', 'suspected_cause', 'confirmed_cause', 'solution', 'result']
+
+const diagnosticoDelTicket = () => {
+    const d = ticket.value.diagnosis ?? {}
+    return Object.fromEntries(CAMPOS_DIAGNOSTICO.map((k) => [k, d[k]?.code ?? null]))
+}
+
+const revision = ref({ asunto: { subject_id: null, subject: '' }, diagnostico: {} })
+const erroresRevision = ref({})
+
+// Lo que el rol no puede cambiar se muestra bloqueado, no se deja a un 403.
+const canDiagnose = computed(() => authStore.hasPermission('ticket_diagnose'))
+const canConfirmCause = computed(() => authStore.hasPermission('ticket_confirm_cause'))
+const camposDeDiagnosticoBloqueados = computed(() => [
+    ...(canDiagnose.value ? [] : ['symptom', 'suspected_cause', 'solution', 'result']),
+    ...(canConfirmCause.value ? [] : ['confirmed_cause']),
+])
+
+const prepararRevision = () => {
+    revision.value = {
+        asunto: { subject_id: ticket.value.subject_id ?? null, subject: ticket.value.subject || '' },
+        diagnostico: diagnosticoDelTicket(),
+    }
+    erroresRevision.value = {}
+}
+
+/** Sólo lo que cambió: el `PUT` autoriza campo a campo lo que llega distinto. */
+const cambiosDeRevision = () => {
+    const cambios = {}
+    const a = revision.value.asunto
+    const idAntes = ticket.value.subject_id ?? null
+    const idAhora = a.subject_id ?? null
+    const textoAhora = (a.subject || '').trim()
+
+    if (canEdit.value && (idAhora !== idAntes || (!idAhora && textoAhora !== (ticket.value.subject || '')))) {
+        cambios.subject_id = idAhora
+        cambios.subject = textoAhora || null
+    }
+
+    const antes = diagnosticoDelTicket()
+    for (const campo of CAMPOS_DIAGNOSTICO) {
+        if (camposDeDiagnosticoBloqueados.value.includes(campo)) continue
+        if ((revision.value.diagnostico[campo] ?? null) !== antes[campo]) {
+            cambios[campo] = revision.value.diagnostico[campo] ?? null
+        }
+    }
+
+    return cambios
+}
+
 const accionLista = computed(() => {
     if (!accion.value) return false
+
+    if (revisaAlCerrar.value) {
+        const a = revision.value.asunto
+        if (!a.subject_id && !(a.subject || '').trim()) return false
+    }
 
     return !accion.value.motivoObligatorio || motivoAccion.value.trim().length >= 10
 })
@@ -2341,6 +2445,10 @@ const abrirAccion = (clave, destino = null) => {
 
     accionDestino.value = destino
     motivoAccion.value = ''
+
+    if (ACCIONES_DE_CIERRE.includes(clave)) {
+        prepararRevision()
+    }
 }
 
 const cerrarAccion = () => {
@@ -2377,6 +2485,35 @@ const ejecutarAccion = async () => {
 
     try {
         ejecutandoAccion.value = true
+
+        if (revisaAlCerrar.value) {
+            const cambios = cambiosDeRevision()
+
+            if (Object.keys(cambios).length) {
+                try {
+                    const { data: guardado } = await api.support.update(ticketId, cambios)
+                    // El cierre puede fallar después (p. ej. falta la medición
+                    // final); lo revisado ya quedó guardado y se tiene que ver
+                    // detrás del modal. Sin `loadTicket()`: pintaría la pantalla
+                    // de carga encima del modal abierto.
+                    // Sólo lo revisado: la respuesta del `PUT` trae las notas
+                    // sin su autor y pisarlas rompería la bitácora.
+                    if (guardado?.ticket) {
+                        const { subject, subject_id, diagnosis } = guardado.ticket
+                        ticket.value = { ...ticket.value, subject, subject_id, diagnosis }
+                    }
+                } catch (err) {
+                    // Se queda en el modal con el error al lado del campo: el
+                    // cierre no se intenta sobre un diagnóstico que no se guardó.
+                    erroresRevision.value = err.response?.data?.errors ?? {}
+                    const detalle = err.response?.data?.errors
+                        ? Object.values(err.response.data.errors)[0]?.[0]
+                        : err.response?.data?.message
+                    toast.value?.error('No se guardó la revisión', detalle || 'No se pudo guardar el asunto o el diagnóstico.')
+                    return
+                }
+            }
+        }
 
         const { data } = await (() => {
             switch (accion.value.clave) {

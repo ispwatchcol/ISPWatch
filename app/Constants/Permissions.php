@@ -184,11 +184,14 @@ class Permissions
      * `ticket_archive` y `ticket_restore` SALIERON DE ESTA LISTA en el PR C.
      * D-10 se resolvió —CNO aprobó el archivado el 2026-09-11— y las dos
      * capacidades ya gobiernan endpoints reales, concedidas a `code = 'admin'`.
+     *
+     * `ticket_manage_catalogs` salió el 2026-10-11: gobierna el catálogo de
+     * ASUNTOS del ticket (`/support/subjects`) y se concedió a `code = 'admin'`
+     * por la migración 2026_10_11_000002 (D-13, delegada en el equipo).
      */
     public const TICKET_SIN_ACCION_TODAVIA = [
         self::TICKET_CLOSE_OVERRIDE,
         self::TICKET_REOPEN,
-        self::TICKET_MANAGE_CATALOGS,
     ];
 
     // Facturación permissions
@@ -327,7 +330,7 @@ class Permissions
                 self::TICKET_REOPEN => 'Tickets · reabrir (aún sin uso)',
                 self::TICKET_ARCHIVE => 'Tickets · archivar expediente',
                 self::TICKET_RESTORE => 'Tickets · restaurar expediente archivado',
-                self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar catálogos (aún sin uso)',
+                self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar asuntos frecuentes',
                 self::TICKET_INTERVENE => 'Tickets · registrar intervenciones técnicas',
                 self::TICKET_EQUIPMENT => 'Tickets · entregar y retirar equipos en la visita',
                 self::TICKET_EXPORT => 'Tickets · métricas y exportación',

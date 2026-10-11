@@ -40,6 +40,11 @@ const measurementPhases = ref([])
 const finalTestWaiverReasons = ref([])
 const measurementSuggestions = ref({})
 
+// Asuntos frecuentes del ISP ({ id, name }), sólo los vigentes. A diferencia
+// del resto, este catálogo lo edita el propio ISP desde Soporte → Asuntos:
+// quien lo edite tiene que llamar a `cargar(true)` para refrescarlo.
+const subjects = ref([])
+
 const cargado = ref(false)
 const error = ref(false)
 
@@ -66,6 +71,7 @@ async function cargar(forzar = false) {
             measurementPhases.value = data.measurement_phases ?? []
             finalTestWaiverReasons.value = data.final_test_waiver_reasons ?? []
             measurementSuggestions.value = data.measurement_suggestions ?? {}
+            subjects.value = data.subjects ?? []
             cargado.value = true
         })
         .catch(() => {
@@ -85,6 +91,7 @@ async function cargar(forzar = false) {
             measurementPhases.value = []
             finalTestWaiverReasons.value = []
             measurementSuggestions.value = {}
+            subjects.value = []
             error.value = true
         })
         .finally(() => { enVuelo = null })
@@ -110,6 +117,7 @@ export function useTicketCatalogs() {
         measurementPhases,
         finalTestWaiverReasons,
         measurementSuggestions,
+        subjects,
         cargado,
         error,
         cargar,

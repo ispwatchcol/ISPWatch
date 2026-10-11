@@ -3,6 +3,13 @@
         <!-- Notification Toast -->
         <NotificationToast ref="toast" />
 
+        <TicketSubjectsManager
+            :abierto="gestorAsuntosAbierto"
+            @close="gestorAsuntosAbierto = false"
+            @changed="alCambiarAsuntos"
+            @error="(m) => toast?.error('Asuntos', m)"
+        />
+
         <!-- Header -->
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
             <div>
@@ -23,6 +30,15 @@
                 >
                     <v-icon name="bi-archive" class="h-4 w-4" />
                     {{ vistaArchivados ? 'Ver tickets activos' : 'Ver archivados' }}
+                </button>
+                <!-- Catálogo de asuntos del ISP: sólo quien puede administrarlo. -->
+                <button
+                    v-if="canManageSubjects"
+                    @click="gestorAsuntosAbierto = true"
+                    class="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-700 transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:w-auto sm:px-6 sm:py-3"
+                >
+                    <v-icon name="hi-ticket" class="h-4 w-4" />
+                    Asuntos
                 </button>
                 <button
                     v-if="canCreate && !vistaArchivados"
@@ -56,7 +72,20 @@
             </div>
 
             <!-- Filtros -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+                <!-- Asunto del catálogo. «Otro» agrupa los escritos a mano y los
+                     tickets anteriores al catálogo. -->
+                <select
+                    v-model="filters.subject"
+                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                >
+                    <option value="all">Todos los asuntos</option>
+                    <option v-for="s in asuntosParaFiltrar" :key="s.id" :value="String(s.id)">
+                        {{ s.name }}{{ s.is_active === false ? ' (desactivado)' : '' }}
+                    </option>
+                    <option value="other">Otro (escrito a mano)</option>
+                </select>
+
                 <select
                     v-model="filters.status"
                     class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -413,6 +442,7 @@ import api from '../services/api'
 import { usePermissions } from '@/composables/usePermissions'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import NotificationToast from '../components/NotificationToast.vue'
+import TicketSubjectsManager from '../components/TicketSubjectsManager.vue'
 
 const { can } = usePermissions()
 
@@ -425,11 +455,39 @@ const error = ref('')
 const toast = ref(null)
 const searchQuery = ref('')
 const filters = ref({
+    subject: 'all',
     status: 'all',
     priority: 'all',
     category: 'all',
     staff: 'all'
 })
+
+// ── Asuntos frecuentes ───────────────────────────────────────────────────
+//
+// El filtro usa la lista COMPLETA, desactivados incluidos: un asunto retirado
+// ya no se ofrece al radicar, pero sus tickets viejos se tienen que poder
+// seguir encontrando. Por eso no sale del catálogo de los desplegables (que
+// sólo trae los vigentes) sino de `/support/subjects`.
+const canManageSubjects = computed(() => can('ticket_manage_catalogs'))
+const gestorAsuntosAbierto = ref(false)
+const asuntosParaFiltrar = ref([])
+
+const cargarAsuntos = async () => {
+    try {
+        const { data } = await api.support.getSubjects()
+        asuntosParaFiltrar.value = data
+    } catch (err) {
+        // Sin la lista el filtro sólo ofrece «Todos» y «Otro»: se puede seguir
+        // trabajando, así que no se interrumpe con un aviso.
+        console.error('Error al cargar los asuntos:', err)
+    }
+}
+
+const alCambiarAsuntos = () => {
+    cargarAsuntos()
+    // Los desplegables de alta y edición leen el catálogo del composable.
+    cargarCatalogos(true)
+}
 
 // PR B · Capacidades separadas. No hay respaldo a `view_support`: si un rol
 // tuviera el permiso antiguo y le faltara el granular —datos inconsistentes,
@@ -457,6 +515,11 @@ const filteredTickets = computed(() => {
     }
 
     // Filtros
+    if (filters.value.subject === 'other') {
+        result = result.filter(t => !t.subject_id)
+    } else if (filters.value.subject !== 'all') {
+        result = result.filter(t => t.subject_id === Number(filters.value.subject))
+    }
     if (filters.value.status !== 'all') {
         result = result.filter(t => t.status === filters.value.status)
     }
@@ -595,6 +658,7 @@ const cargarArchivados = async (pagina = 1) => {
         if (filters.value.status !== 'all') params.status = filters.value.status
         if (filters.value.priority !== 'all') params.priority = filters.value.priority
         if (filters.value.category !== 'all') params.category = filters.value.category
+        if (filters.value.subject !== 'all') params.subject_id = filters.value.subject
 
         const { data } = await api.support.getArchived(params)
 
@@ -664,6 +728,7 @@ const restaurarTicket = async () => {
 
 onMounted(() => {
     cargarCatalogos()
+    cargarAsuntos()
     loadStaff()
     loadTickets()
 })

@@ -19,18 +19,13 @@
         <!-- Formulario -->
         <div v-else class="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 border border-gray-100 dark:border-gray-700">
             <form @submit.prevent="handleSubmit">
-                <!-- Asunto -->
+                <!-- Asunto: del catálogo del ISP o «Otro…» -->
                 <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Asunto <span class="text-red-500">*</span>
-                    </label>
-                    <input
-                        v-model="form.subject"
-                        type="text"
-                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        :class="{ 'border-red-500': errors.subject }"
+                    <TicketSubjectField
+                        v-model="asunto"
+                        :error="errors.subject || errors.subject_id"
+                        :puede-administrar="canManageSubjects"
                     />
-                    <p v-if="errors.subject" class="mt-1 text-sm text-red-500">{{ errors.subject }}</p>
                 </div>
 
                 <!-- Descripción -->
@@ -164,12 +159,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
 import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
+import TicketSubjectField from '../components/TicketSubjectField.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+import { useAuthStore } from '../stores/auth'
 
 // R2: estados, prioridades y categorías salen del catálogo del backend.
 // PR #2: de la misma respuesta sale el vocabulario de diagnóstico.
@@ -185,8 +182,13 @@ const router = useRouter()
 const route = useRoute()
 const ticketId = route.params.id
 
+// Asunto: `{ subject_id, subject }`. Ver TicketSubjectField.
+const asunto = ref({ subject_id: null, subject: '' })
+
+const authStore = useAuthStore()
+const canManageSubjects = computed(() => authStore.hasPermission('ticket_manage_catalogs'))
+
 const form = ref({
-    subject: '',
     description: '',
     category: '',
     priority: '',
@@ -230,8 +232,9 @@ const loadTicket = async () => {
             return n === 'técnico' || n === 'tecnico'
         })
         
+        asunto.value = { subject_id: ticket.subject_id ?? null, subject: ticket.subject || '' }
+
         form.value = {
-            subject: ticket.subject,
             description: ticket.description || '',
             category: ticket.category,
             priority: ticket.priority,
@@ -264,8 +267,8 @@ const loadTicket = async () => {
 const validate = () => {
     errors.value = {}
 
-    if (!form.value.subject || form.value.subject.trim() === '') {
-        errors.value.subject = 'El asunto es requerido'
+    if (!asunto.value.subject_id && !(asunto.value.subject || '').trim()) {
+        errors.value.subject = 'Elige un asunto o escribe uno'
     }
 
     if (!form.value.category) {
@@ -284,7 +287,12 @@ const handleSubmit = async () => {
         // El diagnóstico va en el mismo PUT: es parte del ticket, no un recurso
         // aparte, y separarlo dejaría la pantalla con dos guardados que pueden
         // quedar a medias.
-        await api.support.update(ticketId, { ...form.value, ...diagnostico.value })
+        await api.support.update(ticketId, {
+            ...form.value,
+            ...diagnostico.value,
+            subject_id: asunto.value.subject_id || null,
+            subject: (asunto.value.subject || '').trim() || null,
+        })
 
         toast.value?.success('Éxito', 'Ticket actualizado correctamente.')
         setTimeout(() => router.push(`/support/${ticketId}`), 1500)
