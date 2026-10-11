@@ -1427,7 +1427,14 @@ mano contra un backend de pruebas (nunca producción; el script se niega a usar 
 ```bash
 # backend aislado: APP_ENV=testing, DB_CONNECTION=sqlite con un archivo propio, y
 # `cd public && php -S 127.0.0.1:5186 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php`
-VITE_API_URL= npx vite build
+# con además SESSION_DRIVER=file y SANCTUM_STATEFUL_DOMAINS=127.0.0.1:5186: el login es por
+# cookie de sesión, y con el driver `array` de .env.testing o sin ese dominio «con estado»
+# cada petición llega sin usuario.
+#
+# ASSET_URL vacío también, no sólo VITE_API_URL: `vite build` lee .env.production y sin
+# esto el bundle pide los chunks al dominio de PRODUCCIÓN (la pantalla sale en blanco o,
+# peor, con el código viejo desplegado).
+ASSET_URL= VITE_API_URL= npx vite build
 BASE_URL=http://127.0.0.1:5186 ADMIN_USER=admin_demo ADMIN_PASS=... \
 TECH_USER=tecnico_demo TECH_PASS=... INSTALLATION_ID=2 TICKET_ID=1 \
 node tests/Browser/material-por-cantidad.mjs
