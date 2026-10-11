@@ -10297,3 +10297,80 @@ administra inventario registre el consumo desde la bodega. No se aflojó esa reg
 - Correr la consulta de arriba en producción y registrar la entrada o la entrega que falte.
 - Migraciones `2026_10_10_000001`/`_000002`: se aplican con el despliegue, no a mano.
 - P-91 (Entregas sin transacción envolvente) y P-92 (unidades en texto libre).
+
+## 112. «El formulario sólo permite crear equipos con serial»: sí era un fallo de pantalla — 2026-10-11
+
+**Reporte:** un compañero no podía crear un material desde la interfaz. Se pidió comprobar el
+alta completa **por pantalla** (sin SQL, seeders ni API), con «Fibra drop», unidad metro, 100 m.
+
+### Qué estaba desplegado
+
+`origin/main` incluye #325. Se descargó el bundle **público** de producción
+(`/build/manifest.json` y el chunk de `StockList`, sólo GET): ya trae «¿Cómo se controla este
+producto?», «Por cantidad» y «Precisión de la cantidad». No se pudo comprobar desde fuera si las
+migraciones de § 111 corrieron (requiere sesión); no se escribió nada en producción.
+
+### Reproducción en `main` (SQLite aislada, navegador, sólo pantalla)
+
+- El selector «por serial / por cantidad» **existe y no está oculto**, pero está en un sitio que
+  nada señala: el modal «Nuevo Stock» de *Stock / Modelos*, marcado «Por serial» por defecto.
+  Requiere `view_inventory` (como todo el menú Inventarios).
+- El menú decía **«Agregar equipo»** (pestaña «Agregar Producto») y abría el formulario de
+  dispositivos: sólo serial y MAC. Ese es el formulario del reporte. Peor: listaba también los
+  materiales y **los aceptaba**. Guardar «Fibra drop» con un serial creó una fila de
+  `inventory_device`; Stock pasó de «100 metro» a **«101 metro»**, y el material seguía sin saldo
+  para órdenes y tickets.
+- Crear el material en Stock y registrar su entrada (*Entregas y traspasos → Entrada de
+  material*, al final de la página) sí funcionaban, pero son dos pasos separados y el segundo no
+  estaba enlazado desde el primero.
+
+**Se retira la conclusión de § 111 de que era «sólo un problema de datos».** Había datos sin
+entrada, sí, pero la interfaz llevaba al formulario equivocado y ese formulario guardaba datos
+inconsistentes. La consulta de § 111 (columna `equipos`) detecta si eso pasó en producción.
+
+### Qué se hizo
+
+- Servidor: `POST/PUT /api/inventory` y la carga masiva rechazan un modelo por cantidad; la
+  existencia y los selectores de orden y ticket ignoran filas con serial de un material, y Stock
+  las informa (`serial_rows`).
+- Pantalla: menú «Agregar equipo con serial» y nuevo **«Agregar material»** (abre el alta ya en
+  «Por cantidad», metro, 2 decimales); el formulario de equipos sólo lista modelos por serial y
+  explica los dos pasos del material; Stock explica catálogo vs. existencia y cada material tiene
+  **«Registrar entrada»**, que abre la entrada con el producto elegido; textos de ayuda con los
+  nombres reales del menú; errores de validación legibles al guardar en Stock.
+- **Precio:** se documentó lo que ya hace, sin reglas nuevas. Es un precio de catálogo por unidad
+  de medida, no un total; se usa como precio congelado de la línea consumida (cobro sugerido =
+  cantidad × precio, editable, consumir no factura) y, si el tenant activó el gasto automático,
+  como costo de la entrada. Que un mismo número haga de costo y de precio de venta queda como
+  P-93.
+- La orden muestra cantidades con el mismo formato que el ticket (12,5 y no 12,50).
+
+### Pruebas
+
+- `tests/Feature/Inventory/MaterialCatalogEntryFlowTest.php` (7 casos):
+  - alta sin serial;
+  - existencia 0 hasta la entrada y 100 después;
+  - precio por metro en la línea y en el gasto;
+  - entrega y consumo en orden y ticket con su historial;
+  - el formulario de equipos rechaza un material;
+  - una fila antigua sigue editable, pero no cuenta ni se ofrece;
+  - la carga masiva la rechaza;
+  - la fuente de las pantallas.
+- Suite completa SQLite: 1912 en verde (8 omitidas preexistentes). PostgreSQL: CI.
+- Navegador: `tests/Browser/material-por-cantidad.mjs`, 12 pasos, en verde contra una base limpia:
+  - bodega creada por Sucursales;
+  - «Agregar material» y alta de «Fibra drop»;
+  - entrada de 100 m y Stock en 100 metro;
+  - el formulario de equipos no ofrece el material;
+  - entrega de 30 m al técnico;
+  - consumo de 12,5 m en la orden y 7,5 m en el ticket;
+  - Stock en 80 metro y Movimientos con la orden y el ticket.
+
+  Base final: bodega 70, técnico 10, ninguna fila con serial, y las cuatro líneas de kardex con su
+  orden y su ticket.
+
+### Pendiente
+
+- Producción: correr la consulta de § 111. Si hay filas con serial sobre la fibra, darlas de baja
+  y registrar la entrada real de su material.
+- P-93 (precio único para costo y venta), P-94 (Entregas sigue listando esas filas viejas).

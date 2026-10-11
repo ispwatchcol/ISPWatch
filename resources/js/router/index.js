@@ -381,13 +381,13 @@ const routes = [
         path: 'create',
         name: 'InventoryCreate',
         component: () => import('@/pages/InventoryForm.vue'),
-        meta: { title: 'Agregar Producto', permission: 'view_inventory' },
+        meta: { title: 'Agregar equipo con serial', permission: 'view_inventory' },
       },
       {
         path: ':id/edit',
         name: 'InventoryEdit',
         component: () => import('@/pages/InventoryForm.vue'),
-        meta: { title: 'Editar Producto', permission: 'view_inventory' },
+        meta: { title: 'Editar equipo', permission: 'view_inventory' },
       },
       {
         path: 'stocks',

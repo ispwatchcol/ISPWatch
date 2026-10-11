@@ -2102,11 +2102,12 @@ Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificació
 
 | Sección | Qué guarda |
 |---|---|
-| **Stock / Modelos** | Los modelos de equipo que manejas (marca, modelo, precio) |
+| **Stock / Modelos** | El catálogo: modelos de equipo con serial **y** materiales por cantidad (marca, modelo, precio por unidad, cómo se cuenta) |
 | **Proveedores** | A quién le compras, con datos del asesor comercial |
 | **Sucursales** | Dónde están físicamente los equipos. El campo **Número** admite tanto un consecutivo (`2`) como el teléfono de la sucursal, con indicativo si lo necesitas (`+57 601 123 4567`) |
-| **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC |
-| **Entregas y traspasos** | Pasar equipos de la bodega a un técnico y recibirlos de vuelta |
+| **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC. Se agregan con **Agregar equipo con serial** |
+| **Agregar material** | Atajo al alta de un material por cantidad en Stock / Modelos |
+| **Entregas y traspasos** | Pasar equipos y material de la bodega a un técnico y recibirlos de vuelta; abajo, **Entrada de material** (donde nace la existencia de un material) |
 | **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
 
 ### 15.1 Por serial o por cantidad
@@ -2120,6 +2121,48 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
   la **precisión**: *sólo enteros* para piezas que no se parten (conectores, amarres) o *hasta 2
   decimales* para lo que se mide (cable, fibra: 12,5 m). Al escribir una unidad de longitud se
   sugiere 2 decimales. La precisión se exige en entradas, entregas, órdenes y tickets.
+
+#### Dar de alta un material paso a paso (ej. «Fibra drop», 100 metros)
+
+Todo esto lo hace un usuario con permiso **Ver inventario** (`view_inventory`), que es el que abre
+el menú *Inventarios*.
+
+> **No uses «Agregar equipo con serial» para un material.** Ese formulario es sólo para aparatos
+> con serial y MAC. Antes también mostraba los materiales y dejaba guardarlos con un serial: el
+> material quedaba como un «equipo», no sumaba metros y no aparecía en órdenes ni tickets. Ahora
+> ese formulario sólo lista modelos por serial y te indica el camino correcto.
+
+1. **Crear el material.** *Inventarios → Agregar material* (o el botón **Agregar material** en
+   *Stock / Modelos*). La ventana ya viene en **Por cantidad**, con unidad *metro* y *hasta 2
+   decimales*. Escribe marca (`GENÉRICO`) y modelo (`Fibra drop`), ajusta la unidad si hace
+   falta (*unidad* y *sólo enteros* para conectores) y el **precio por metro**. Pulsa **Crear**.
+   No pide serial ni MAC.
+2. **Registrar la existencia.** En la fila del material verás *Existencia: 0 metro* y el enlace
+   **Registrar entrada**. Te lleva a *Entregas y traspasos → Entrada de material* con el material
+   ya elegido: escribe **100**, elige en *Entra a* la bodega y pulsa **Registrar entrada**. Crear el
+   material en el paso 1 **no** le da existencia; este paso sí.
+3. **Comprobar.** De vuelta en *Stock / Modelos*, el material muestra *Existencia: 100 metro*.
+4. **Entregar al técnico.** En *Entregas y traspasos*: *Sale de* = la bodega, *Entra a* = el
+   técnico, escribe los metros en la fila del material y pulsa **Registrar entrega**.
+5. **Consumir.** El técnico lo ve en *Equipos y materiales usados* de su orden y de su ticket
+   («Fibra drop — 30 metro en Mis equipos»), escribe los metros y pulsa **Agregar**. Cada consumo
+   se descuenta una vez y queda en *Movimientos* con su orden o su ticket.
+
+**Qué significa el precio.** Es **un solo precio de catálogo por unidad de medida** (por metro,
+por conector), no un costo total. El sistema lo usa en dos sitios, y sólo en esos:
+
+- al consumir, la línea guarda ese precio y el cobro sugiere *cantidad × precio* (12,5 m ×
+  1.500 = 18.750). El cobro lo registra quien tiene permiso de cartera y se puede editar; consumir
+  no factura nada;
+- si en Configuración activaste **Gasto automático al ingresar inventario**, cada entrada crea un
+  gasto de *cantidad × precio* (100 m × 1.500 = 150.000). Apagado, que es lo normal, no hay gasto.
+
+Como es el mismo número para las dos cosas, decide si lo usas como costo de compra o como precio
+de venta según cuál de esos dos usos te importe; el sistema no lleva hoy dos precios separados.
+
+Si un material muestra «*N registro(s) con serial sobre este material*», alguien lo guardó por el
+formulario de equipos antes de este cambio. Esos registros **no cuentan** como existencia: revisa
+en *Lista de equipos* y dalos de baja; la existencia real se registra con *Entrada de material*.
 
 Quien administra inventario ve además la **Existencia** de cada modelo. Un material *por
 cantidad* que muestra **0** está creado en el catálogo pero **no tiene entrada registrada**: por

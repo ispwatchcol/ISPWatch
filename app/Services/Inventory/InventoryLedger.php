@@ -833,7 +833,7 @@ class InventoryLedger
 
         throw ValidationException::withMessages([
             'destination' => $holderType === InventoryMovement::HOLDER_USER
-                ? 'No puedes dejar el equipo a nombre de otro técnico. Recíbelo tú y traspásalo desde Inventario → Entregas.'
+                ? 'No puedes dejar el equipo a nombre de otro técnico. Recíbelo tú y traspásalo desde Inventarios → Entregas y traspasos.'
                 : 'No tienes permiso para devolver equipos a la bodega. Recíbelo a tu nombre y que lo ingrese quien administre el inventario.',
         ]);
     }
@@ -928,7 +928,7 @@ class InventoryLedger
 
         throw ValidationException::withMessages([
             'source' => $holderType === InventoryMovement::HOLDER_USER
-                ? 'Ese equipo lo tiene otro técnico. Pídele que te lo traspase desde Inventario → Entregas.'
+                ? 'Ese equipo lo tiene otro técnico. Pídele que te lo traspase desde Inventarios → Entregas y traspasos.'
                 : 'No tienes permiso para tomar equipos de la bodega. Usa los que tengas asignados.',
         ]);
     }

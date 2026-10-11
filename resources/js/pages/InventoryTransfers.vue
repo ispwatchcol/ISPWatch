@@ -122,13 +122,15 @@
         </p>
       </div>
 
-      <!-- Entrada de material nuevo (compra) -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6">
+      <!-- Entrada de material nuevo (compra). Stock enlaza aquí con
+           ?entrada=<id>#entrada desde «Registrar entrada». -->
+      <div id="entrada" ref="entrySection" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 scroll-mt-4">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-1">Entrada de material</h2>
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          Para dar de alta consumibles comprados (RJ45, cable, platos). Los equipos con serial se
-          registran en
-          <RouterLink to="/inventory/create" class="underline">Agregar equipo</RouterLink>.
+          Aquí nace la existencia de un material por cantidad (cable, fibra, RJ45): elige el material, cuánto
+          entra en su unidad y a qué bodega o persona. Crear el material en Stock no le da existencia. Los
+          equipos con serial se registran en
+          <RouterLink to="/inventory/create" class="underline">Agregar equipo con serial</RouterLink>.
         </p>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -174,7 +176,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import inventoryApi from '@/services/api/inventory'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import inventoryStockApi from '@/services/api/inventory-stock'
@@ -336,8 +338,21 @@ const submitEntry = async () => {
   }
 }
 
+const route = useRoute()
+const entrySection = ref(null)
+
 onMounted(async () => {
   await loadCatalogs()
   await loadHoldings()
+
+  // Viene de Stock → «Registrar entrada»: el material ya elegido y la vista en
+  // la sección, para que el segundo paso del alta no haya que buscarlo.
+  const preset = Number(route.query.entrada)
+  if (preset && consumableStocks.value.some(s => s.id === preset)) {
+    entry.value.stock_id = preset
+  }
+  if (route.hash === '#entrada' || preset) {
+    entrySection.value?.scrollIntoView({ block: 'start' })
+  }
 })
 </script>

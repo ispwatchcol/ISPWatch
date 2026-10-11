@@ -312,6 +312,12 @@ ajenas en silencio.
 | Dos registros simultáneos del mismo serial | `assertDeviceStillAt()` relee el equipo **bloqueado** dentro de la transacción y aborta si ya cambió de custodio |
 | Dos «Quitar» simultáneos de la misma línea de orden | `releaseFromInstallation()` relee la línea bloqueada; el segundo no la encuentra y no devuelve nada |
 
+**Catálogo y existencia son dos pasos.** Crear un producto en `inventory_stock` no le da
+existencia. Un material la obtiene sólo por una entrada del ledger (saldo en
+`inventory_balances`), y un equipo con serial, sólo como fila de `inventory_device` de un modelo
+**por serial**: desde 2026-10-11 el alta de equipos y la carga masiva rechazan un modelo por
+cantidad, y la disponibilidad ignora las filas antiguas que lo hicieron.
+
 **Sin fuentes paralelas.** El consumo de material sólo existe como línea de
 `installation_equipment`/`ticket_equipment`. El antiguo «Cable utilizado (metros)» de la hoja
 (`sheet.cable_meters`) ya no se escribe —el servidor ignora lo que llegue y conserva el valor

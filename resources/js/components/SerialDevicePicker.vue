@@ -70,7 +70,7 @@ const props = defineProps({
   context: { type: String, default: 'esta orden' },
   nextStep: {
     type: String,
-    default: 'Siguiente paso: pide que te entreguen la unidad en Inventario → Entregas, o que la registre quien la tenga asignada.',
+    default: 'Siguiente paso: pide que te entreguen la unidad en Inventarios → Entregas y traspasos, o que la registre quien la tenga asignada.',
   },
 })
 

@@ -9,10 +9,10 @@
             <div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-xl">
               <v-icon name="bi-box-seam" class="text-purple-600 dark:text-purple-400 w-6 h-6 md:w-7 md:h-7" />
             </div>
-            {{ isEdit ? 'Editar Dispositivo' : 'Nuevo Dispositivo' }}
+            {{ isEdit ? 'Editar equipo con serial' : 'Nuevo equipo con serial' }}
           </h1>
           <p class="text-sm md:text-base text-gray-600 dark:text-gray-300 mt-1">
-            {{ isEdit ? 'Actualiza la información del dispositivo' : 'Agrega un nuevo dispositivo al inventario' }}
+            {{ isEdit ? 'Actualiza la información del equipo' : 'Una unidad física con su serial y su MAC: antena, router, ONU' }}
           </p>
         </div>
         
@@ -42,6 +42,25 @@
         </div>
 
         <form @submit.prevent="handleSubmit" class="p-6 md:p-8">
+
+          <!-- Este formulario es SÓLO para equipos con serial. Antes listaba
+               también los materiales y aceptaba darles un serial: el material
+               quedaba como «equipo» y no sumaba metros. -->
+          <div v-if="!isEdit" data-testid="material-hint"
+            class="mb-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-900 dark:text-amber-200">
+            <p class="font-medium">¿Vas a registrar un material por cantidad (cable, fibra, conectores)?</p>
+            <p class="mt-1">
+              No se registra aquí: no lleva serial ni MAC. Son dos pasos:
+              <strong>1.</strong> créalo en
+              <RouterLink to="/inventory/stocks?nuevo=material" class="underline font-medium">Stock / Modelos → Agregar material</RouterLink>
+              eligiendo «Por cantidad» y su unidad;
+              <strong>2.</strong> registra cuánto hay en
+              <RouterLink to="/inventory/transfers#entrada" class="underline font-medium">Entregas y traspasos → Entrada de material</RouterLink>.
+            </p>
+            <p v-if="hiddenMaterials" class="mt-1 text-xs">
+              {{ hiddenMaterials }} material(es) por cantidad del catálogo no aparecen en la lista de modelos de abajo por eso.
+            </p>
+          </div>
           
           <!-- Section: Información del Producto -->
           <div class="mb-8">
@@ -68,7 +87,7 @@
                   >
                     <option value="">Selecciona un stock...</option>
                     <option
-                      v-for="stock in stocks"
+                      v-for="stock in serialStocks"
                       :key="stock.id"
                       :value="stock.id"
                     >
@@ -79,7 +98,7 @@
                     <v-icon name="md-keyboardarrowdown" />
                   </div>
                 </div>
-                <p class="hint">Selecciona el producto del stock</p>
+                <p class="hint">Sólo modelos «por serial». ¿No está el modelo? Créalo en Stock / Modelos.</p>
               </div>
             </div>
           </div>
@@ -296,7 +315,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRouter, useRoute, RouterLink } from 'vue-router'
 import inventoryApi from '@/services/api/inventory'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import inventoryProviderApi from '@/services/api/inventory-provider'
@@ -340,6 +359,12 @@ const form = ref({
 })
 
 // Computed
+// Sólo modelos «por serial». Al editar se conserva el modelo actual aunque sea
+// un material: una fila vieja creada así tiene que poder abrirse y corregirse.
+const serialStocks = computed(() => stocks.value.filter(s =>
+  s.is_serialized !== false || (isEdit && s.id === form.value.stock_id)))
+const hiddenMaterials = computed(() => stocks.value.filter(s => s.is_serialized === false).length)
+
 const selectedStock = computed(() => {
   return stocks.value.find(s => s.id === form.value.stock_id)
 })

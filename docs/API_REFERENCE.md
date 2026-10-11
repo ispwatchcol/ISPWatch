@@ -2105,6 +2105,25 @@ tienen más decimales responde `422` en `quantity_decimals`.
 Si la orden ya tenía un valor guardado, se conserva tal cual (histórico); no se borra ni se
 reescribe. El campo sigue aceptándose en la validación para no romper clientes viejos.
 
+### 15.4 Equipos con serial sólo de modelos «por serial» (2026-10-11)
+
+- `POST /api/inventory` con un `stock_id` de un modelo `is_serialized = false` responde `422` en
+  `stock_id`: «es un material por cantidad: no lleva serial ni MAC…». `PUT /api/inventory/{id}`
+  responde igual si **cambia** el modelo a uno de material; si el modelo no cambia (fila antigua
+  creada así antes de la regla), se puede editar.
+- La carga masiva (`POST /api/import/inventory`) rechaza la fila cuyo marca+modelo es un material
+  por cantidad, con error en el campo `modelo`; las demás filas se importan.
+- `GET /api/inventory-stock` agrega, para quien administra inventario, `serial_rows`: filas de
+  `inventory_device` colgadas de un material. **No** se suman a `available` (antes sí: un material
+  con 100 m y una fila con serial mostraba 101).
+- `GET …/equipment/available` (orden y ticket) ya no ofrece en `devices` filas de modelos por
+  cantidad.
+
+El alta correcta de un material son dos llamadas: `POST /api/inventory-stock` con
+`is_serialized: false`, `unit` y `quantity_decimals`, y `POST /api/inventory/transfers` sin
+`source_*` (entrada). `price` es el precio de catálogo **por unidad de medida** (ver
+MANUAL_USUARIO §15.1 para sus dos usos).
+
 ---
 
 ## 16. Soporte

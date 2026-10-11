@@ -41,6 +41,8 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
 
     /** "brand|model" (lowercased) => stock_id */
     protected array $stockCache = [];
+    /** stock_id => true para los modelos «por cantidad»: no admiten filas con serial */
+    protected array $consumableStocks = [];
     /** lowercased provider name => provider_id */
     protected array $providerCache = [];
     /** lowercased branch name => branch_id */
@@ -70,6 +72,10 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
     {
         foreach (InventoryStock::withoutTenantScope()->where('tenant_id', $this->tenantId)->get() as $stock) {
             $this->stockCache[$this->stockKey($stock->brand, $stock->model)] = $stock->id;
+
+            if (!$stock->is_serialized) {
+                $this->consumableStocks[$stock->id] = true;
+            }
         }
 
         foreach (InventoryProvider::withoutTenantScope()->where('tenant_id', $this->tenantId)->get() as $provider) {
@@ -155,6 +161,15 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
             } catch (\Throwable $e) {
                 $this->errors[] = $this->err($rowNumber, 'catalogo',
                     'No se pudo crear/resolver marca-modelo, proveedor o sucursal: ' . $e->getMessage());
+                continue;
+            }
+
+            // Un material por cantidad no se carga por filas con serial: cada fila
+            // sería un «equipo» que no cuenta como metros ni como saldo.
+            if ($stockId !== null && isset($this->consumableStocks[$stockId])) {
+                $this->errors[] = $this->err($rowNumber, 'modelo',
+                    "«{$brand} {$model}» es un material por cantidad: no se carga con serial. "
+                    . 'Registra su existencia en Inventarios → Entregas y traspasos → Entrada de material.');
                 continue;
             }
 

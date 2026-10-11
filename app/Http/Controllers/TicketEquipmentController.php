@@ -123,6 +123,9 @@ class TicketEquipmentController extends Controller
         // equipos no debe traerlos todos a memoria para descartar la mayoría.
         $devices = InventoryDevice::with(['stock:id,brand,model,price,is_serialized,unit'])
             ->available()
+            // Un modelo «por cantidad» no se entrega por unidad aunque tenga filas
+            // con serial heredadas del formulario de equipos (ver InventoryDeviceController).
+            ->where(fn ($q) => $q->whereNull('stock_id')->orWhereHas('stock', fn ($s) => $s->where('is_serialized', true)))
             ->where(function ($query) use ($sources) {
                 foreach ($sources as $source) {
                     if ($source['type'] === InventoryMovement::HOLDER_USER) {

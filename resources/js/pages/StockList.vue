@@ -12,21 +12,41 @@
             Stock / Modelos
           </h1>
           <p class="text-sm md:text-base text-gray-600 dark:text-gray-300 mt-1">
-            Gestiona las marcas y modelos de equipos disponibles
+            Catálogo del inventario: equipos con serial y materiales por cantidad (cable, fibra, conectores)
           </p>
         </div>
-        
-        <button
-          v-if="can('view_inventory')"
-          @click="openAddModal"
-          class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800
-                 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
-                 transition-all transform hover:-translate-y-0.5
-                 font-medium w-full sm:w-auto justify-center"
-        >
-          <v-icon name="md-add" class="w-5 h-5 fill-current" />
-          <span>Nuevo Stock</span>
-        </button>
+
+        <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <button
+            v-if="can('view_inventory')"
+            @click="openAddModal({ material: true })"
+            data-testid="add-material"
+            class="border border-purple-600 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20
+                   px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium w-full sm:w-auto justify-center transition-all"
+          >
+            <v-icon name="md-add" class="w-5 h-5 fill-current" />
+            <span>Agregar material</span>
+          </button>
+          <button
+            v-if="can('view_inventory')"
+            @click="openAddModal()"
+            class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800
+                   text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
+                   transition-all transform hover:-translate-y-0.5
+                   font-medium w-full sm:w-auto justify-center"
+          >
+            <v-icon name="md-add" class="w-5 h-5 fill-current" />
+            <span>Nuevo Stock</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Los dos pasos del material, a la vista: el catálogo no crea existencia. -->
+      <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6 text-sm text-blue-900 dark:text-blue-200">
+        <p><strong>Materiales (cable, fibra, conectores):</strong> 1. créalos aquí con <em>Agregar material</em>
+          («Por cantidad», unidad y precisión); 2. registra cuánto hay con <em>Registrar entrada</em>
+          (Entregas y traspasos → Entrada de material). Crear el producto no le da existencia.
+          Los equipos con serial se registran uno por uno en <em>Agregar equipo con serial</em>.</p>
       </div>
 
       <!-- Search -->
@@ -129,7 +149,12 @@
                     {{ fmtQty(item.available) }} {{ item.is_serialized === false ? (item.unit || 'unidad') : 'und.' }}
                   </span>
                   <span v-if="item.is_serialized === false && !Number(item.available)" class="block text-[11px] text-amber-700 dark:text-amber-400">
-                    Sin entrada: regístrala en Inventario → Entregas
+                    Sin existencia registrada
+                  </span>
+                  <RouterLink v-if="item.is_serialized === false" :to="entryLink(item)" data-testid="register-entry"
+                    class="block text-[11px] text-purple-700 dark:text-purple-300 underline">Registrar entrada</RouterLink>
+                  <span v-if="item.serial_rows" class="block text-[11px] text-rose-700 dark:text-rose-400">
+                    {{ item.serial_rows }} registro(s) con serial sobre este material: no cuentan como existencia.
                   </span>
                 </td>
                 <td class="px-6 py-4">
@@ -208,7 +233,12 @@
               <p v-if="showsAvailable" class="mt-1 text-xs text-gray-800 dark:text-gray-200" data-testid="stock-available-card">
                 Existencia: {{ fmtQty(item.available) }} {{ item.is_serialized === false ? (item.unit || 'unidad') : 'und.' }}
                 <span v-if="item.is_serialized === false && !Number(item.available)" class="block text-[11px] text-amber-700 dark:text-amber-400">
-                  Sin entrada: regístrala en Inventario → Entregas
+                  Sin existencia registrada
+                </span>
+                <RouterLink v-if="item.is_serialized === false" :to="entryLink(item)" data-testid="register-entry-card"
+                  class="block text-[11px] text-purple-700 dark:text-purple-300 underline">Registrar entrada</RouterLink>
+                <span v-if="item.serial_rows" class="block text-[11px] text-rose-700 dark:text-rose-400">
+                  {{ item.serial_rows }} registro(s) con serial sobre este material: no cuentan como existencia.
                 </span>
               </p>
             </div>
@@ -300,9 +330,10 @@
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Precio (COP)</label>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ priceLabel }}</label>
               <input
                 v-model.number="form.price"
+                data-testid="stock-price"
                 type="number"
                 min="0"
                 step="any"
@@ -311,6 +342,13 @@
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
               />
+              <!-- Qué es este número, sin inventar más: un solo precio de
+                   catálogo por unidad de medida que el sistema usa en dos sitios. -->
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="price-help">
+                Precio de catálogo por {{ form.is_serialized === false ? (form.unit || 'unidad') : 'unidad' }}, no un total.
+                Se usa como precio sugerido al cobrar al cliente lo consumido (cantidad × precio, editable en el cobro) y,
+                si activaste «Gasto automático al ingresar inventario», como costo de cada unidad que entra.
+              </p>
             </div>
 
             <!-- Cómo se cuenta: por serial o por cantidad -->
@@ -464,6 +502,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { firstError } from '@/utils/apiError'
 import { fmtQty, isLengthUnit } from '@/utils/materialQuantity'
 
 const { can } = usePermissions()
@@ -537,12 +577,35 @@ const loadItems = async () => {
 }
 
 // Modal actions
-const openAddModal = () => {
+const route = useRoute()
+const router = useRouter()
+
+// `material: true` abre el alta ya en «Por cantidad»: es el atajo del menú
+// «Agregar material» y del botón de esta página.
+const openAddModal = ({ material = false } = {}) => {
   isEditing.value = false
   editingId.value = null
-  form.value = { brand: '', model: '', price: 0, is_serialized: true, unit: '', quantity_decimals: 0 }
+  form.value = material
+    ? { brand: '', model: '', price: 0, is_serialized: false, unit: 'metro', quantity_decimals: 2 }
+    : { brand: '', model: '', price: 0, is_serialized: true, unit: '', quantity_decimals: 0 }
   showFormModal.value = true
 }
+
+const priceLabel = computed(() => form.value.is_serialized === false
+  ? `Precio por ${form.value.unit || 'unidad'} (COP)`
+  : 'Precio por unidad (COP)')
+
+/** Entrada de material con el producto ya elegido. */
+const entryLink = (item) => ({ path: '/inventory/transfers', query: { entrada: item.id }, hash: '#entrada' })
+
+// ?nuevo=material (menú «Agregar material»): abre el alta y limpia la URL para
+// que recargar la página no la vuelva a abrir.
+const openFromQuery = () => {
+  if (route.query.nuevo !== 'material') return
+  openAddModal({ material: true })
+  router.replace({ query: {} })
+}
+watch(() => route.query.nuevo, openFromQuery)
 
 const openEditModal = (item) => {
   isEditing.value = true
@@ -594,14 +657,16 @@ const handleSave = async () => {
       toast.value?.success('Actualizado', 'Stock actualizado correctamente')
     } else {
       await inventoryStockApi.create(payload)
-      toast.value?.success('Creado', 'Nuevo stock agregado correctamente')
+      toast.value?.success('Creado', payload.is_serialized
+        ? 'Nuevo stock agregado correctamente'
+        : 'Material creado sin existencia. Usa «Registrar entrada» para cargar cuánto hay.')
     }
 
     closeFormModal()
     await loadItems()
   } catch (error) {
     console.error('Error saving:', error)
-    toast.value?.error('Error', 'No se pudo guardar: ' + error.message)
+    toast.value?.error('Error', 'No se pudo guardar: ' + firstError(error))
   } finally {
     saving.value = false
   }
@@ -634,5 +699,6 @@ const formatCurrency = (value) => {
 onMounted(() => {
   tenantId.value = getUserTenantId()
   loadItems()
+  openFromQuery()
 })
 </script>
