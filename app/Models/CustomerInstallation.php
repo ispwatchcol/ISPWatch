@@ -142,6 +142,28 @@ class CustomerInstallation extends Model
     }
 
     /**
+     * MAC del primer equipo con serial registrado en la orden.
+     *
+     * Antes salía de la casilla «MAC del módem» de la hoja, que se llenaba a
+     * mano (o se autocompletaba con el primer equipo cargado). La casilla se
+     * retiró —todo lo instalado va anclado al inventario— y este es su
+     * sustituto: el mismo dato, leído del equipo que de verdad salió de la
+     * bodega. Lo usa el alta del cliente al convertir el prospecto, para la
+     * MAC del lease DHCP.
+     */
+    public function installedDeviceMac(): ?string
+    {
+        $linea = $this->equipmentItems()
+            ->whereNotNull('device_id')
+            ->with('device:id,mac')
+            ->orderBy('id')
+            ->get()
+            ->first(fn ($l) => filled($l->device?->mac));
+
+        return $linea?->device?->mac;
+    }
+
+    /**
      * Equipos y materiales descargados del inventario en esta visita.
      *
      * NO se puede llamar `equipment()`: la tabla ya tiene una columna

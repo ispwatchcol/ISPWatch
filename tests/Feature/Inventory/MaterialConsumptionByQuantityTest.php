@@ -525,7 +525,8 @@ class MaterialConsumptionByQuantityTest extends TestCase
 
         $sheet = $installation->fresh()->sheet;
         $this->assertEquals(80, $sheet['cable_meters'], 'El registro histórico no se borra ni se reescribe.');
-        $this->assertSame('silicona y cinta', $sheet['materials']);
+        // Desde § 114 «otros insumos» tampoco se escribe: también es histórico.
+        $this->assertSame('silicona', $sheet['materials']);
 
         $this->putJson("/api/installations/{$installation->id}/sheet", ['sheet' => ['signal_level' => '-20']])->assertOk();
         $this->assertEquals(80, $installation->fresh()->sheet['cable_meters']);

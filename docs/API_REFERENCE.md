@@ -782,10 +782,20 @@ conciliación es posterior (entrega B).
 
 #### `PUT /api/installations/{installation}/sheet`
 
-Guarda la hoja como JSON (`sheet`). Además de la parte técnica (equipos, mediciones,
-materiales), lleva la configuración de red de la orden: `sectorial_id`, `router_id`,
-`plan_id`, `client_ip`, `vlan` y, en cores PPPoE, `pppoe_username` / `pppoe_password` /
-`pppoe_local_address` / `local_address_manual`.
+Guarda la hoja como JSON (`sheet`): `signal_level` (≤ 40), `observations` (≤ 2000) y la
+configuración de red de la orden: `sectorial_id`, `router_id`, `plan_id`, `client_ip`, `vlan`
+y, en cores PPPoE, `pppoe_username` / `pppoe_password` / `pppoe_local_address` /
+`local_address_manual`.
+
+> **Campos retirados (2026-10-11).** `modem_brand`, `modem_model`, `modem_mac`, `onu_serial`,
+> `antenna_model`, `materials` y `cable_meters` ya **no se escriben**: lo instalado sale de
+> `installation_equipment` (`/api/installations/{installation}/equipment`). Si llegan se
+> ignoran sin error, y el valor que una orden anterior tenga guardado **se conserva** aunque la
+> petición no lo traiga. Como el guardado reemplaza la hoja entera, mándala completa.
+>
+> `GET /api/prospects/{prospect}` añade a cada orden `installed_device_mac`: la MAC del primer
+> equipo con serial registrado en ella (o `null`). Es lo que usa el alta del cliente al
+> convertir el prospecto, en lugar de la casilla `modem_mac`.
 
 > `client_ip` se envía **siempre**, también en cores con PPPoE: es la IP que queda asignada
 > al abonado y la que consume el alta de cliente al convertir el prospecto. El frontend lo
@@ -801,8 +811,8 @@ prospecto, que todavía no es cliente— lea lo que va a firmar.
 
 - **Body (opcional):** `sheet` con los mismos campos que `PUT .../sheet`. Se
   mezcla **en memoria** sobre la hoja guardada, así la vista previa refleja lo
-  que el técnico tiene escrito aunque no haya pulsado "Guardar hoja". Nunca se
-  persiste.
+  que el técnico tiene escrito aunque no haya pulsado "Guardar datos técnicos". Nunca se
+  persiste. Los campos retirados se ignoran igual que al guardar.
 - **Respuesta:** `application/pdf` en línea (`Content-Disposition: inline`).
   El frontend lo pide con `responseType: 'blob'`.
 - Respeta el tenant: una orden de otro tenant devuelve `404`.

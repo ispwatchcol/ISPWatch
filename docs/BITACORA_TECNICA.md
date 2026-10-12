@@ -4,9 +4,15 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-10-11 · Rama: `feat/ticket-asunto-catalogo-y-cuotas-instalacion`
+**Última actualización:** 2026-10-11 · Rama: `feat/hoja-instalacion-solo-inventario`
 
 Últimos bloques de trabajo, unificados en esta rama:
+
+- **La hoja de instalación ya no tiene campos de equipo a mano (2026-10-11, § 114):** marca,
+  modelo y MAC del módem, serial ONU, antena y «otros insumos» repetían lo que ya registra la
+  línea del inventario —y podían contradecirla—. Se retiran de la pantalla y el servidor los
+  ignora; señal y observaciones pasan a *Conexión / Red*. La MAC del alta y la del acta salen
+  ahora del equipo instalado.
 
 - **El «Acuerdo de pago» de la instalación no hacía nada, y el asunto del ticket no servía
   para filtrar (2026-10-11, § 113):** la casilla se guardaba y la factura de instalación nacía
@@ -10522,3 +10528,70 @@ los dos.
 - P-95 (pago de la cartera identificado por «la primera asignación»), P-96 (cuotas en la hoja de
   instalación), P-97 (re-facturar una instalación anulada), P-98 (estadísticas por asunto), P-99
   (`TicketDiagnosisFields` y dos cambios en el mismo tick).
+
+## 114. La hoja de instalación sólo registra lo que hay en el inventario — 2026-10-11
+
+**Pedido** (usuario, con captura de la *Hoja técnica de instalación*): «este apartado al instalar
+o en un ticket debe desaparecer porque todo debe ir anclado a lo que haya en el inventario».
+
+### Qué había
+
+Debajo de *Equipos y materiales usados* —que sí descuenta del inventario— la hoja seguía teniendo
+casillas a mano: cable (ya calculado desde § 111), nivel de señal, marca / modelo / MAC del
+módem, serial ONU, «otros insumos no inventariados» y observaciones técnicas. Marca, modelo, MAC y
+serial se autocompletaban con el primer equipo cargado, pero eran editables, así que el acta podía
+decir un serial y el inventario haber descontado otro. «Otros insumos» era precisamente la puerta
+para lo que no estaba en el inventario.
+
+El **ticket no tiene un bloque equivalente**: *Equipos de la visita* ya va 100 % contra el
+inventario, y sus textos libres son el relato de la visita (hallazgo, acción, resultado) y la
+descripción del cargo, que no describen equipos. No se tocó.
+
+### Decisión
+
+Señal y observaciones no son inventario —una medición y una nota— y no tienen otro sitio donde
+guardarse. El usuario eligió **moverlas a la tarjeta *Conexión / Red*** y quitar todo lo demás.
+
+### Qué se hizo
+
+- **Pantalla** (`InstallationDetail.vue`): fuera las casillas y el botón *Guardar hoja*; la tarjeta
+  queda con la lista del inventario y una línea con el cable sumado de los materiales en metros
+  (calculado, `data-testid=cable-summary`, que usa el recorrido de § 112). Señal y observaciones
+  van en *Conexión / Red* y se guardan con *Guardar datos técnicos*. Si una orden anterior tenía
+  datos a mano, se muestran en un recuadro **Registro manual anterior**, sólo lectura. Se quitó el
+  autocompletado de la hoja con el equipo: el equipo *es* el registro.
+- **Servidor** (`CustomerInstallationController`): `LEGACY_SHEET_FIELDS` generaliza lo que § 111
+  hizo con `cable_meters`. Esos campos se ignoran si llegan (pantalla vieja en caché, integrador) y
+  lo guardado **se conserva**, también cuando la petición no los trae — el guardado reemplaza la
+  hoja entera. Sin regla de validación, Laravel descarta esas claves de `sheet`; una petición que
+  sólo traía campos retirados llegaba sin `sheet` y reventaba con «Undefined array key»: lo
+  destapó la prueba de § 111 y se cubrió con `?? []`.
+- **MAC del alta de cliente**: al convertir el prospecto, la MAC del lease DHCP venía de
+  `sheet.modem_mac`. Sin la casilla se habría perdido. Ahora `GET /api/prospects/{id}` trae por
+  orden `installed_device_mac` (`CustomerInstallation::installedDeviceMac()`: primer equipo con
+  serial y MAC de la orden) y `CustomerAdd.vue` lo usa, con `modem_mac` sólo como respaldo de
+  órdenes anteriores.
+- **Acta**: la MAC del módem sólo salía en la hoja firmada desde la casilla manual. Ahora cada
+  equipo del inventario se imprime con serial **y MAC**, en las dos vistas Blade y en
+  `{{instalacion.equipos}}`. Va aparte de `InstallationEquipment::label()` porque ese texto es
+  también la descripción con que se cobra el equipo, y no se quiere la MAC en la factura. De paso,
+  el título «Hoja Técnica» del PDF ya no sale solo con la tabla vacía cuando la hoja sólo tiene
+  datos de red.
+
+### Pruebas
+
+- `tests/Feature/Support/InstallationSheetInventoryOnlyTest.php` (6): los campos de equipo se
+  ignoran y señal/observaciones se guardan; lo digitado en una orden anterior se conserva aunque
+  la petición no lo traiga o lo traiga distinto; la vista previa tampoco los acepta; el prospecto
+  trae la MAC del primer equipo **con** MAC; el PDF imprime serial y MAC y no el título vacío; el
+  placeholder del acta lleva la MAC.
+- Ajustadas: `MaterialConsumptionByQuantityTest` (`materials` también es histórico ahora) e
+  `InstallationSheetSignTest` (el borrador de la vista previa usa `signal_level`).
+- Suite completa SQLite: 1949 en verde (8 omitidas preexistentes). PostgreSQL: CI.
+- Navegador contra el backend aislado de § 113: orden nueva sin casillas de equipo, señal y
+  observaciones en *Conexión / Red* y guardadas, la ONU listada con serial y MAC; orden anterior
+  con su registro manual en sólo lectura.
+
+### Pendiente
+
+Nada que migrar: `sheet` es JSON y los valores viejos se conservan a propósito.

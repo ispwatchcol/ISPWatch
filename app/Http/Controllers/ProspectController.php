@@ -51,6 +51,15 @@ class ProspectController extends Controller
     {
         $prospect = $this->resolve($request, $id);
         $prospect->load(['installations' => fn($q) => $q->orderByDesc('scheduled_date')]);
+
+        // La MAC del equipo instalado, del inventario de cada orden: la usa el
+        // alta del cliente al convertir el prospecto (antes venía de la casilla
+        // «MAC del módem» de la hoja, que ya no se escribe). Un prospecto tiene
+        // una o dos órdenes; la consulta por orden no pesa.
+        $prospect->installations->each(
+            fn ($i) => $i->setAttribute('installed_device_mac', $i->installedDeviceMac())
+        );
+
         return response()->json($prospect);
     }
 
