@@ -10595,3 +10595,108 @@ guardarse. El usuario eligió **moverlas a la tarjeta *Conexión / Red*** y quit
 ### Pendiente
 
 Nada que migrar: `sheet` es JSON y los valores viejos se conservan a propósito.
+
+## 115. Converza corta el panel de ISPWatch de un ISP que no pagó (KAN-126) — 2026-10-13
+
+**Pedido** (tarjeta KAN-126): Converza (Core Brain) ya cobra solo la suscripción de cada ISP y,
+si una factura vence, corta el panel de **Converza**. El de ISPWatch no lo puede cortar él: lee
+nuestra base en solo lectura. Para eso publica `GET /saas/estado/{ispwatch_tenant_id}` con un
+token, y el trabajo de este lado era consultarlo y cerrar el panel.
+
+### Qué se hizo
+
+- **`ConverzaServiceStatus`** (`app/Services/Saas/`): pregunta, interpreta y recuerda. Sólo un
+  `"suspended": true` literal corta; sin URL o sin token no se consulta nada.
+- **Middleware `saas_active`** (`EnsureSaasServiceActive`), en el **grupo** `auth:sanctum` de
+  `routes/api.php` junto a `deny_api_clients`: toda ruta del panel responde **423**
+  `{code: service_suspended, message, data}` antes de mirar permisos o validar. Excepciones con
+  `withoutMiddleware`: `GET /api/auth/me` y la nueva `GET /api/saas/status`.
+- **SPA**: el interceptor de `services/api.js` reconoce el 423 por `code`; `DefaultLayout`
+  pregunta el estado al montarse y, si está suspendido, pinta `ServiceSuspendedScreen` (mensaje,
+  desde cuándo, *Cómo pagar*, «Ya pagué, comprobar de nuevo», cerrar sesión y el botón de
+  WhatsApp de soporte) en vez del sidebar y la página.
+- **Variables**: `CONVERZA_URL` y `CONVERZA_SAAS_STATUS_TOKEN` (el mismo valor que
+  `BRAIN_SAAS_STATUS_TOKEN` en Converza), más dos opcionales de timeout y store. En la plantilla
+  de App Platform, en el servicio web.
+
+### Decisiones
+
+**Falla abierto, también ante un 401.** Un token que no coincide apaga el corte. Se pensó en
+cortar ante un 401 —«alguien configuró algo mal»— y se descartó: el error sería nuestro, y lo
+pagaría un ISP que está al día. Queda en el log con el código de estado; que nadie lo vea es
+P-100.
+
+**Tres tiempos de caché, no uno.** La tarjeta pedía «~5 min». Al día: 5 min. Suspendido:
+**1 min**, porque Converza levanta el corte en el acto al registrar el pago y el ISP no debería
+esperar cinco minutos para volver a entrar; los suspendidos son pocos, preguntar más seguido no
+cuesta. Error: **1 min**, porque sin recordarlo un Converza caído haría esperar el timeout
+entero a cada petición del panel. Medido contra un servidor que tarda 10 s: la primera petición
+tarda 3,0 s y las siguientes, 4 ms.
+
+**Store `file`, no el de la app.** Producción tiene `CACHE_STORE=database`. El middleware corre
+en cada petición del panel: leer el estado de ahí sumaba un viaje a Postgres a todas. El store es
+configurable (`CONVERZA_SAAS_STATUS_CACHE_STORE`); en pruebas, `array`. Con una caché que no
+responde se deja pasar (log de error): preguntarle a Converza en cada petición sería peor.
+
+**En el grupo, no ruta por ruta.** Mismo argumento que `deny_api_clients`: un endpoint nuevo no
+puede quedarse sin corte por olvido. Una prueba recorre todas las rutas y lo fija, y fija que la
+API partner no lo lleva.
+
+**423 y no 402 ni 403.** Es el código que ya usa Converza para lo mismo, y el motivo puede ser
+`manual`, no sólo cobro. El frontend no confía sólo en el número: mira `code`.
+
+**Quién no se corta.** El cliente final que entra con su usuario (rol `client`, o el rol global
+«Cliente» sin código, reconocido por tener ficha): enseñarle la pantalla sería contarle que su
+proveedor nos debe. La comprobación de ficha sólo corre si el tenant **sí** está suspendido, para
+no sumar una consulta a cada petición. Tampoco el superadministrador (`is_superadmin`).
+
+**Avisos ocultos durante la suspensión.** Las páginas que alcanzan a montarse antes de que
+llegue el estado fallan con 423 y cada una mostraría su error encima de la pantalla. `App.vue`
+no monta `NotificationHost` mientras dure. Va envuelto en un `<template v-if>` para que
+`<NotificationHost />` siga siendo literal: `NotificationLayeringTest` lo busca así, y su
+intención (una vez, en la raíz, fuera del `router-view`) sigue intacta.
+
+**Cerrar sesión no necesitó excepción**: el logout de la SPA es sólo del navegador
+(`stores/auth.js` borra `userData`), nunca llamó al servidor. Eso es anterior a este trabajo y
+queda como P-102.
+
+**El Centro de Ayuda no se tocó**, sólo `MANUAL_USUARIO.md`: durante la suspensión el Centro de
+Ayuda queda detrás del corte, así que una entrada ahí no la leería nadie cuando hace falta. La
+pantalla se explica sola.
+
+### Consecuencia que conviene saber
+
+Durante la suspensión el ISP **no puede registrar pagos** de sus suscriptores, pero el
+planificador **sigue cortando** por mora, como pide la tarjeta. Un suscriptor que paga en
+efectivo durante la suspensión queda cortado sin forma de reconectarlo desde ISPWatch hasta que
+el ISP pague. Es coherente con «el corte es del panel», pero es una decisión de negocio y no se
+tomó aquí: P-101.
+
+### Pruebas
+
+- `tests/Feature/Saas/SaasPanelSuspensionTest.php` (24): 423 con mensaje e instrucciones y el
+  token en la cabecera; escrituras cortadas antes de validar; mensaje propio si Converza no manda
+  uno; `/auth/me` y `/saas/status` abiertas; al día y `known: false` pasan; un tenant suspendido
+  no alcanza a otro; timeout, 401/404/429/500/503 y respuestas que no se entienden (sin
+  `suspended`, `"true"` en texto, `1`, HTML) pasan; sin URL o token no se envía nada; caché de
+  5 min al día, reapertura al minuto de pagar, un error se recuerda un minuto; el cliente final
+  (rol `client` y rol global con ficha) y el superadministrador no se cortan; la API partner del
+  ISP suspendido responde sin consultar a Converza; toda ruta del panel lleva el corte salvo las
+  dos excepciones.
+- Mutación: sin `saas_active` en el grupo, la suite falla; restaurado, pasa.
+- Contra un Converza falso con `php -S` (Guzzle real, store `file` real): suspendido 196 ms y
+  5 ms en caché; servidor que tarda 10 s → pasa a los 3,0 s; token equivocado → pasa; apagado →
+  pasa (2 s de connect-timeout).
+- Suite completa SQLite: 1973 en verde (8 omitidas preexistentes). Build de Vite limpio.
+- La pantalla **no** se revisó en navegador en esta sesión.
+
+### Pendiente para activarlo
+
+1. En App Platform (servicio web): `CONVERZA_URL` y `CONVERZA_SAAS_STATUS_TOKEN`. Sin ellas el
+   código queda desplegado e inerte.
+2. Del lado Converza: `BRAIN_SAAS_STATUS_TOKEN` con el mismo valor (CON-92) y que cada cuenta del
+   Brain tenga `ispwatch_tenant_id`. Una cuenta sin vincular responde `known: false` y nunca se
+   corta.
+
+Sin migraciones.
+

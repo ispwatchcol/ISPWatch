@@ -50,6 +50,7 @@ use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
 use App\Http\Controllers\ContractSignatureLinkController;
 use App\Http\Controllers\PublicContractController;
+use App\Http\Controllers\SaasStatusController;
 use App\Http\Controllers\ApiClientController;
 use App\Http\Controllers\TenantApiKeyController;
 use App\Http\Controllers\Api\Partner\PartnerBillingController;
@@ -95,10 +96,20 @@ Route::middleware('throttle:public-contract')->group(function () {
 // API pública autentica igual de bien contra CUALQUIER ruta con auth:sanctum,
 // así que la barrera tiene que estar donde no se pueda olvidar al agregar un
 // endpoint nuevo. Ver App\Http\Middleware\DenyApiClients.
-Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
+//
+// `saas_active` (KAN-126) va aquí por la misma razón: si Converza suspendió al
+// ISP por falta de pago, TODO el panel responde 423 y el frontend muestra la
+// pantalla de «servicio suspendido». Las únicas excepciones son las dos rutas
+// de abajo con `withoutMiddleware`. Ver App\Http\Middleware\EnsureSaasServiceActive.
+Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(function () {
 
     // ─── AUTH ───
-    Route::get('/auth/me', [AuthController::class, 'me']);
+    // Abierta durante la suspensión: la sesión sigue identificada.
+    Route::get('/auth/me', [AuthController::class, 'me'])->withoutMiddleware('saas_active');
+
+    // ─── ESTADO DEL SERVICIO (KAN-126) ───
+    // Abierta durante la suspensión: es como la pantalla sabe si ya puede volver.
+    Route::get('/saas/status', [SaasStatusController::class, 'show'])->withoutMiddleware('saas_active');
 
     // ─── DASHBOARD ───
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);

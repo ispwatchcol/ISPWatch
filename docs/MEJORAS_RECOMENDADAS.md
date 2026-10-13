@@ -2897,6 +2897,44 @@ ticket anterior»).
 **Recomendación.** Emitir sobre una copia local que se sincroniza con la prop, o un evento por
 campo (`update:symptom`, …).
 
+### 📋 P-100 · Un token de Converza que no coincide apaga el corte del panel sin que nadie lo vea
+
+Detectado al construir KAN-126 (bitácora § 115). El corte del panel falla abierto a propósito:
+si Converza responde 401 (token distinto) o 404 (Converza sin token configurado), el ISP sigue
+trabajando. Es lo correcto para el ISP que pagó, pero deja el corte **apagado en silencio**: lo
+único que queda es un `Estado SaaS: Converza respondió con error` con `status: 401` en el log,
+una vez por minuto y por tenant. Nadie mira ese log hasta que un ISP moroso sigue entrando.
+
+**Recomendación.** Un componente `converza` en `GET /health` que, si `CONVERZA_URL` está
+definida, haga una consulta y reporte `degraded` ante un 401/404 (no ante un timeout, que es
+transitorio). El centinela externo ya mira `/health`.
+
+### 📋 P-101 · Durante la suspensión del panel el ISP no puede registrar pagos, pero los cortes siguen
+
+KAN-126 pidió explícitamente no tocar la operación de los suscriptores: facturación, cortes y
+reconexiones siguen corriendo en el planificador. Y el panel queda cerrado entero, incluido
+*Registrar pago*. Consecuencia: un suscriptor que paga en efectivo durante la suspensión queda
+cortado por mora sin forma de reconectarlo desde ISPWatch hasta que el ISP pague a Converza.
+
+No es un fallo del código: es una decisión de negocio que nadie tomó todavía.
+
+**Opciones.** (a) Dejarlo así: presiona al ISP a pagar rápido, y lo paga su cliente. (b) Dejar
+abierto `POST /api/billing/payments` (y la búsqueda de cliente que necesita) con
+`withoutMiddleware('saas_active')`. (c) Pausar los cortes automáticos del tenant mientras esté
+suspendido. La (b) es la que menos castiga al suscriptor, que no tiene la culpa.
+
+### 📋 P-102 · Cerrar sesión no invalida la sesión en el servidor
+
+Visto al construir KAN-126: el «Cerrar sesión» de la SPA (`stores/auth.js → logout()`) sólo
+borra `userData` del navegador. No existe ruta de logout en el backend, así que la sesión de
+Sanctum sigue viva. Y no sólo los 120 min de `SESSION_LIFETIME`: `AuthController::login()` hace
+`auth()->login($user, true)`, y la cookie de «recordarme» la vuelve a abrir cuando caduca. En un
+equipo compartido, las llamadas a la API siguen autenticadas aunque la pantalla muestre el login.
+
+**Recomendación.** `POST /api/logout` en el grupo autenticado (con `withoutMiddleware('saas_active')`)
+que haga `Auth::guard('web')->logout()`, `session()->invalidate()` y `regenerateToken()`, y que
+el frontend lo llame antes de limpiar el almacenamiento.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3046,6 +3084,9 @@ campo (`update:symptom`, …).
 | **P-97** | Guardar la cartera ya no resucita una factura de instalación anulada (§ 113), pero tampoco emite una nueva | Re-facturar una instalación corregida es manual | 🟢 Baja | 📋 Pendiente · botón «Emitir nueva factura» |
 | **P-98** | Estadísticas de soporte no agrupan por asunto del catálogo; la API de socios sólo da el texto | Falta el «cuántos de cada asunto» | 🟢 Baja | 📋 Pendiente |
 | **P-99** | `TicketDiagnosisFields` pierde cambios hechos en el mismo tick (emite sobre la prop sin actualizar) | Sin impacto manual; rompería un autocompletado | 🟢 Baja | 📋 Pendiente |
+| **P-100** | Token de Converza distinto (401/404) apaga el corte del panel sin aviso; sólo queda en el log | Un ISP moroso sigue entrando y nadie lo nota | 🟡 Media | 📋 Pendiente · componente `converza` en `/health` |
+| **P-101** | Con el panel suspendido (KAN-126) el ISP no puede registrar pagos y los cortes automáticos siguen | El suscriptor que paga en efectivo queda cortado | 🟡 Media | 📋 Pendiente · decisión de negocio |
+| **P-102** | El logout de la SPA no invalida la sesión del servidor (no hay ruta de logout) | La sesión sigue viva en un equipo compartido (y la cookie de «recordarme» la reabre) | 🟡 Media | 📋 Pendiente · `POST /api/logout` |
 | **P-92** | La unidad del producto es texto libre (`m`, `metro`, `mts` conviven) y no hay catálogo de unidades; el resumen de cable de la orden reconoce una lista fija de unidades de longitud | Un producto en «mtrs.» o «rollo de 305 m» no suma en el cable calculado, aunque sí descuenta bien | 🟢 Baja | 📋 Pendiente · candidato: catálogo cerrado de unidades con su magnitud |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |

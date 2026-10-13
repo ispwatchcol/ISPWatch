@@ -364,6 +364,17 @@ services:
   - key: HEALTH_SCHEDULER_EXPECTED
     scope: RUN_AND_BUILD_TIME
     value: "true"
+  # Corte del panel por falta de pago del SaaS (KAN-126, config/services.php →
+  # converza). Sólo el servicio web atiende el panel. Vacías = nadie se corta.
+  # El token es el MISMO valor que BRAIN_SAAS_STATUS_TOKEN en Converza; si no
+  # coincide, el corte queda apagado sin error visible (P-100).
+  - key: CONVERZA_URL
+    scope: RUN_AND_BUILD_TIME
+    value: <<<CAMBIAR:CONVERZA_URL>>>
+  - key: CONVERZA_SAAS_STATUS_TOKEN
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+    value: <<<CAMBIAR:CONVERZA_SAAS_STATUS_TOKEN>>>
   github:
     branch: main
     deploy_on_push: true

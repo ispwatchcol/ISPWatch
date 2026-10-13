@@ -96,6 +96,32 @@ El sistema **nunca recarga solo**: si estás a media ficha, no vas a perder lo e
 termines, recarga tú. Si un compañero te dice que un arreglo «ya está» y tú sigues viendo el
 problema, este aviso —o simplemente recargar— suele ser la explicación.
 
+### Si aparece «Servicio suspendido»
+
+En vez del panel puede salirte una pantalla que dice **Servicio suspendido**. Significa que
+la suscripción de tu empresa a ISPWatch tiene una **factura vencida sin pagar**. La pantalla
+dice desde cuándo y, en el recuadro **Cómo pagar**, a dónde hacer el pago.
+
+**Lo que se suspende es el acceso al panel, no el internet de tus clientes.** Mientras dure:
+
+- Tus clientes **siguen navegando**.
+- Las tareas automáticas **siguen corriendo**: facturas del mes, recordatorios, cortes por
+  mora y reconexiones automáticas.
+- Lo que **no** puedes hacer es entrar a trabajar en el panel: registrar pagos a mano, crear
+  clientes, atender tickets, reconectar a alguien desde su ficha… Tenlo en cuenta: si un
+  cliente te paga en efectivo durante la suspensión, no vas a poder registrarlo hasta que se
+  levante.
+
+**Cuando pagues:** el servicio se reactiva solo en cuanto se registra el pago. Pulsa **Ya
+pagué, comprobar de nuevo**; puede tardar hasta un minuto en reflejarse. Si el pago ya está
+registrado, el panel vuelve a cargarse y sigues donde estabas.
+
+Desde esa pantalla también puedes **cerrar sesión** y escribirle a soporte con el botón verde
+de WhatsApp.
+
+> Si la suspensión fue **manual** (no por una factura), el mensaje te pide comunicarte con
+> soporte: en ese caso el pago por sí solo no la levanta.
+
 ---
 
 ## 3. Cómo moverse por el sistema
@@ -2992,6 +3018,11 @@ llamar, cada cuánto va a sincronizar, y quién avisa cuando la llave esté por 
 ---
 
 ## 20. Preguntas frecuentes
+
+**En vez del panel me sale «Servicio suspendido».**
+La suscripción de tu empresa a ISPWatch tiene una factura vencida. Tus clientes siguen
+navegando; lo que se bloquea es el panel. Paga con los datos que muestra la pantalla y pulsa
+**Ya pagué, comprobar de nuevo**. Ver [Si aparece «Servicio suspendido»](#si-aparece-servicio-suspendido).
 
 **No veo una sección del menú.**
 Tu rol no tiene el permiso. Pide a un administrador que lo revise en **Roles**.

@@ -25,6 +25,10 @@
 12. [Dependencias críticas](#12-dependencias-críticas)
 13. [Despliegue](#13-despliegue)
 14. [API pública de solo lectura](#14-api-pública-de-solo-lectura)
+15. [Trazabilidad del flujo de caja](#15-trazabilidad-del-flujo-de-caja)
+15. [Catálogos versionados del ticket de soporte](#15-catálogos-versionados-del-ticket-de-soporte)
+16. [Observabilidad y dominios de fallo](#16-observabilidad-y-dominios-de-fallo)
+17. [Corte del panel por falta de pago del SaaS (Converza)](#17-corte-del-panel-por-falta-de-pago-del-saas-converza)
 
 ---
 
@@ -1080,6 +1084,7 @@ Detalle completo en [`BASE_DATOS.md`](BASE_DATOS.md).
 | **Google Maps JS API** | Mapa de clientes (clave **por tenant**, cifrada en BD) | `tenant.google_maps_api_key` |
 | **MikroTik CORE** | Punto de entrada SSH/API a toda la red de routers | `MIKROTIK_CORE_*` |
 | **Converza** | Sistema externo que lee `router_outage_events` en **solo lectura** y difunde por WhatsApp la falla masiva | Contrato de datos, no HTTP |
+| **Converza (Core Brain)** | Le cobra el SaaS a cada ISP. ISPWatch le pregunta por HTTP si el ISP está suspendido y, si lo está, le cierra el panel (§ 17) | `CONVERZA_URL`, `CONVERZA_SAAS_STATUS_TOKEN` |
 
 > ⚠️ El lado Converza de la integración de falla masiva **no está en este repositorio**;
 > ISPWatch únicamente registra los eventos append-only.
@@ -2325,3 +2330,111 @@ web, `LOG_LEVEL=info` y la URL de Healthchecks son del planificador.
 **Precedencia:** una variable declarada en un componente gana sobre la de nivel de app. Es
 útil para la excepción deliberada del `LOG_LEVEL`, y es una trampa para todo lo demás —
 una copia vieja olvidada dentro de un componente sombrea silenciosamente al valor bueno.
+
+---
+
+## 17. Corte del panel por falta de pago del SaaS (Converza)
+
+Añadido con KAN-126 (§ 115 de la bitácora).
+
+### 17.1 Quién corta a quién
+
+Converza (Core Brain) le cobra a cada ISP su suscripción. Si una factura vence sin pagar,
+Converza corta **su** panel y marca la cuenta como suspendida. El de ISPWatch no lo puede
+cortar él: lee la base de ISPWatch en solo lectura (principio no negociable del Brain). Por
+eso publica el estado y **ISPWatch decide**:
+
+```
+GET {CONVERZA_URL}/saas/estado/{tenant_id}
+Authorization: Bearer {CONVERZA_SAAS_STATUS_TOKEN}
+
+200 {"suspended": true, "known": true, "reason": "billing", "since": "…",
+     "message": "…", "payment_instructions": "…"}
+```
+
+El contrato del lado Converza es `docs/core-brain.md` § 8 de su repositorio
+(`SaasStatusController`). `reason` es `billing` (se levanta solo al registrar el pago) o
+`manual`; un ISP que no es cuenta de Converza responde `known: false, suspended: false`.
+
+### 17.2 Las piezas
+
+```
+SPA ── petición del panel ──► auth:sanctum ─► deny_api_clients ─► saas_active ─► permission:… ─► controlador
+                                                                        │
+                                                                        ▼
+                                                     ConverzaServiceStatus::forUser()
+                                                        caché local (store `file`)
+                                                        └─ si falta: GET a Converza (timeout 3 s)
+                                                                        │
+                                                         suspendido ─► 423 {code: service_suspended}
+```
+
+| Pieza | Archivo | Papel |
+|---|---|---|
+| Cliente HTTP + caché | `app/Services/Saas/ConverzaServiceStatus.php` | Pregunta, interpreta y recuerda |
+| Middleware `saas_active` | `app/Http/Middleware/EnsureSaasServiceActive.php` | 423 a toda ruta del panel |
+| `GET /api/saas/status` | `app/Http/Controllers/SaasStatusController.php` | La SPA pregunta si está cortada |
+| Estado en la SPA | `resources/js/composables/useServiceSuspension.js` | Lo escriben el interceptor y la pantalla |
+| Interceptor | `resources/js/services/api.js` | Reconoce el 423 `service_suspended` |
+| Pantalla | `resources/js/components/ServiceSuspendedScreen.vue` | Reemplaza al panel en `DefaultLayout` |
+
+El middleware va en el **grupo** `auth:sanctum` de `routes/api.php`, junto a
+`deny_api_clients`, por la misma razón que aquel: un endpoint nuevo del panel no puede
+quedarse sin él por olvido. Una prueba recorre todas las rutas y lo fija. Las dos
+excepciones se declaran en la ruta con `withoutMiddleware('saas_active')`:
+`GET /api/auth/me` (la sesión sigue identificada) y `GET /api/saas/status` (la pantalla
+necesita saber cuándo volver). Cerrar sesión no necesita excepción: es del navegador.
+
+### 17.3 Qué NO se corta
+
+El corte es del **panel**, no del servicio del ISP a sus clientes:
+
+| Sigue igual | Por qué no le alcanza |
+|---|---|
+| Facturación, recordatorios, cortes y reconexiones automáticas | Corren en el planificador, no en HTTP |
+| API partner (`/api/v1/partner`) | Grupo de rutas propio, sin `saas_active` |
+| Firma remota del contrato, login, `/health` | Fuera del grupo autenticado |
+| El cliente final que entra con su usuario | Rol `client` o ficha de cliente ⇒ no ve la suspensión |
+| El superadministrador de la plataforma | `users.is_superadmin` ⇒ no se consulta |
+
+Lo del cliente final es deliberado: enseñarle la pantalla sería contarle que su proveedor
+nos debe.
+
+### 17.4 Falla abierto
+
+Sólo un `"suspended": true` literal corta. Todo lo demás deja pasar:
+
+| Situación | Resultado | Se recuerda |
+|---|---|---|
+| `CONVERZA_URL` o el token vacíos | No se consulta nada | — |
+| Converza al día / `known: false` | Pasa | 5 min |
+| Suspendido | 423 | **1 min** |
+| Timeout, conexión rechazada, 401, 404, 429, 5xx, JSON sin `suspended` | Pasa (y queda en el log) | 1 min |
+| La caché no responde | Pasa (log de error) | — |
+
+Los tiempos son decisiones, no detalles:
+
+- **Suspendido, 1 min y no 5.** Converza levanta el corte en el acto al registrar el pago;
+  el ISP no debería esperar cinco minutos para volver a entrar. Los suspendidos son pocos.
+- **Error, 1 min.** Sin recordarlo, con Converza caído cada petición del panel esperaría el
+  timeout entero. Medido contra un servidor que tarda 10 s: la primera petición tarda 3,0 s
+  y las siguientes, 4 ms.
+- **Caché propia y local.** `CACHE_STORE=database` en producción: leer el estado de ahí
+  sumaría un viaje a Postgres a cada petición. El store es `file` (configurable con
+  `CONVERZA_SAAS_STATUS_CACHE_STORE`); cada instancia recuerda por su cuenta, que con una
+  sola instancia da igual y con varias sólo multiplica las consultas por el número de ellas.
+
+### 17.5 La SPA
+
+1. `DefaultLayout` pregunta `GET /api/saas/status` al montarse, sin bloquear el render, con
+   un suelo de 60 s entre consultas (cada sección monta su propio layout).
+2. Si la respuesta —o cualquier 423 `service_suspended` de cualquier llamada del panel— dice
+   suspendido, el estado queda anotado y `DefaultLayout` pinta `ServiceSuspendedScreen` en
+   vez del sidebar y la página. Las páginas se desmontan y dejan de pedir datos.
+3. `App.vue` oculta `NotificationHost` mientras tanto, para que los 423 de las páginas que
+   alcanzaron a montarse no apilen avisos de error encima de la pantalla.
+4. «Ya pagué» vuelve a preguntar; si el corte se levantó, recarga la página entera.
+
+Los textos de Converza (`message`, `payment_instructions`) se pintan escapados, nunca con
+`v-html`, y el backend los recorta a 2000 caracteres.
+
