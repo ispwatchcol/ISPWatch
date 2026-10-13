@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { reportServiceStatus, isServiceSuspendedError } from '../composables/useServiceSuspension.js'
 
 // =========================
 // AXIOS INSTANCE
@@ -46,6 +47,16 @@ apiClient.interceptors.response.use(
         window.location.assign('/')
       }
     }
+
+    // 423 `service_suspended` (KAN-126): Converza suspendió al ISP por falta
+    // de pago. No se redirige: DefaultLayout cambia el panel por la pantalla
+    // de «servicio suspendido» en cuanto esto queda anotado. La promesa se
+    // rechaza igual, para que ninguna pantalla dé por buena una respuesta que
+    // no llegó.
+    if (isServiceSuspendedError(error)) {
+      reportServiceStatus(error.response.data.data)
+    }
+
     return Promise.reject(error)
   }
 )

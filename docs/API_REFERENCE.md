@@ -105,6 +105,7 @@ Dos mecanismos encadenados:
 | `403` | Sin permiso · correo no verificado · tenant no resoluble · límite de clientes alcanzado |
 | `404` | Recurso inexistente o de otro tenant (no se distingue: evita enumeración) |
 | `422` | Error de validación **o error de base de datos traducido** por `ErrorMessages` |
+| `423` | **Panel suspendido**: Converza marcó al ISP por falta de pago (KAN-126). Toda ruta del panel, salvo `/api/auth/me` y `/api/saas/status`. Ver § 4 |
 | `429` | Rate limit del login |
 | `500` | Error interno (los detalles van al log, nunca a la respuesta) |
 
@@ -306,6 +307,49 @@ tickets abiertos y urgentes, ingresos del mes (facturas `paid`) y pagos del mes.
 
 **403** si el usuario no tiene `tenant_id`:
 `{"success":false,"message":"No se pudo determinar el tenant del usuario autenticado."}`
+
+### Panel suspendido por Converza — `423` (KAN-126)
+
+Si Converza (Core Brain) suspendió al ISP por una factura vencida, **toda** ruta del grupo
+autenticado del panel responde, antes de comprobar permisos o validar el cuerpo:
+
+```json
+HTTP/1.1 423 Locked
+
+{
+  "success": false,
+  "code": "service_suspended",
+  "message": "El servicio está suspendido por una factura vencida. Se reactiva solo al registrar el pago.",
+  "data": {
+    "suspended": true,
+    "reason": "billing",
+    "since": "2026-10-10T08:00:00-05:00",
+    "message": "El servicio está suspendido por una factura vencida. Se reactiva solo al registrar el pago.",
+    "payment_instructions": "Nequi 300 000 0000"
+  }
+}
+```
+
+- `reason`: `billing` (se levanta solo al registrar el pago), `manual` o `null`.
+- `since` y `payment_instructions` pueden ser `null`. `message` siempre trae texto.
+- El cliente reconoce el corte por `code`, no sólo por el `423`.
+
+**No responden 423:** `GET /api/auth/me`, `GET /api/saas/status`, la API partner
+(`/api/v1/partner/*`), el login y las rutas públicas. Tampoco los usuarios con rol `client` o
+ficha de cliente, ni el superadministrador. Ver ARQUITECTURA § 17.
+
+### `GET /api/saas/status`
+
+¿El panel de quien pregunta está suspendido? Abierta durante la suspensión: es lo que usa la
+SPA al montarse y el botón «Ya pagué» de la pantalla.
+
+```json
+{ "success": true, "data": { "suspended": false, "reason": null, "since": null, "message": null, "payment_instructions": null } }
+```
+
+Con el panel suspendido, `data` es el mismo objeto del `423` de arriba. La respuesta sale de la
+misma caché que usa el middleware (5 min si está al día, 1 min si está suspendido): llamarla
+seguido no consulta a Converza cada vez.
 
 ---
 

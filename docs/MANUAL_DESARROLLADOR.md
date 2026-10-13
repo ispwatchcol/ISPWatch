@@ -229,6 +229,19 @@ de arranque la materializa en `storage/keys/mikrotik_core_id_ed25519` con permis
 | `HEALTH_QUEUE_MAX_AGE` | Segundos que puede esperar el trabajo más viejo. `900`. Importa más que la cantidad: mil trabajos moviéndose es carga, uno solo esperando quince minutos es un worker muerto |
 | `HEALTHCHECKS_PING_URL` | URL de «sigo vivo» de Healthchecks.io (`https://hc-ping.com/<uuid>`). La llama `system:heartbeat` cada minuto; si los avisos dejan de llegar, Healthchecks alerta. Va **sólo en el componente del planificador**. Sin definir, no se envía nada y el latido local sigue igual |
 
+### Converza · corte del panel por falta de pago (`config/services.php` → `converza`)
+
+KAN-126. Ver ARQUITECTURA § 17.
+
+| Clave | Descripción |
+|---|---|
+| `CONVERZA_URL` | Base de Converza, sin `/saas/estado` (p. ej. `https://converza.ejemplo.com`). **Vacía = no se consulta nada y nadie se corta** |
+| `CONVERZA_SAAS_STATUS_TOKEN` | El **mismo valor** que `BRAIN_SAAS_STATUS_TOKEN` en Converza. Vacío = igual que arriba. Si no coincide, Converza responde 401 y el corte queda apagado sin error visible: sólo un `Estado SaaS: Converza respondió con error` con `status: 401` en el log |
+| `CONVERZA_SAAS_STATUS_TIMEOUT` | Segundos de espera por petición (por defecto `3`). Pasado el plazo, el panel sigue abierto |
+| `CONVERZA_SAAS_STATUS_CACHE_STORE` | Store de la caché del estado. Por defecto `file`, **no** el `CACHE_STORE` de la app: con `database` cada petición del panel sumaría un viaje a Postgres. En pruebas, `array` (`phpunit.xml`) |
+
+Van en el **servicio web** de App Platform: el planificador no las necesita.
+
 ### Frontend (Vite)
 
 | Clave | Descripción |
@@ -1085,6 +1098,17 @@ Route::middleware(['permission:view_reports'])->group(function () {
 > Declarar el mismo recurso dos veces **no** choca: los nombres que genera Laravel son
 > distintos (`inventory-stock.update` vs `inventory-stock.destroy`). Ver KAN-99 y § 63 de
 > `BITACORA_TECNICA.md`.
+
+> **El corte por falta de pago lo hereda solo.** Toda ruta dentro del grupo `auth:sanctum`
+> pasa por `saas_active` (KAN-126): si Converza suspendió al ISP, responde 423 sin llegar a
+> tu controlador. No hay nada que hacer para que tu endpoint quede cortado. Si de verdad
+> tiene que seguir respondiendo durante una suspensión —son dos en todo el panel—,
+> declara la excepción en la ruta y añádela a la lista de la prueba
+> `toda_ruta_del_panel_lleva_el_corte_y_ninguna_de_la_api_partner`:
+>
+> ```php
+> Route::get('/saas/status', [SaasStatusController::class, 'show'])->withoutMiddleware('saas_active');
+> ```
 
 **4. Controlador** — sólo traduce HTTP; la lógica va a un servicio.
 

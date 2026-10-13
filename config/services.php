@@ -44,4 +44,31 @@ return [
         'default_country_code' => env('WHATSAPP_DEFAULT_COUNTRY_CODE', '57'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Converza · estado del servicio del ISP (KAN-126)
+    |--------------------------------------------------------------------------
+    |
+    | Converza (Core Brain) le cobra el SaaS a cada ISP y, si una factura vence,
+    | publica la suspensión en GET {url}/saas/estado/{tenant_id}. ISPWatch la
+    | consulta y le cierra el PANEL al equipo del ISP. Ver
+    | App\Services\Saas\ConverzaServiceStatus.
+    |
+    | Con `url` o `saas_status_token` vacíos la comprobación no corre: nadie se
+    | corta. El token es el MISMO valor que BRAIN_SAAS_STATUS_TOKEN en Converza.
+    |
+    */
+    'converza' => [
+        'url' => env('CONVERZA_URL'),
+        'saas_status_token' => env('CONVERZA_SAAS_STATUS_TOKEN'),
+
+        // Corre en CADA petición del panel: un Converza lento no puede volver
+        // lento a ISPWatch. Pasado el plazo se deja pasar (falla abierto).
+        'saas_status_timeout' => (float) env('CONVERZA_SAAS_STATUS_TIMEOUT', 3),
+
+        // Store propio y local a propósito: el de la app es `database`, y leer
+        // el estado de ahí sumaría un viaje a Postgres a cada petición.
+        'saas_status_cache_store' => env('CONVERZA_SAAS_STATUS_CACHE_STORE', 'file'),
+    ],
+
 ];
