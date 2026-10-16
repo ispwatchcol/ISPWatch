@@ -136,10 +136,11 @@ class InstallationBillingService
     /**
      * Create, update, or remove the Payment record tied to this invoice.
      *
-     * Assumption: installation invoices are single-payment invoices managed
-     * exclusively by this service. If the billing team manually applies extra
-     * payments via the regular billing UI, those allocations are preserved but
-     * counted when recalculating balance_due.
+     * La cartera gestiona UN pago: el que lleva `installation_id` de esta
+     * orden (KAN-124). Antes tomaba la primera asignación de la factura, y si
+     * esa era un abono hecho en Facturación lo reescribía o, con «Valor
+     * recibido» en 0, lo borraba. Las demás asignaciones se respetan y cuentan
+     * al recalcular balance_due.
      */
     private function syncPayment(Invoice $invoice, CustomerInstallation $installation, int $tenantId): void
     {
@@ -147,19 +148,21 @@ class InstallationBillingService
         $total      = (float) $invoice->total;
         $toAllocate = min($received, $total);
 
-        // Find the (at most one) payment previously created by this flow
-        $allocation      = PaymentAllocation::where('invoice_id', $invoice->id)->with('payment')->first();
-        $existingPayment = $allocation?->payment;
+        $existingPayment = Payment::where('installation_id', $installation->id)
+            ->where('tenant_id', $tenantId)
+            ->orderBy('id')
+            ->first();
+        $allocation = $existingPayment
+            ? PaymentAllocation::where('invoice_id', $invoice->id)
+                ->where('payment_id', $existingPayment->id)
+                ->first()
+            : null;
 
         if ($received > 0) {
-            // El pago sobre el que hay que cuadrar el excedente. Se asigna en
-            // cada rama y no con `$existingPayment ?? $payment`: cuando hay un
-            // pago viejo pero su asignacion se perdio, la rama que corre es la
-            // de creacion, y aquella expresion habria acreditado el excedente
-            // sobre el pago equivocado.
+            // El pago sobre el que hay que cuadrar el excedente.
             $pagoVigente = null;
 
-            if ($existingPayment && $allocation) {
+            if ($existingPayment) {
                 // La forma de pago sólo se recalcula si la orden trae una
                 // DISTINTA de la que tiene el pago. Volver a guardar la orden
                 // con el mismo texto no puede desenlazar el pago de su forma
@@ -173,7 +176,12 @@ class InstallationBillingService
                     'amount' => $received,
                     'notes'  => $installation->payment_notes  ?: $existingPayment->notes,
                 ], $method));
-                $allocation->update(['amount' => $toAllocate]);
+                // Si la asignación se perdió, se repone sobre el MISMO pago:
+                // crear otro duplicaría el dinero recibido.
+                PaymentAllocation::updateOrCreate(
+                    ['payment_id' => $existingPayment->id, 'invoice_id' => $invoice->id],
+                    ['amount' => $toAllocate]
+                );
                 $pagoVigente = $existingPayment;
             } else {
                 $method = $this->billingService->resolvePaymentMethod($tenantId, null, $installation->payment_method);
@@ -187,6 +195,7 @@ class InstallationBillingService
                     'payment_method_id' => $method['payment_method_id'],
                     'notes'        => $installation->payment_notes,
                     'status'       => 'completed',
+                    'installation_id' => $installation->id,
                 ]);
                 PaymentAllocation::create([
                     'payment_id' => $payment->id,
@@ -204,7 +213,8 @@ class InstallationBillingService
             // descuadre de caja (BooksAuditService C6).
             $this->syncExcessCredit($pagoVigente, $received - $toAllocate);
         } else {
-            // Remove the installation payment; leave any manual payments untouched
+            // Se quita sólo el pago de la cartera; los abonos de Facturación
+            // no llevan su marca y quedan intactos.
             if ($allocation) {
                 $allocation->delete();
             }

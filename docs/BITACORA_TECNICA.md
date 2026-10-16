@@ -10700,3 +10700,53 @@ tomó aquí: P-101.
 
 Sin migraciones.
 
+
+## 116. La cartera ya no borra ni reescribe un abono hecho en Facturación (KAN-124, P-95) — 2026-10-16
+
+**El defecto.** `InstallationBillingService::syncPayment()` tomaba como «su» pago la **primera**
+asignación de la factura de instalación (`PaymentAllocation::where('invoice_id', …)->first()`).
+Si esa factura se abonaba en Facturación y después se guardaba la cartera:
+
+- con «Valor recibido» en 0, la rama de quitar el pago borraba **el abono de Facturación** (y el
+  pago entero si no financiaba otra factura). El dinero que entró por caja dejaba de figurar.
+- con otro valor, reescribía el monto de **ese** abono con lo recibido en la cartera. La tarjeta
+  sólo nombraba el primer caso; el segundo es la misma causa y se prueba igual.
+
+### Qué se hizo
+
+- **`payments.installation_id`** (FK → `customer_installations.id`, `SET NULL`, indexada;
+  migración `2026_10_16_000001`). La pone la cartera al crear su pago. `syncPayment()` busca el
+  pago por esa marca y sólo crea, edita o borra ése. Las demás asignaciones de la factura son
+  abonos de Facturación y se respetan, aunque siguen contando al recalcular `balance_due`.
+- Si el pago marcado perdió su asignación, se **repone sobre el mismo pago**
+  (`updateOrCreate`). Antes se creaba un segundo pago.
+- **Relleno.** Los pagos anteriores no tenían marca. Sin relleno, el siguiente guardado de la
+  cartera no habría encontrado su pago y habría creado **otro** por el mismo dinero. Por cada
+  orden con valor recibido > 0 se marca el pago asignado a su factura que vale exactamente ese
+  valor. El código viejo lo mantenía igualado, así que es el suyo. Si ninguno coincide, se marca
+  el de la primera asignación, el mismo que habría tomado el código viejo: en esos casos el
+  comportamiento no cambia. Las órdenes con valor recibido 0 no se marcan, porque no tienen pago
+  de cartera. Es idempotente: se salta las órdenes que ya tienen su pago marcado.
+
+### Hallazgos al probar
+
+- La primera versión del relleno **no era idempotente**: al correrla otra vez marcaba el abono de
+  Facturación, porque el pago de la cartera ya no era candidato (tenía marca). Lo detectó la
+  prueba que lo corre dos veces. Ahora se salta la orden que ya tiene un pago marcado.
+- En SQLite, `down()` de esta migración reconstruye `payments`, y la cascada borra
+  `payment_allocations`. Por eso la prueba no usa `down()/up()`: quita las marcas y llama a
+  `backfill()` (público). En PostgreSQL `DROP COLUMN` no reconstruye la tabla.
+
+### Pruebas
+
+`tests/Feature/Billing/InstallationPaymentOwnershipTest.php` (5 casos): abono + cartera en 0
+(con `BooksAuditService` sin hallazgos), abono + cartera con otro valor, la cartera sigue
+gestionando su propio pago, el relleno marca el pago correcto y es idempotente, y el relleno no
+marca nada en una orden con valor recibido 0. Contra el `syncPayment()` sin corregir fallan 4 de
+5. El que pasa (el relleno de una orden sin valor recibido) no depende del servicio.
+
+### Deuda aceptada
+
+P-103: la cartera asigna `min(recibido, total)` sin restar lo que ya abonó Facturación. No es
+una regresión (antes ese caso reescribía el abono), pero decidir si se asigna sólo el faltante o
+se rechaza el guardado es de producto.

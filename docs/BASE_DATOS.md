@@ -298,6 +298,7 @@ erDiagram
     tenant ||--o{ invoices : ""
     tenant ||--o{ payment_methods : ""
     payment_methods ||--o{ payments : "payment_method_id (KAN-109)"
+    customer_installations ||--o| payments : "installation_id (KAN-124)"
     tenant ||--o{ invoice_types : "NULL = del sistema"
     invoices ||--o{ billing_action_logs : "invoice_id"
     invoices ||--o{ invoice_carryovers : "from_invoice_id (dejó saldo)"
@@ -784,7 +785,16 @@ varchar(160) y `customer_document` varchar(40) — el titular congelado al regis
 igual que en `invoices` —, `amount` numeric(15,2),
 `payment_date` date, `method` (default `cash`), `payment_method_id` (FK → `payment_methods.id`,
 **SET NULL**, nullable — KAN-109), `reference`, `notes`,
-`status` CHECK `completed`\|`void`, `created_by` (FK → `users.id`, quién registró el pago).
+`status` CHECK `completed`\|`void`, `created_by` (FK → `users.id`, quién registró el pago),
+`installation_id` (FK → `customer_installations.id`, **SET NULL**, nullable — KAN-124).
+
+> **`installation_id`: el pago de la cartera (KAN-124, 2026-10-16).** Marca el pago que creó la
+> cartera de una orden de instalación. `InstallationBillingService::syncPayment()` sólo crea,
+> edita o borra ése. Las demás asignaciones de la factura de instalación son abonos de
+> Facturación (sin marca) y la cartera no las toca. La migración
+> `2026_10_16_000001` rellenó la marca de los pagos anteriores: por cada orden con valor
+> recibido > 0, el pago asignado a su factura que vale exactamente ese valor o, si ninguno
+> coincide, el de la primera asignación.
 
 > **Forma de pago: dos columnas con papeles distintos (KAN-109, 2026-09-26).**
 > `payment_method_id` es la referencia estable: la que usan el filtro de Recaudos, el CSV y
@@ -1723,6 +1733,7 @@ Agregado permanente.
 | `payment_allocations.payment_id` | `payments.id` | CASCADE |
 | `payment_methods.tenant_id` | `tenant.id` | CASCADE |
 | `payments.customer_id` | `users.id` | **SET NULL** (P-43) |
+| `payments.installation_id` | `customer_installations.id` | **SET NULL** (KAN-124) |
 | `payments.payment_method_id` | `payment_methods.id` | **SET NULL** (KAN-109) |
 | `payments.tenant_id` | `tenant.id` | NO ACTION |
 | `role.tenant_id` | `tenant.id` | CASCADE |
@@ -1822,7 +1833,7 @@ Agregado permanente.
 | `expenses` | `expense_date`, `status`, `tenant_id`, `(tenant_id, expense_date)` |
 | `invoices` | `(customer_id, status)`, `(tenant_id, period_start)`, `(tenant_id, issue_date)`, **parcial** `due_date WHERE balance_due > 0` |
 | `payment_allocations` | `payment_id`, `invoice_id` |
-| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)`, `payment_method_id` |
+| `payments` | `created_by`, `(customer_id, payment_date)`, `(tenant_id, payment_date)`, `payment_method_id`, `installation_id` |
 | `user_services` | `(user_id, status)` |
 | `invoice_carryovers` | `(customer_id, status)`, `(tenant_id, status)`, `from_invoice_id`, `to_invoice_id` |
 | `invoice_types` | `tenant_id` |

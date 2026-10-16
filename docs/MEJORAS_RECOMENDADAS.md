@@ -2836,7 +2836,11 @@ catálogo desde ya.
 
 Ambos son cosméticos hoy; ninguno excluye pagos de un filtro ni de un reporte.
 
-### 📋 P-95 · Guardar la cartera con «Valor recibido» en 0 puede borrar un pago hecho en Facturación
+### ✅ P-95 · Guardar la cartera con «Valor recibido» en 0 puede borrar un pago hecho en Facturación — **resuelta 2026-10-16 (KAN-124)**
+
+> **Resuelta** (bitácora § 116): el pago que crea la cartera lleva `payments.installation_id` y
+> `syncPayment()` sólo crea, edita o borra ése. La migración rellena la marca de los pagos
+> viejos. Queda abierto un caso menor, anotado abajo como P-103.
 
 Detectado el 2026-10-11 (bitácora § 113) leyendo `InstallationBillingService::syncPayment()`;
 **no se corrigió** en ese trabajo porque cambia cómo se identifica un pago y merece su propia
@@ -2934,6 +2938,19 @@ equipo compartido, las llamadas a la API siguen autenticadas aunque la pantalla 
 **Recomendación.** `POST /api/logout` en el grupo autenticado (con `withoutMiddleware('saas_active')`)
 que haga `Auth::guard('web')->logout()`, `session()->invalidate()` y `regenerateToken()`, y que
 el frontend lo llame antes de limpiar el almacenamiento.
+
+### 📋 P-103 · La cartera asigna lo recibido sin mirar lo que ya abonó Facturación
+
+Visto al corregir P-95 (bitácora § 116). `syncPayment()` asigna `min(recibido, total)` a la
+factura de instalación sin restar las asignaciones de **otros** pagos. Si Facturación ya saldó la
+factura y después alguien escribe un «Valor recibido» en la cartera, la factura queda con más
+asignado que su total: el saldo se recorta a 0, pero lo que sobra no pasa a saldo a favor y la
+auditoría de libros lo puede denunciar. Antes de KAN-124 el mismo caso reescribía el abono de
+Facturación, así que no es una regresión. Pero tampoco está bien.
+
+**Recomendación.** Asignar `min(recibido, total − asignado por otros pagos − crédito − arrastres)`
+y mandar el resto a `syncExcessCredit()`; o rechazar el guardado con un 422 que diga que la
+factura ya está pagada en Facturación. Es una decisión de producto.
 
 ## 8. Tabla consolidada
 
@@ -3079,7 +3096,7 @@ el frontend lo llame antes de limpiar el almacenamiento.
 | **P-91** | `POST /api/inventory/transfers` recorre equipos y materiales sin una transacción que los envuelva: si el tercer material falla (saldo, precisión), los dos primeros ya quedaron movidos | Una entrega a medias que la pantalla muestra como error; hay que revisar Movimientos para saber qué sí pasó | 🟡 Media | 📋 Pendiente · visto en § 111, no tocado para no cambiar la semántica de Entregas en este PR |
 | **P-93** | `inventory_stock.price` es un único número por unidad de medida que el sistema usa a la vez como **precio sugerido de cobro** (línea consumida) y como **costo** (gasto automático de entrada, si está activo) | Quien lo carga como costo de compra subcobra al cliente; quien lo carga como precio de venta infla los gastos. El manual lo explica, pero el dato no distingue | 🟡 Media | 📋 Pendiente · decisión de negocio: separar costo y precio de venta (no se inventó regla en § 112) |
 | **P-94** | En Entregas y traspasos, «Equipos con serial» sigue listando filas antiguas de `inventory_device` colgadas de un material (las que creaba el formulario de equipos antes de § 112) | Se pueden traspasar como si fueran equipos; no afectan saldos ni existencia, pero confunden | 🟢 Baja | 📋 Pendiente · Stock ya las señala (`serial_rows`); limpiarlas en producción es tarea de datos, dando de baja cada fila |
-| **P-95** | `InstallationBillingService::syncPayment()` trata la primera asignación de la factura de instalación como «el pago de la cartera»: guardar con valor recibido 0 borra un abono hecho en Facturación | Dinero recibido que deja de figurar en los libros | 🟠 Alta | 📋 Pendiente · detectado en § 113, no corregido ahí: marcar el pago que crea la cartera y gestionar sólo ése |
+| **P-95** | `InstallationBillingService::syncPayment()` trata la primera asignación de la factura de instalación como «el pago de la cartera»: guardar con valor recibido 0 borra un abono hecho en Facturación | Dinero recibido que deja de figurar en los libros | 🟠 Alta | ✅ Resuelta 2026-10-16 (KAN-124, § 116): `payments.installation_id` marca el pago de la cartera |
 | **P-96** | La hoja de instalación y las plantillas no muestran el acuerdo de pago en cuotas | El cliente firma sin ver las cuotas pactadas | 🟡 Media | 📋 Pendiente · placeholders nuevos |
 | **P-97** | Guardar la cartera ya no resucita una factura de instalación anulada (§ 113), pero tampoco emite una nueva | Re-facturar una instalación corregida es manual | 🟢 Baja | 📋 Pendiente · botón «Emitir nueva factura» |
 | **P-98** | Estadísticas de soporte no agrupan por asunto del catálogo; la API de socios sólo da el texto | Falta el «cuántos de cada asunto» | 🟢 Baja | 📋 Pendiente |
@@ -3087,6 +3104,7 @@ el frontend lo llame antes de limpiar el almacenamiento.
 | **P-100** | Token de Converza distinto (401/404) apaga el corte del panel sin aviso; sólo queda en el log | Un ISP moroso sigue entrando y nadie lo nota | 🟡 Media | 📋 Pendiente · componente `converza` en `/health` |
 | **P-101** | Con el panel suspendido (KAN-126) el ISP no puede registrar pagos y los cortes automáticos siguen | El suscriptor que paga en efectivo queda cortado | 🟡 Media | 📋 Pendiente · decisión de negocio |
 | **P-102** | El logout de la SPA no invalida la sesión del servidor (no hay ruta de logout) | La sesión sigue viva en un equipo compartido (y la cookie de «recordarme» la reabre) | 🟡 Media | 📋 Pendiente · `POST /api/logout` |
+| **P-103** | La cartera asigna `min(recibido, total)` sin restar los abonos de Facturación: la factura de instalación puede quedar con más asignado que su total | El excedente no llega a saldo a favor y la auditoría lo denuncia | 🟢 Baja | 📋 Pendiente · decisión: asignar sólo el faltante o rechazar con 422 |
 | **P-92** | La unidad del producto es texto libre (`m`, `metro`, `mts` conviven) y no hay catálogo de unidades; el resumen de cable de la orden reconoce una lista fija de unidades de longitud | Un producto en «mtrs.» o «rollo de 305 m» no suma en el cable calculado, aunque sí descuenta bien | 🟢 Baja | 📋 Pendiente · candidato: catálogo cerrado de unidades con su magnitud |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |

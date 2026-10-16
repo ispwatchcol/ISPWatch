@@ -671,6 +671,12 @@ si una mensualidad se anula, la cuota se corre un mes) y no emite avisos propios
 faltantes de abonos parciales ya arrastrados (re-guardar la cartera los volvía a deber), y
 volver a guardar la cartera de una factura **anulada** la resucitaba. Ver bitácora § 113.
 
+**Qué pago es de la cartera (KAN-124).** `syncPayment()` sólo gestiona el pago marcado con
+`payments.installation_id` de la orden. Los abonos que entran por Facturación sobre la misma
+factura no llevan esa marca: la cartera no los edita ni los borra, aunque cuentan para el
+saldo. Antes tomaba la primera asignación de la factura y podía borrar un abono ajeno. Ver
+bitácora § 116.
+
 ### Plantillas de documentos (`app/Services/Templates`)
 
 Cada tenant puede personalizar el cuerpo de 3 documentos (factura, contrato, hoja de
