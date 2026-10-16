@@ -2939,7 +2939,12 @@ equipo compartido, las llamadas a la API siguen autenticadas aunque la pantalla 
 que haga `Auth::guard('web')->logout()`, `session()->invalidate()` y `regenerateToken()`, y que
 el frontend lo llame antes de limpiar el almacenamiento.
 
-### 📋 P-103 · La cartera asigna lo recibido sin mirar lo que ya abonó Facturación
+### ✅ P-103 · La cartera asigna lo recibido sin mirar lo que ya abonó Facturación — **resuelta 2026-10-16**
+
+> **Resuelta** (bitácora § 118). La cartera solo cubre lo que la factura todavía debe (total −
+> abonos de Facturación − saldo a favor aplicado − faltantes ya arrastrados). Si hay abonos de
+> Facturación y lo recibido pasa de eso, se rechaza con un 422 en `payment_received`. Sin
+> abonos ajenos, lo que sobra sigue siendo saldo a favor.
 
 Visto al corregir P-95 (bitácora § 116). `syncPayment()` asigna `min(recibido, total)` a la
 factura de instalación sin restar las asignaciones de **otros** pagos. Si Facturación ya saldó la
@@ -3114,7 +3119,7 @@ del repositorio.
 | **P-100** | Token de Converza distinto (401/404) apaga el corte del panel sin aviso; sólo queda en el log | Un ISP moroso sigue entrando y nadie lo nota | 🟡 Media | 📋 Pendiente · componente `converza` en `/health` |
 | **P-101** | Con el panel suspendido (KAN-126) el ISP no puede registrar pagos y los cortes automáticos siguen | El suscriptor que paga en efectivo queda cortado | 🟡 Media | 📋 Pendiente · decisión de negocio |
 | **P-102** | El logout de la SPA no invalida la sesión del servidor (no hay ruta de logout) | La sesión sigue viva en un equipo compartido (y la cookie de «recordarme» la reabre) | 🟡 Media | 📋 Pendiente · `POST /api/logout` |
-| **P-103** | La cartera asigna `min(recibido, total)` sin restar los abonos de Facturación: la factura de instalación puede quedar con más asignado que su total | El excedente no llega a saldo a favor y la auditoría lo denuncia | 🟢 Baja | 📋 Pendiente · decisión: asignar sólo el faltante o rechazar con 422 |
+| **P-103** | La cartera asigna `min(recibido, total)` sin restar los abonos de Facturación: la factura de instalación puede quedar con más asignado que su total | El excedente no llega a saldo a favor y la auditoría lo denuncia | 🟢 Baja | ✅ Resuelta 2026-10-16 (§ 118): solo se asigna el faltante y, con abonos de Facturación, el exceso se rechaza con 422 |
 | **P-104** | `main` y `develop` sin reglas de protección: se puede hacer push directo o mergear con el CI en rojo | El flujo de releases depende de la disciplina | 🟡 Media | 📋 Pendiente · ruleset con PR y checks obligatorios (admin del repo) |
 | **P-92** | La unidad del producto es texto libre (`m`, `metro`, `mts` conviven) y no hay catálogo de unidades; el resumen de cable de la orden reconoce una lista fija de unidades de longitud | Un producto en «mtrs.» o «rollo de 305 m» no suma en el cable calculado, aunque sí descuenta bien | 🟢 Baja | 📋 Pendiente · candidato: catálogo cerrado de unidades con su magnitud |
 | **P-105** | Un error **fatal** de PHP en la corrida mensual (memoria agotada, proceso matado por el host) no se puede atrapar: corta la corrida aunque cada cliente y router tengan su `try` (§ 90) | Los routers que vienen después en el orden no se facturan hasta la siguiente corrida; si el fatal se repite en el mismo punto, nunca. Desde P-87 la siguiente corrida llega en la próxima hora, no al día siguiente | 🟠 Media | 📋 Pendiente · § 90 deja «Router N — start / done» y la memoria pico en el log para ubicarlo. Opción: un subproceso por router, o un tope de memoria que corte con log antes del fatal |
