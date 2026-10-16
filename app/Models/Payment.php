@@ -29,7 +29,10 @@ class Payment extends Model
         'reference',
         'notes',
         'status',
-        'created_by'
+        'created_by',
+        // Orden cuya cartera creó el pago (KAN-124). Es lo único que la
+        // cartera puede tocar: los abonos de Facturación van sin esta marca.
+        'installation_id',
     ];
 
     protected $casts = [
