@@ -12,6 +12,15 @@ class BillingActionLog extends Model
 
     public const ACTION_GENERATE_MONTHLY = 'generate_monthly_invoice';
 
+    /**
+     * La corrida mensual falló al emitir la factura SÓLO de servicios
+     * adicionales (cliente sin plan cobrable). Va aparte de la mensualidad
+     * porque `billing:retry-failed` reintenta mensualidades —con plan— y a
+     * estas filas las agotaría con un motivo que no es el suyo. Las reintenta
+     * la propia corrida horaria, que vuelve a evaluar al cliente cada hora.
+     */
+    public const ACTION_GENERATE_ADDITIONAL_ONLY = 'generate_additional_only_invoice';
+
     public const STATUS_SUCCESS   = 'success';
     public const STATUS_FAILED    = 'failed';
     public const STATUS_EXHAUSTED = 'exhausted';

@@ -960,7 +960,16 @@ class BillingController extends Controller
     {
         $period = $request->input('period'); // YYYY-MM
         $count = $this->billingService->generateMonthlyInvoices($period);
-        return response()->json(['message' => "Generated $count invoices."]);
+
+        // Sólo el número: la corrida recorre TODOS los tenants y el detalle
+        // (clientes, mensajes) de los demás no es de quien la dispara. El
+        // detalle está en el log y en billing_action_logs.
+        $errors = count($this->billingService->lastRunFailures());
+
+        return response()->json([
+            'message' => "Generated $count invoices." . ($errors ? " {$errors} error(s); see billing_action_logs." : ''),
+            'errors'  => $errors,
+        ]);
     }
 
     // Adjust customer credit balance (manual correction)

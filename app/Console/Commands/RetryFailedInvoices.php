@@ -44,14 +44,29 @@ class RetryFailedInvoices extends Command
                 $log->refresh();
             }
 
-            $ok = $this->billingService->retryFailedInvoice($log);
+            if ($log->action !== BillingActionLog::ACTION_GENERATE_MONTHLY) {
+                $this->error("Log id {$singleLogId} es de '{$log->action}': lo reintenta la corrida mensual, no este comando.");
+                return Command::FAILURE;
+            }
+
+            try {
+                $ok = $this->billingService->retryFailedInvoice($log);
+            } catch (\Throwable $e) {
+                $this->billingService->recordRetryFailure($log, $e);
+                $ok = false;
+            }
+
             $this->info("Retry log {$singleLogId}: " . ($ok ? 'SUCCESS' : 'FAILED'));
             return $ok ? Command::SUCCESS : Command::FAILURE;
         }
 
         $limit = (int) $this->option('limit');
 
+        // Sólo mensualidades: las facturas de "sólo servicios adicionales" las
+        // reintenta la corrida horaria (ver ACTION_GENERATE_ADDITIONAL_ONLY);
+        // retryFailedInvoice() las agotaría por no tener plan.
         $logs = BillingActionLog::where('status', BillingActionLog::STATUS_FAILED)
+            ->where('action', BillingActionLog::ACTION_GENERATE_MONTHLY)
             ->where('attempts', '<', BillingActionLog::MAX_ATTEMPTS)
             ->where(function ($q) {
                 $q->whereNull('next_retry_at')
@@ -72,7 +87,14 @@ class RetryFailedInvoices extends Command
         $ok = 0;
         $ko = 0;
         foreach ($logs as $log) {
-            $success = $this->billingService->retryFailedInvoice($log);
+            // Un reintento que revienta no frena a los demás del lote.
+            try {
+                $success = $this->billingService->retryFailedInvoice($log);
+            } catch (\Throwable $e) {
+                $this->billingService->recordRetryFailure($log, $e);
+                $success = false;
+            }
+
             $success ? $ok++ : $ko++;
         }
 
