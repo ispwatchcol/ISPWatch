@@ -1,5 +1,17 @@
 # Instrucciones del proyecto
 
+## Flujo de ramas (regla permanente, desde el 2026-10-16)
+
+- **`develop` es la rama de integración.** Todo PR de feature o fix sale de `origin/develop` y
+  apunta a `develop` (`gh pr create --base develop`). Nunca se abren PR de trabajo contra `main`.
+- **`main` es producción**: cada push despliega en App Platform y aplica las migraciones
+  (`PRE_DEPLOY migrate --force`). A `main` solo llega un **PR de release** `develop → main`,
+  mergeado con *merge commit* (no squash ni rebase, para que `develop` y `main` no diverjan).
+- **Hotfix urgente de producción:** rama desde `origin/main` y PR a `main`. Después del merge,
+  se abre un PR `main → develop` para que `develop` no lo pierda.
+- Antes de hacer push, `git branch -vv`: la rama de trabajo no debe seguir a `origin/main`.
+- Detalle y comandos: `docs/MANUAL_DESARROLLADOR.md` § Git.
+
 ## Mantenimiento de documentación (regla permanente)
 
 Al finalizar cualquier feature, fix o cambio estructural (nuevo módulo, cambio de arquitectura, nueva tabla, endpoint nuevo, decisión de diseño relevante), **antes de considerar el trabajo terminado**, revisa y actualiza los archivos correspondientes en `/docs`:

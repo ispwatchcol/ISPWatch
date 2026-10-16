@@ -13,9 +13,12 @@ name: Tests
 # Por eso hay dos trabajos: el rápido sobre SQLite (el de siempre) y uno sobre
 # PostgreSQL con PostGIS, que es el motor real.
 
+# `develop` integra los cambios y `main` es producción (despliega sola). Cada
+# push a cualquiera de las dos corre la suite: el merge de un PR a `develop`
+# deja su propio resultado, y la release a `main` vuelve a probarse.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 jobs:
