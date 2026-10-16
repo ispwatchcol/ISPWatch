@@ -995,13 +995,31 @@ produce falsos positivos.
 
 ### Git
 
-- **Nunca hagas push directo a `main`**: `main` es producción y despliega automáticamente.
-- Trabaja en rama de feature y abre PR.
-- Antes de hacer push, comprueba el upstream:
+Dos ramas largas (desde el 2026-10-16, bitácora § 117):
+
+| Rama | Qué es | Quién escribe |
+|---|---|---|
+| `main` | Producción. Cada push despliega en App Platform y aplica migraciones (`PRE_DEPLOY migrate --force`). | Solo el PR de release `develop → main` y los hotfix. |
+| `develop` | Integración. Aquí se mergean los PR de feature y fix. No despliega. | PR de trabajo. |
+
+- **Nunca hagas push directo a `main` ni a `develop`.**
+- Rama de trabajo desde `develop`, PR contra `develop`:
 
   ```bash
-  git branch -vv        # NO debe apuntar a origin/main
+  git fetch origin
+  git checkout -b fix/kan-123-algo origin/develop
+  git branch -vv        # debe seguir a origin/develop, NO a origin/main
+  # …
+  gh pr create --base develop
   ```
+
+- **Release:** PR `develop → main`. Se mergea con *merge commit*, no squash ni rebase: así
+  `develop` queda como ancestro de `main` y la siguiente release no trae conflictos falsos. La
+  release lleva todas las migraciones acumuladas. Revisa la lista
+  (`git diff --name-only origin/main origin/develop -- database/migrations`) antes de mergear,
+  porque se aplican solas al desplegar.
+- **Hotfix:** rama desde `origin/main` y PR a `main`. Después del merge, PR `main → develop`.
+- El CI (`tests.yml`) corre en cada PR y en cada push a `main` y a `develop`.
 
 ### Enlazar los commits con Jira (smart commits)
 

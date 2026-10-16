@@ -2952,6 +2952,16 @@ Facturación, así que no es una regresión. Pero tampoco está bien.
 y mandar el resto a `syncExcessCredit()`; o rechazar el guardado con un 422 que diga que la
 factura ya está pagada en Facturación. Es una decisión de producto.
 
+### 📋 P-104 · `main` y `develop` no tienen reglas de protección en GitHub
+
+Visto al crear `develop` (bitácora § 117). El flujo «PR a `develop`, release a `main`» solo está
+escrito: GitHub acepta un push directo a cualquiera de las dos, y un merge con el CI en rojo.
+
+**Recomendación.** Un *ruleset* sobre `main` y `develop`: exigir PR, los dos checks
+`PHPUnit (SQLite, rápido)` y `PHPUnit (PostgreSQL, motor real)` en verde, y bloquear el borrado
+y el force-push. En `main`, además, permitir solo *merge commit*. Lo configura un administrador
+del repositorio.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3105,6 +3115,7 @@ factura ya está pagada en Facturación. Es una decisión de producto.
 | **P-101** | Con el panel suspendido (KAN-126) el ISP no puede registrar pagos y los cortes automáticos siguen | El suscriptor que paga en efectivo queda cortado | 🟡 Media | 📋 Pendiente · decisión de negocio |
 | **P-102** | El logout de la SPA no invalida la sesión del servidor (no hay ruta de logout) | La sesión sigue viva en un equipo compartido (y la cookie de «recordarme» la reabre) | 🟡 Media | 📋 Pendiente · `POST /api/logout` |
 | **P-103** | La cartera asigna `min(recibido, total)` sin restar los abonos de Facturación: la factura de instalación puede quedar con más asignado que su total | El excedente no llega a saldo a favor y la auditoría lo denuncia | 🟢 Baja | 📋 Pendiente · decisión: asignar sólo el faltante o rechazar con 422 |
+| **P-104** | `main` y `develop` sin reglas de protección: se puede hacer push directo o mergear con el CI en rojo | El flujo de releases depende de la disciplina | 🟡 Media | 📋 Pendiente · ruleset con PR y checks obligatorios (admin del repo) |
 | **P-92** | La unidad del producto es texto libre (`m`, `metro`, `mts` conviven) y no hay catálogo de unidades; el resumen de cable de la orden reconoce una lista fija de unidades de longitud | Un producto en «mtrs.» o «rollo de 305 m» no suma en el cable calculado, aunque sí descuenta bien | 🟢 Baja | 📋 Pendiente · candidato: catálogo cerrado de unidades con su magnitud |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |

@@ -10750,3 +10750,25 @@ marca nada en una orden con valor recibido 0. Contra el `syncPayment()` sin corr
 P-103: la cartera asigna `min(recibido, total)` sin restar lo que ya abonó Facturación. No es
 una regresión (antes ese caso reescribía el abono), pero decidir si se asigna sólo el faltante o
 se rechaza el guardado es de producto.
+
+## 117. Rama `develop` para integrar; `main` solo recibe releases — 2026-10-16
+
+**Por qué.** `main` despliega sola en App Platform y aplica las migraciones al desplegar. Hasta
+hoy cada PR iba directo a `main`, así que cada merge era un despliegue a producción. Eso obligaba
+a confirmar desde DigitalOcean el despliegue, el commit activo y la salud **por cada PR**. Además,
+cada merge cambiaba la base de los demás PR y había que volver a correr el CI de todos.
+
+**Qué se hizo.**
+
+- Se creó `develop` desde `main` 883e862 (el merge de #330).
+- `tests.yml` corre también en cada push a `develop`. Los PR ya corrían en cualquier rama base.
+- La regla quedó en `CLAUDE.md` (sección «Flujo de ramas») y en el manual del desarrollador
+  (§ Git): los PR de trabajo van contra `develop`, la release es un PR `develop → main` con
+  *merge commit*, y los hotfix salen de `main` y vuelven a `develop` con otro PR.
+
+**Lo que esto no da.** `develop` **no despliega en ningún lado**: no hay staging (KAN-14). Lo
+mergeado en `develop` está validado solo por el CI, y la prueba en vivo sigue siendo la release.
+La ventaja es que se verifica el despliegue una vez por release y no una vez por PR.
+
+**Pendiente.** Ni `main` ni `develop` tienen reglas de protección en GitHub: nada impide un push
+directo ni un merge con el CI en rojo. Ver MEJORAS P-104.
