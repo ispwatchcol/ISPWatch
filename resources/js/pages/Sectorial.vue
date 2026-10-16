@@ -473,6 +473,7 @@
 </template>
 
 <script setup>
+import { downloadBlob } from '@/utils/download'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
@@ -695,14 +696,7 @@ const generateCSV = (withBOM = false) => {
 const downloadFile = (content, filename, mimeType) => {
   if (!content) return
   
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.setAttribute('href', url)
-  link.setAttribute('download', filename)
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  downloadBlob(content, filename, mimeType)
 }
 
 // Export to CSV

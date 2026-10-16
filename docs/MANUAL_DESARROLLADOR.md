@@ -229,6 +229,19 @@ de arranque la materializa en `storage/keys/mikrotik_core_id_ed25519` con permis
 | `HEALTH_QUEUE_MAX_AGE` | Segundos que puede esperar el trabajo más viejo. `900`. Importa más que la cantidad: mil trabajos moviéndose es carga, uno solo esperando quince minutos es un worker muerto |
 | `HEALTHCHECKS_PING_URL` | URL de «sigo vivo» de Healthchecks.io (`https://hc-ping.com/<uuid>`). La llama `system:heartbeat` cada minuto; si los avisos dejan de llegar, Healthchecks alerta. Va **sólo en el componente del planificador**. Sin definir, no se envía nada y el latido local sigue igual |
 
+### Converza · corte del panel por falta de pago (`config/services.php` → `converza`)
+
+KAN-126. Ver ARQUITECTURA § 17.
+
+| Clave | Descripción |
+|---|---|
+| `CONVERZA_URL` | Base de Converza, sin `/saas/estado` (p. ej. `https://converza.ejemplo.com`). **Vacía = no se consulta nada y nadie se corta** |
+| `CONVERZA_SAAS_STATUS_TOKEN` | El **mismo valor** que `BRAIN_SAAS_STATUS_TOKEN` en Converza. Vacío = igual que arriba. Si no coincide, Converza responde 401 y el corte queda apagado sin error visible: sólo un `Estado SaaS: Converza respondió con error` con `status: 401` en el log |
+| `CONVERZA_SAAS_STATUS_TIMEOUT` | Segundos de espera por petición (por defecto `3`). Pasado el plazo, el panel sigue abierto |
+| `CONVERZA_SAAS_STATUS_CACHE_STORE` | Store de la caché del estado. Por defecto `file`, **no** el `CACHE_STORE` de la app: con `database` cada petición del panel sumaría un viaje a Postgres. En pruebas, `array` (`phpunit.xml`) |
+
+Van en el **servicio web** de App Platform: el planificador no las necesita.
+
 ### Frontend (Vite)
 
 | Clave | Descripción |
@@ -542,6 +555,7 @@ idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van
 | `billing:auto-cut` | Corte automático por router |
 | `billing:process-overdue` | Procesamiento manual de morosos |
 | `billing:reconcile-suspensions` | Re-corta a los suspendidos en BD no confirmados en el router |
+| `billing:reconcile-reconnections` | Reabre a los activos en BD cuya reconexión no confirmó el router (P-29) |
 | `billing:verify-cuts` | Auditoría de no-show de cortes |
 | `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos. **Arranca en dry-run**; delega en `reactivateIfCleared()` para no duplicar reglas |
 
@@ -567,8 +581,9 @@ Dos invariantes más que conviene no romper:
   `CustomerProfile::BILLABLE_SERVICE_STATUSES`, el mismo vocabulario del ciclo mensual.
 - **La BD se corrige aunque el router falle.** Deliberado: dejar `status = false` en alguien
   que ya pagó garantiza que el reconciliador lo re-corte. El fallo se reporta en
-  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Ver **P-29** en
-  `MEJORAS_RECOMENDADAS.md`: nada lo reintenta solo todavía.
+  `reactivation.router_ok` y queda como `UNSUSPEND/failed`. Lo reintenta cada hora
+  `billing:reconcile-reconnections` (P-29), que pasa por `attemptReconnection()` igual que el
+  pago: si cambias el preflight o el candado, cambian los dos caminos a la vez.
 
 El aviso previo al cobro sale de `suspensionStatusFor()`, que evalúa **las mismas dos
 señales** a propósito: si el aviso y la acción usaran criterios distintos, el panel podría
@@ -597,6 +612,7 @@ decirle al cajero "está suspendido" y luego no reconectar (o al revés).
 | `db:fix-sequences [--table=] [--all]` | Repara secuencias |
 | `inventory:duplicate-identifiers [--tenant=]` | Lista seriales y MAC repetidos dentro de un tenant **ignorando mayúsculas**. **No escribe nada**; sale con código 1 si encuentra algo. Correrlo ANTES de la migración `2026_09_21_000001`, que aborta mientras queden duplicados (KAN-100) |
 | `documents:migrate-to-s3 [--dry-run]` | Migra documentos locales a S3 |
+| `documents:audit-storage [--tenant=] [--show=50]` | Solo lectura: documentos sin archivo en S3, perdidos frente a error de consulta (P-9) |
 
 ### Observabilidad
 
@@ -858,6 +874,7 @@ sólo uno deja fila en `payment_allocations`**:
 | Pago asignado | `payment_allocations.amount` |
 | Saldo a favor aplicado | `customer_credits` (`applied`, negativo). **No crea asignación** |
 | Faltante de un abono parcial | `invoices.carried_out` → `invoice_carryovers` |
+| Cuota de un acuerdo de pago de instalación | `invoices.carried_out` → `invoice_carryovers` con `installment_number` |
 | Anulación | `balance_due = 0`, `carried_out = 0` |
 
 De ahí las dos invariantes que `BooksAuditService` verifica y que **tu código debe conservar**:
@@ -885,6 +902,21 @@ Tres consecuencias prácticas:
 Si recibes dinero por un camino nuevo, **acredita el excedente**: lo que no se asigna a una
 factura tiene que volverse saldo a favor, o desaparece de los libros. Se comprueba corriendo
 `php artisan billing:audit-books --tenant=N` — si tu cambio está bien, no sale ningún hallazgo.
+
+**Cuotas de instalación: no inventes un camino nuevo para diferir un cobro.** El acuerdo de pago
+reutiliza el arrastre (`InstallationInstallmentPlanner`): la factura madre saca lo financiado
+por `carried_out` y cada cuota es una fila de `invoice_carryovers` con `installment_number` /
+`installment_count`. Tres cosas que hay que respetar si tocas algo de eso:
+
+- **Qué arrastres cobra una mensualidad lo decide un solo método**,
+  `BillingService::chargeablePendingCarryovers()`: todos los faltantes y, de cada acuerdo, la
+  cuota de número más bajo. La generación y la vista previa (`explainMonthlyInvoice`) lo
+  llaman los dos; si filtras arrastres en otro sitio, la vista previa mentirá.
+- **`InvoiceCarryover::pendingTotalFor()` ya sólo suma faltantes** («se cobra entero en la
+  próxima factura»). Las cuotas pendientes van por `pendingInstallmentsFor()`.
+- **Lo cobrado no se reescribe.** El planificador deja fijas las cuotas ya cobradas y reparte
+  sólo lo que falta; lo que no cuadra es un 422, nunca un ajuste silencioso. Y una factura de
+  cuota que sobra se **anula** con `voidInvoice()`, no se borra.
 
 **Añadir una comprobación nueva:** un método `protected` en `BooksAuditService`, su nombre en
 el array de `run()`, y devuélvela por `hallazgo()` pasando la **expresión SQL** del importe (no
@@ -963,13 +995,31 @@ produce falsos positivos.
 
 ### Git
 
-- **Nunca hagas push directo a `main`**: `main` es producción y despliega automáticamente.
-- Trabaja en rama de feature y abre PR.
-- Antes de hacer push, comprueba el upstream:
+Dos ramas largas (desde el 2026-10-16, bitácora § 117):
+
+| Rama | Qué es | Quién escribe |
+|---|---|---|
+| `main` | Producción. Cada push despliega en App Platform y aplica migraciones (`PRE_DEPLOY migrate --force`). | Solo el PR de release `develop → main` y los hotfix. |
+| `develop` | Integración. Aquí se mergean los PR de feature y fix. No despliega. | PR de trabajo. |
+
+- **Nunca hagas push directo a `main` ni a `develop`.**
+- Rama de trabajo desde `develop`, PR contra `develop`:
 
   ```bash
-  git branch -vv        # NO debe apuntar a origin/main
+  git fetch origin
+  git checkout -b fix/kan-123-algo origin/develop
+  git branch -vv        # debe seguir a origin/develop, NO a origin/main
+  # …
+  gh pr create --base develop
   ```
+
+- **Release:** PR `develop → main`. Se mergea con *merge commit*, no squash ni rebase: así
+  `develop` queda como ancestro de `main` y la siguiente release no trae conflictos falsos. La
+  release lleva todas las migraciones acumuladas. Revisa la lista
+  (`git diff --name-only origin/main origin/develop -- database/migrations`) antes de mergear,
+  porque se aplican solas al desplegar.
+- **Hotfix:** rama desde `origin/main` y PR a `main`. Después del merge, PR `main → develop`.
+- El CI (`tests.yml`) corre en cada PR y en cada push a `main` y a `develop`.
 
 ### Enlazar los commits con Jira (smart commits)
 
@@ -1066,6 +1116,17 @@ Route::middleware(['permission:view_reports'])->group(function () {
 > Declarar el mismo recurso dos veces **no** choca: los nombres que genera Laravel son
 > distintos (`inventory-stock.update` vs `inventory-stock.destroy`). Ver KAN-99 y § 63 de
 > `BITACORA_TECNICA.md`.
+
+> **El corte por falta de pago lo hereda solo.** Toda ruta dentro del grupo `auth:sanctum`
+> pasa por `saas_active` (KAN-126): si Converza suspendió al ISP, responde 423 sin llegar a
+> tu controlador. No hay nada que hacer para que tu endpoint quede cortado. Si de verdad
+> tiene que seguir respondiendo durante una suspensión —son dos en todo el panel—,
+> declara la excepción en la ruta y añádela a la lista de la prueba
+> `toda_ruta_del_panel_lleva_el_corte_y_ninguna_de_la_api_partner`:
+>
+> ```php
+> Route::get('/saas/status', [SaasStatusController::class, 'show'])->withoutMiddleware('saas_active');
+> ```
 
 **4. Controlador** — sólo traduce HTTP; la lógica va a un servicio.
 
@@ -1351,6 +1412,81 @@ Las pruebas que fijan el contrato del lado del servidor —se guarda el `device_
 «uno del modelo», el kardex lleva ese serial, y serial + consumibles conviven en la misma orden y
 el mismo ticket— están en `tests/Feature/Inventory/SerializedUnitsAndConsumablesTest.php`.
 
+**Consumo por cantidad: precisión y reenvío (2026-10-10).**
+
+```php
+// Precisión: la decide el PRODUCTO, la exige el LEDGER. No la valides sólo en el controlador.
+$stock->quantityDecimals();        // 0 (piezas) | 1 | 2 (metros). Serializado → 0
+$stock->acceptsQuantity(12.55);    // true si respeta esos decimales
+
+// Reenvío: toda escritura nueva de línea de orden/ticket va envuelta en once().
+[$item, $created] = $this->ledger->once(
+    InstallationEquipment::class, $tenantId, 'installation_id', $installation->id,
+    $data['client_request_id'] ?? null,
+    fn () => $this->ledger->assignMaterialToInstallation(..., $requestId)   // guarda la clave en la línea
+);
+// $created === false → reenvío: responde 200 + replayed, sin historial ni toast de "descontado".
+```
+
+- Un método nuevo del ledger que **cree una línea** debe aceptar `?string $requestId` y
+  guardarlo en `client_request_id`; si no, `once()` no podrá reconocer el reenvío.
+- Un método nuevo que **consuma un equipo** debe llamar a `assertDeviceStillAt()` dentro de su
+  transacción; uno que **consuma cantidad**, a `assertQuantityFor()` antes.
+- Frontend: `utils/materialQuantity.js` lo comparten orden y ticket. `quantityError()` adelanta
+  el rechazo (precisión y saldo de la fuente), `quantityStep()` da el `step` del input,
+  `newRequestKey()` genera la clave y `keepKeyAfterError(e)` dice si conservarla (sin respuesta o
+  5xx) o descartarla (4xx: rechazo definitivo). Cambiar material o cantidad descarta la clave.
+- `cableSummary(items)` calcula el cable de la orden a partir de las líneas cuya unidad es de
+  longitud (`m`, `metro`, `mts`…). **No reintroduzcas un input de cable**: el servidor ignora
+  `sheet.cable_meters` y conserva el histórico (`withStoredCable()` en
+  `CustomerInstallationController`).
+
+Pruebas: `tests/Feature/Inventory/MaterialConsumptionByQuantityTest.php` (caso fibra 9830 m en
+orden y ticket, precisión, saldo, tenants, reenvío, cable) y `QuantityDecimalsBackfillTest.php`.
+
+**Catálogo ≠ existencia; serial ≠ material (2026-10-11).**
+
+- Un material nace en dos pasos: `inventory_stock` con `is_serialized = false` (pantalla Stock →
+  «Agregar material») y una **entrada** por `InventoryLedger::transferQuantity()` sin origen
+  (Entregas y traspasos → «Entrada de material»). No hay otra puerta para su existencia.
+- `inventory_device` es sólo para modelos por serial. Lo exigen
+  `InventoryDeviceController::onlySerializedStock()` (alta, y edición si cambia el modelo) e
+  `InventoryImport` (fila rechazada). Si agregas otra forma de crear equipos, aplica la misma regla.
+- Las filas viejas de `inventory_device` sobre un material **no** son existencia:
+  `InventoryAvailability` cuenta equipos sólo de modelos por serial (`serializedStockIds()`) y las
+  informa aparte (`serialRowsOnConsumables()` → `serial_rows` en `GET /inventory-stock`). Los
+  selectores de orden y ticket tampoco las ofrecen.
+- `inventory_stock.price` es un precio de catálogo por unidad de medida con dos usos (precio
+  congelado de la línea consumida y, si el tenant lo activó, costo del gasto de entrada). No le
+  agregues un tercer significado sin separar el campo (P-93).
+
+**Recorrido de navegador del material por cantidad.** `tests/Browser/material-por-cantidad.mjs`
+recorre por pantalla el alta de «Fibra drop», la entrada de 100 m, la entrega y el consumo en orden
+y ticket, y guarda capturas. La suite de PHPUnit no tiene navegador y el CI tampoco: se corre a
+mano contra un backend de pruebas (nunca producción; el script se niega a usar otro host que
+127.0.0.1/localhost porque crea datos):
+
+```bash
+# backend aislado: APP_ENV=testing, DB_CONNECTION=sqlite con un archivo propio, y
+# `cd public && php -S 127.0.0.1:5186 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php`
+# con además SESSION_DRIVER=file y SANCTUM_STATEFUL_DOMAINS=127.0.0.1:5186: el login es por
+# cookie de sesión, y con el driver `array` de .env.testing o sin ese dominio «con estado»
+# cada petición llega sin usuario.
+#
+# ASSET_URL vacío también, no sólo VITE_API_URL: `vite build` lee .env.production y sin
+# esto el bundle pide los chunks al dominio de PRODUCCIÓN (la pantalla sale en blanco o,
+# peor, con el código viejo desplegado).
+ASSET_URL= VITE_API_URL= npx vite build
+BASE_URL=http://127.0.0.1:5186 ADMIN_USER=admin_demo ADMIN_PASS=... \
+TECH_USER=tecnico_demo TECH_PASS=... INSTALLATION_ID=2 TICKET_ID=1 \
+node tests/Browser/material-por-cantidad.mjs
+```
+
+Necesita Node ≥ 22 y Edge o Chrome (`BROWSER=`). El técnico no debe tener `view_inventory`; la
+orden y el ticket deben estar asignados a él. Cada corrida usa nombres únicos, así que se puede
+repetir sobre la misma base. Ojo al escribir pasos nuevos: las opciones de material en Vue llevan
+un objeto como valor; se eligen por `selectedIndex`, no por `value`.
+
 **Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
 `unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar
 sigue siendo `generateCharge()` con su propio bloqueo por `no_charge`. Y las líneas `in` nacen
@@ -1498,6 +1634,10 @@ Tres reglas para que el PDF no salga roto, todas aprendidas midiendo (ver `BITAC
   `symbol`, `zapfdingbats` y las tres DejaVu. `font-family: Calibri` cae a Times y el texto
   ocupa distinto que en el editor; `font-family: Calibri, Arial, sans-serif` funciona, porque
   dompdf recorre la pila. `TemplateDiagnostics` lo avisa (`unsupported_font`).
+- **Nada de texto largo dentro de una celda.** dompdf no parte un `<td>` entre páginas y recorta
+  lo que no cabe. `TemplateDiagnostics` avisa (`long_table_cell`) por encima de
+  `LONG_TABLE_CELL_CHARS`. Si una plantilla base o del catálogo dispara ese aviso, el arreglo es
+  pasar ese texto a `<div>`, no subir el umbral.
 - **Sólo marcadores del catálogo del tipo.** `DocumentStarterLibraryTest` corre
   `TemplateDiagnostics` sobre cada plantilla base y falla si aparece uno que el sistema no
   resuelve; `DocumentTemplateControllerTest` las renderiza todas y exige un PDF real sin avisos.
@@ -1898,6 +2038,23 @@ Los mapas de **color** sí se quedan en el componente, indexados por `code`. La 
 el color es presentación y se decide por código —que es estable—; la etiqueta es dato de
 negocio y viene del catálogo. Nunca compares contra la etiqueta.
 
+**7. Los asuntos frecuentes NO son uno de estos catálogos**
+
+`ticket_subjects` es vocabulario propio de cada ISP (sin filas de plataforma, sin `code`, sin
+vigencia por fechas, con `is_active`) y se administra por pantalla, no por migración. En el
+backend no hay que tocar nada para añadir un asunto. En el frontend:
+
+- El campo de asunto es **un componente**, `TicketSubjectField` (`{ subject_id, subject }`), que
+  usan el alta, la edición y el modal de cierre. No vuelvas a poner un `<input>` de asunto suelto:
+  el filtro sólo sirve si todo el que radica elige del mismo catálogo.
+- Los vigentes llegan en `subjects` de `GET /api/catalogs/ticket`. Quien los cambie tiene que
+  refrescar con `cargar(true)` (lo hace `Support.vue` al cerrar el gestor). El **filtro** del
+  listado usa `GET /api/support/subjects`, que incluye los desactivados: un asunto retirado no
+  se ofrece al radicar, pero sus tickets se tienen que poder encontrar.
+- En el servidor, `subject_id` manda sobre `subject`: con asunto del catálogo el texto lo pone
+  `SupportTicketController::resolverAsunto()`. Si aceptas el asunto por otra puerta, pásalo por
+  ahí.
+
 **Trampa de Eloquent (te va a morder):** si te tienta escribir un ayudante que devuelva
 `Attribute` para no repetir accessors, **no le declares el tipo de retorno**. Eloquent
 descubre los accessors reflexionando sobre los métodos cuyo tipo declarado es `Attribute`
@@ -1925,7 +2082,7 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 13 | **`cut_type` vacío en producción** | `OverdueSuspensionService` compara por el **nombre literal** `'Corte Automático'`. Sin filas en la tabla, nadie se corta |
 | 14 | **`email_verified_at` no está en `$fillable`** | `User::create()` lo descarta en silencio y el usuario nace sin verificar → el login devuelve 403. Márcalo con `forceFill()` |
 | 15 | **`SubstituteBindings` corre antes que el middleware de ruta** | En el grupo `api`, un id inexistente en una ruta con vinculación implícita (`destroy(Router $router)`) devuelve **404 antes** de comprobar el permiso. Al testear autorización, crea el registro |
-| 16 | **No ocultes `password_rb` en `$hidden`** | `RouterEdit.vue` prellena el formulario con ese valor y lo reenvía al guardar: ocultarlo **borra la credencial** del router en la primera edición |
+| 16 | **`password_rb`, `vpn_password` y `wg_private_key` están en `$hidden`, y el formulario NO debe volver a prellenarlas** | Desde KAN-45 la API no las devuelve; para saber si hay contraseña guardada está `has_password_rb`. `RouterEdit.vue` arranca el campo vacío y sólo envía `password_rb` si se escribió una nueva («en blanco = conservar»). Si un formulario vuelve a mandar `password_rb: ""`, la validación la rechaza (`sometimes\|required`); si la manda `null` en un router RADIUS, la **vacía**. No reintroduzcas el prellenado: era lo que obligaba a serializar el secreto |
 | 17 | **El modo de corte se compara normalizado** | Usa `CutType::matches()` / `isAutomatic()`, nunca `=== 'Corte Automático'`: una tilde de menos dejaba de cortar sin ningún error |
 | 18 | **`*/` dentro de un docblock lo cierra antes de tiempo** | Un comentario tipo `/** ... on*/url() ... */` rompe con `syntax error, unexpected identifier` en la línea *siguiente*, no en la que tiene el error. Pasó dos veces escribiendo docs de `BlockMarkerInjector`/`AdvancedTemplateSanitizer` (`on*/url()`, `cliente.*/empresa.*`). Evita `algo*/algo` en prosa dentro de `/** */` |
 | 19 | **No todas las propiedades CSS de HTMLPurifier están activas por default** | `CSSDefinition::doSetup()` sólo registra un subconjunto; `display`/`visibility`/`overflow`/`opacity` requieren `CSS.AllowTricky`, `border-radius` (y variantes) requiere `CSS.Proprietary` (no `Tricky`) — mensajes de error como `Style attribute 'X' is not supported` no dicen cuál flag falta. Verifica contra el código fuente de `CSSDefinition.php` instalado, no contra la memoria/docs generales de HTMLPurifier. **Nunca** actives `CSS.Trusted` (habilita `position`/`z-index`) ni `HTML.Trusted` (habilita `<script>`) para resolver esto |
@@ -1944,11 +2101,11 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 28 | **`frame-src` no se hereda gratis de `default-src`** | Mostrar un PDF generado en el navegador (`<iframe src="blob:…">`) exige `frame-src 'self' blob:` explícito en `SecurityHeaders`; sin él la CSP cae en `default-src 'self'` y el navegador rechaza el frame — recuadro gris con icono de documento roto, **cero rastro en los logs del servidor**. Cualquier cambio de CSP se despliega con el **backend**: subir sólo el frontend no arregla nada. Fijado en `SecurityHeadersTest` |
 | 29 | **Un `<img>` a `public_path('storage/…')` en un PDF NO funciona: los archivos están en S3** | La hoja de instalación pintaba recuadros de imagen rota durante meses sin que nadie lo notara (dompdf no lanza error: dibuja el hueco). Para meter un archivo de S3 en un PDF hay que **leerlo e incrustarlo como data URI**; `enable_remote = false` además impide cualquier fetch por URL. El logo del tenant sí funciona porque vive en el disco `public` local, no en S3 |
 | 30 | **`setPaper()` con un tamaño desconocido no falla: se queda callado** | dompdf no lanza excepción ni loguea si le pasas `'papiro'`; produce un canvas raro y sigue. Por eso `TemplateRenderer::applyPaper()` revalida contra `DocumentTemplate::PAGE_SIZES`/`PAGE_ORIENTATIONS` y cae al default aunque `UpdateDocumentTemplateRequest` ya haya validado en la entrada — la fila puede venir de un `UPDATE` a mano o de una migración desde otro sistema |
-| 31 | **`Barryvdh\DomPDF\PDF` resuelve casi toda su API por `__call()`** | `setPaper()`, `setWarnings()` y compañía **no están declarados** en la clase: se reenvían al `Dompdf` interno. Mockery valida contra los métodos reales, así que un `Mockery::mock(PDF::class)` revienta con `BadMethodCallException: Method … does not exist on this mock object` **señalando el código de producción, no el test**. Los mocks de PDF llevan `->shouldIgnoreMissing(\Mockery::self())` por esto; cualquier método nuevo del wrapper que llames los va a romper igual (`docs/MEJORAS_RECOMENDADAS.md` P-14) |
+| 31 | **`Barryvdh\DomPDF\PDF` resuelve casi toda su API por `__call()`** | `setPaper()`, `setWarnings()` y compañía **no están declarados** en la clase: se reenvían al `Dompdf` interno. Mockery valida contra los métodos reales, así que un `Mockery::mock(PDF::class)` revienta con `BadMethodCallException: Method … does not exist on this mock object` **señalando el código de producción, no el test**. Por eso el doble se construye **siempre** con `$this->fakePdf()` (`Tests\TestCase`, KAN-65), que ya trae `shouldIgnoreMissing(\Mockery::self())`. `FakePdfHelperTest` falla si alguien mockea `PDF::class` a mano |
 | 32 | **Un diseño a dos columnas no cabe en A4 vertical** | A 96 dpi, A4 vertical deja ~698 px útiles y horizontal ~1027 px. Un contrato CRC a dos columnas necesita ~950 px: en vertical dompdf lo aprieta y descuadra la maquetación entera, **sin error alguno**. Se resuelve con `page_orientation = 'landscape'` en la plantilla, no rediseñando un formato regulado |
 
 | 33 | **Un `delete payload.campo` en el frontend es indistinguible de "no se guardó"** | `InstallationDetail.vue::buildSheetPayload()` borraba `client_ip` del payload cuando el core tenía PPPoE: el técnico escribía la IP del cliente, el POST salía sin ella y el backend guardaba bien lo que le llegó. Ni error, ni log, ni validación que se queje — sólo un campo vacío la próxima vez que se abre la orden. Si un campo se muestra, se guarda; si no se debe guardar, no se debe mostrar. Ver `BITACORA_TECNICA.md` § 20 |
-| 34 | **Un formulario largo con un solo botón de guardar al final** | La tarjeta *Conexión / Red* de `InstallationDetail.vue` no tenía botón propio: el único `Guardar hoja` vivía en la tarjeta siguiente y guardaba las dos, pero nada lo decía en pantalla. Llenar la primera y salir perdía el trabajo en silencio. Cada bloque visualmente independiente necesita su acción de guardado (aunque llame al mismo handler) |
+| 34 | **Un formulario largo con un solo botón de guardar al final** | La tarjeta *Conexión / Red* de `InstallationDetail.vue` no tenía botón propio: el único `Guardar hoja` vivía en la tarjeta siguiente y guardaba las dos, pero nada lo decía en pantalla. Llenar la primera y salir perdía el trabajo en silencio. Cada bloque visualmente independiente necesita su acción de guardado (aunque llame al mismo handler). *Desde § 114 la hoja ya no tiene campos a mano: `Guardar hoja` desapareció y señal y observaciones viven en Conexión / Red* |
 | 31 | **El `$periodStart` de `createMonthlyInvoiceFor()` NO siempre es el día 1** | Llega como `$charge['period_start']`, y en una primera factura prorrateada eso es el **día de instalación** (`2026-07-11`), no el inicio del mes. Cualquier cálculo que necesite el mes natural —la ventana de vigencia de un servicio adicional, su prorrateo— debe derivarlo de `$periodEnd->copy()->startOfMonth()`, que sí es siempre fin de mes en ese método. Usar el `$periodStart` recibido prorratea por error asignaciones antiguas, y el error sólo aparece en clientes instalados a mitad de mes |
 | 35 | **Una relación NO puede llamarse igual que una columna del mismo modelo** | `customer_installations` tiene una columna `equipment` (texto libre "equipo previsto"). Al añadir la relación `equipment()` hacia `installation_equipment`, `$installation->equipment` seguía devolviendo **el string**: Eloquent resuelve primero `$attributes` y sólo cae a las relaciones si no hay atributo con ese nombre — ni siquiera un `loadMissing('equipment')` previo cambia eso, porque la relación queda cargada pero inalcanzable por la propiedad. La vista del PDF habría hecho `->count()` sobre un texto. Se llama `equipmentItems()`. Es la trampa gemela de la #30 (relación que pisa una FK), pero al revés: aquí la **columna** gana |
 | 37 | **El tenant NUNCA sale de un parámetro de la petición** | Dos casos vivos encontrados el 2026-08-06: `billing/stats` lo leía de `?tenant=` (cualquiera con `view_billing` podía pedir las finanzas de otra empresa cambiando la URL) y `routers/{id}/free-ips` de `?tenant_id=` con un `if ($tenantId)` que, al no llegar nunca desde el frontend, dejaba la consulta **sin filtro** y escondía IPs libres. Deriva siempre de `$request->user()->tenant_id`, o usa `BelongsToTenant` — y desconfía de todo `if ($tenantId)`: un filtro condicional es un filtro que algún día no se aplica |
@@ -1960,15 +2117,18 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 63 | **`$table->enum()` no se hace cumplir en SQLite, y sí en PostgreSQL** | En PostgreSQL, Laravel traduce `enum` a `varchar` + un `CHECK` con nombre (`<tabla>_status_check`). En SQLite lo traduce a `varchar` **y nada más**. Un valor fuera de la lista pasa la suite entera en local y revienta únicamente en el job de PostgreSQL, con un error que apunta a la línea del `create()` y no a la causa. Pasó con `customer_installations.status`, que es `enum('pendiente','completada','cancelada')` —en **castellano**, a diferencia de `payments.status`, que es `'completed'` en inglés—: un fixture nuevo escribió `'completed'` y el PR se fue a rojo en CI estando verde en local. **Antes de inventar un valor de estado, mira la migración que creó la columna**; el idioma no es uniforme entre tablas. La corrección de fondo —pendiente, ver P-59— son constantes en el modelo (`CustomerInstallation::STATUS_COMPLETADA`) para que el valor no se teclee nunca a mano |
 | 53 | **Meter una ruta en el grupo `staff_profile` sin mirar quién la va a usar** | Ese middleware no comprueba una capacidad: comprueba que el **código de rol** sea `admin` o `staff`. Todo `/api/support/*` vive ahí, así que la primera versión de los equipos del ticket habría dejado fuera justo al **técnico de campo** (`code = 'technician'`), que es quien carga el equipo en la visita. Las rutas de equipo —de instalación y de ticket— van fuera del grupo, con `permission:` a secas. Antes de añadir una ruta a un grupo, mira qué rol la va a ejecutar en la calle |
 | 51 | **Tocar una ruta de `v1/partner` sin tocar el OpenAPI** | `docs/openapi/ispwatch-partner-v1.yaml` es el archivo que el integrador **compila**, no que lee: con él genera su cliente y valida sus respuestas. Un endpoint nuevo sin documentar, uno documentado que ya no existe, o un `ability` que no coincide, rompen su integración semanas después y en su entorno — donde lo primero que se sospecha es su código. `PartnerOpenApiContractTest` compara rutas y `x-ability` en los dos sentidos y falla en el mismo PR |
-| 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` **borra y vuelve a sembrar todo**, y `migrate:both` corre los seeders **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
+| 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` es desde KAN-75 un **upsert** (categoría por `name`, artículo por `category_id` + `title`) que no borra lo creado desde la UI. Pero `migrate:both` corre los seeders **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
 | 43 | **`customer_profile.service_id` NO es un servicio: es el PLAN** | FK a `service_plan.id`, pese al nombre (`Plan::find($customer->service_id)` en `CustomerProvisioningService`). Cualquiera que lo mapee a un "id de servicio" —sobre todo integrando con un sistema externo que sí distingue cliente de servicio— correlaciona clientes contra planes y **no ve ningún error**. El id de servicio de verdad es `user_services.id`. La API pública ya lo expone renombrado como `plan.id` justamente para no propagar la trampa |
 | 60 | **`customer_profile` NO tiene columna `id` — y SQLite esconde que la pidas** | Su clave primaria es `user_id` (`unsignedBigInteger('user_id')->primary()`). Un `CustomerProfile::…->latest('id')` revienta en PostgreSQL con *column "id" does not exist*, pero en SQLite **pasa**: un identificador entrecomillado que no resuelve a ninguna columna se trata como literal de texto, así que `order by "id"` ordena por la cadena `'id'` — no ordena nada. Comprobado: `order by "columna_inventada"` también pasa. Es decir que el fallo no es sólo de portabilidad: en SQLite el `latest()` era un no-op silencioso y `first()` devolvía una fila arbitraria. Localiza el perfil por `user_id`, nunca por orden. Lo cazó el job de PostgreSQL del CI (§ 73)  |
 | 44 | **Hay DOS punteros al plan y nada garantiza que coincidan** | `user_services.service_plan_id` es el que usa **facturación** (`BillingService` resuelve por ahí qué cobrar); `customer_profile.service_id` es el que usa **aprovisionamiento**. `UserService::syncForCustomer()` los mantiene alineados cuando el cambio pasa por el alta/edición, pero no hay restricción en base que lo imponga: un camino que escriba solo uno los desincroniza en silencio, y el cliente termina facturado por un plan y configurado con otro. Al exponer "el plan" hacia afuera, decidir explícitamente cuál — la API pública usa el de facturación en `/services` |
 | 45 | **Una escritura masiva por query builder no dispara observers** | `Modelo::insert([...])` y `Modelo::where(...)->update([...])` no pasan por Eloquent, así que ni `MoneyAuditObserver` ni `PartnerEventObserver` se enteran. Este manual decía que la carga masiva de clientes estaba cubierta: **no lo estaba** desde que pasó a `insert()` en bloque (fix del 504), y sus altas no aparecían en el feed partner hasta KAN-111. Hoy emiten a mano con `PartnerEvent::recordMany()` la carga masiva de clientes y el cambio de RADIUS de un router. Si agregas un camino masivo que mueva estado comercial, router, IP o PPPoE, emite el evento tú: el integrador externo quedaría desincronizado **sin ninguna señal** |
 | 65 | **Cambiar `router_id` deja trabajo en el router VIEJO** | El aprovisionamiento sólo mira el router nuevo. `CustomerRouterMoveObserver` encola `PurgeCustomerFromPreviousRouterJob` con la identidad **original** (la que el cliente tenía allí, aunque la misma edición cambie IP o PPPoE) y sólo si el router viejo lo gestiona ISPWatch. Si escribes un camino que mude clientes por query builder (`where()->update()`), el observer no se entera y el residuo vuelve: despacha el job a mano. El job omite cualquier dato que hoy use otro cliente del router viejo, porque el barrido borra por esas claves (KAN-119) |
 | 66 | **Toda mensualidad automática se escribe dentro de `withMonthlyInvoiceLock()`; el «¿ya existe?» de afuera no protege nada** | Comprobar `monthlyInvoiceExists()` y después crear es una carrera: la corrida horaria, `billing:retry-failed`, el alta, `billing:generate-tenant` y la reparación pueden llegar al mismo cliente a la vez. La protección real es `BillingService::withMonthlyInvoiceLock()`: transacción, bloqueo de `customer_profile` y segunda comprobación, que lanza `MonthlyInvoiceAlreadyExists`. `createMonthlyInvoiceFor()` ya la usa. Un camino nuevo que emita mensualidades tiene que escribir dentro de ella y tratar esa excepción como «ya estaba hecha», no como fallo. La factura MANUAL no pasa por ahí (P-86): no afirmes unicidad global. **Los avisos van con `DB::afterCommit`, nunca dentro de la transacción**: un correo caído desharía la factura, y un lote deshecho avisaría de facturas que no existen (bitácora § 88). Y una prueba de «se factura aunque X» tiene que **ejecutar la corrida**: la que cubría «No enviar notificaciones» creaba la factura a mano y no probaba nada |
+| 67 | **Un controlador no importa la capa de red de MikroTik** | `tests/Unit/Architecture/MikroTikBoundaryTest.php` falla si un controlador usa `App\Services\MikroTik\*` o `MikroTikSshService` fuera de su `BASELINE`, la deuda de 2026-10-05: `RouterController`, `PlanController` y `CustomerProfileController`. Pasa por un servicio de dominio. Si migras uno de esos tres, borra su entrada, porque el test exige que la lista solo encoja (KAN-16) |
+| 68 | **Los datos de acceso al router dependen del modo en que QUEDA, no del que traía** | En `StoreRouterRequest`/`UpdateRouterRequest`, `ip`, `user_rb`, `password_rb` y `firmware_version` son opcionales (y vaciables) sólo si el router queda en RADIUS (KAN-102). En la edición, si el request no menciona ningún flag de modo, manda el `radius` guardado; si lo saca de RADIUS, se exigen los que estén vacíos en la base (`UpdateRouterRequest::equipmentRule()`). Si agregas un modo sin equipo detrás, pásalo por esa misma regla, o volverá a obligar a inventar datos de relleno |
+| 69 | **Un campo de la hoja que repite un dato del inventario** | Marca, modelo, MAC y serial del módem, cable y «otros insumos» se digitaban en la hoja además de registrarse en `installation_equipment`, y podían contradecirse. Se retiraron (§ 114): están en `CustomerInstallationController::LEGACY_SHEET_FIELDS`, el servidor los ignora si llegan y conserva lo guardado. **No vuelvas a añadir a la hoja un campo que describa un equipo o un material**: si hace falta un dato del equipo, léelo de la línea del inventario (como `CustomerInstallation::installedDeviceMac()`). La MAC va aparte de `InstallationEquipment::label()` porque ese texto es también la descripción del cobro |
 | 64 | **En `partner_events`, el cursor es `seq`, nunca `id`** | El `id` se toma al insertar, dentro de la transacción del cambio, y las transacciones confirman en cualquier orden: un cursor o una revisión calculados sobre `id` pueden saltarse para siempre un evento que confirmó tarde. Todo lo que se publica hacia afuera (`event_id`, `revision`, `next_since`) es `seq`, que asigna `PartnerEventSequencer` después del commit y en serie. Un evento con `seq` nulo **todavía no existe** para el feed. Si escribes un lector nuevo, filtra con `->published()` y ordena por `seq`, y llama antes a `publishPendingEvents()`. Ver `ARQUITECTURA.md` § 14.8 |
-| 67 | **En la corrida mensual, cada cliente y cada router va dentro de su propio `try`** | `generateMonthlyInvoices()` recorre los routers de **todos** los tenants en un solo proceso. Hasta § 90 sólo la creación de la factura estaba protegida: una excepción en la ruta de adicionales, en la primera factura, en el tope o en la configuración del router salía del método, cortaba la corrida para todos los routers que venían después y el comando la imprimía en una consola que el scheduler descarta — sin log ni fila de reintento. Si agregas un paso a la corrida, va **dentro** del `try` del cliente (o del router) y un fallo se registra con `recordRunFailure()` + `markActionLogFailedSafely()`. No conviertas un fallo en `continue` silencioso: el comando sale con 1 gracias a `lastRunFailures()`. Los errores fatales de PHP (memoria, proceso matado) no se pueden atrapar: para eso están las líneas «Router N — start / done» del log |
+| 70 | **En la corrida mensual, cada cliente y cada router va dentro de su propio `try`** | `generateMonthlyInvoices()` recorre los routers de **todos** los tenants en un solo proceso. Hasta § 90 sólo la creación de la factura estaba protegida: una excepción en la ruta de adicionales, en la primera factura, en el tope o en la configuración del router salía del método, cortaba la corrida para todos los routers que venían después y el comando la imprimía en una consola que el scheduler descarta — sin log ni fila de reintento. Si agregas un paso a la corrida, va **dentro** del `try` del cliente (o del router) y un fallo se registra con `recordRunFailure()` + `markActionLogFailedSafely()`. No conviertas un fallo en `continue` silencioso: el comando sale con 1 gracias a `lastRunFailures()`. Los errores fatales de PHP (memoria, proceso matado) no se pueden atrapar: para eso están las líneas «Router N — start / done» del log |
 | 40 | **El orden del método de control vive en TRES sitios y tienen que coincidir** | `CustomerProvisioningService::resolveControlMode()` decide el modo **al leer**; el trait `NormalizesRouterControlMode` decide cuál sobrevive **al escribir**; y `CONTROL_MODES` en `RouterAdd.vue`/`RouterEdit.vue` decide cuál queda encendido **en el formulario**. Si los órdenes divergen, la base guarda un modo y el aprovisionamiento ejecuta otro — sin ningún error, sólo un router que "no carga los clientes". Al agregar un modo hay que tocar los cuatro archivos |
 | 41 | **En los endpoints RADIUS `BelongsToTenant` NO rellena `tenant_id`** | El trait lo deriva de `auth()->user()`, y las rutas RADIUS son máquina-a-máquina: no hay usuario autenticado, así que ni el hook de `creating` asigna ni el scope global filtra. Toda escritura del pipeline de accounting/authorize debe fijar `tenant_id` **explícitamente desde el router registrado** — nunca desde un campo del request, que es exactamente el vector de fuga cross-tenant. Si se olvida, la fila nace con `tenant_id` null y desaparece del panel |
 | 42 | **`apt install freeradius` NO instala `rlm_rest`** | Va en el paquete aparte `freeradius-rest`, y además hay que enlazarlo a `mods-enabled/`. El servidor arranca bien y sólo falla al cargar el sitio, con un mensaje sobre un módulo desconocido que **no menciona la palabra "paquete"**. Diagnostica siempre con `freeradius -X`. Ojo: el directorio de config se llama `3.0` aunque corras 3.2.x — no es señal de versión vieja. Ver `RADIUS_FREERADIUS.md` |

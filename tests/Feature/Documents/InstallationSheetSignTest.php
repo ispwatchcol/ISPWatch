@@ -85,7 +85,7 @@ class InstallationSheetSignTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf = $this->fakePdf();
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -155,7 +155,7 @@ class InstallationSheetSignTest extends TestCase
             'is_active' => true,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf = $this->fakePdf();
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -215,7 +215,7 @@ class InstallationSheetSignTest extends TestCase
             'is_active' => false,
         ]);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf = $this->fakePdf();
         $fakePdf->shouldReceive('output')->once()->andReturn('%PDF-fake');
 
         Pdf::shouldReceive('loadView')
@@ -272,20 +272,22 @@ class InstallationSheetSignTest extends TestCase
     {
         Sanctum::actingAs($this->staff);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf = $this->fakePdf();
         $fakePdf->shouldReceive('stream')->once()->andReturn(response('%PDF-fake'));
 
         Pdf::shouldReceive('loadView')
             ->once()
             ->withArgs(function ($view, $data) {
                 return $view === 'documents.installation_sheet_pdf'
-                    && ($data['installation']->sheet['modem_brand'] ?? null) === 'TP-Link'
+                    && ($data['installation']->sheet['signal_level'] ?? null) === '-21 dBm'
                     && $data['customer_signature'] === '';
             })
             ->andReturn($fakePdf);
 
         $response = $this->postJson("/api/installations/{$this->installation->id}/sheet-preview", [
-            'sheet' => ['modem_brand' => 'TP-Link'],
+            // `signal_level` y no `modem_brand`: los campos de equipo ya no se
+            // escriben ni en borrador (§ 114).
+            'sheet' => ['signal_level' => '-21 dBm'],
         ]);
 
         $response->assertOk();

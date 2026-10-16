@@ -200,7 +200,14 @@ class RouterController extends Controller
             ], 409);
         }
 
-        $router->delete();
+        // Las bajas que aún lo referencian se sueltan EXPLÍCITAMENTE y en la
+        // misma transacción que el DELETE (P-FK-1 / KAN-55). Antes lo hacía la
+        // FK con ON DELETE SET NULL; ahora la FK es RESTRICT en PostgreSQL, que
+        // rechazaría el borrado. Aquí ya se verificó que no queda ningún vivo.
+        DB::transaction(function () use ($router) {
+            CustomerProfile::where('router_id', $router->id)->update(['router_id' => null]);
+            $router->delete();
+        });
 
         return response()->json([
             'message' => 'Router eliminado exitosamente. ✅',

@@ -224,16 +224,29 @@
           </div>
         </div>
 
-        <!-- El único botón de guardado vivía en la tarjeta de abajo, así que estos
-             campos se llenaban y se perdían al salir de la pantalla. Es el mismo
-             saveSheet: persiste conexión + hoja técnica en una sola llamada. -->
+        <!-- Lo único de la antigua hoja manual que NO es inventario: la medición
+             y la nota de la visita. Marca, modelo, MAC, serial, cable y demás
+             insumos salen de «Equipos y materiales usados». -->
+        <div class="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Nivel de señal</label>
+            <input v-model="sheet.signal_level" type="text" placeholder="-25 dBm" maxlength="40"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones técnicas</label>
+            <textarea v-model="sheet.observations" rows="2" maxlength="2000"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
+          </div>
+        </div>
+
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button @click="saveSheet" :disabled="savingSheet"
             class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
             {{ savingSheet ? 'Guardando...' : 'Guardar datos técnicos' }}
           </button>
           <p class="text-[11px] text-gray-500 dark:text-gray-400">
-            Guarda conexión y hoja técnica. Estos datos se cargan solos al convertir el prospecto en cliente.
+            Guarda conexión, señal y observaciones. Estos datos se cargan solos al convertir el prospecto en cliente.
           </p>
         </div>
       </div>
@@ -338,6 +351,12 @@
             Todavía no has cargado equipos a esta instalación.
           </p>
 
+          <!-- Total de cable, calculado de las líneas en metros: no se digita. -->
+          <p v-if="cable.total > 0" data-testid="cable-summary" class="mb-3 text-xs text-gray-700 dark:text-gray-300">
+            <span class="font-semibold">Cable: {{ fmtQty(cable.total) }} m</span>
+            <span class="text-gray-500 dark:text-gray-400"> · {{ cable.lines.map(l => `${l.label} ${fmtQty(l.quantity)} m`).join(' · ') }}</span>
+          </p>
+
           <!-- Agregar equipo con serial. Se ve SIEMPRE, aunque no haya
                unidades: vacío, explica por qué y cuál es el siguiente paso. -->
           <div v-if="!equipmentLock.is_locked" class="space-y-3">
@@ -351,7 +370,8 @@
                  desaparecer. -->
             <div ref="materialRow">
               <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Materiales por cantidad (cable, conectores…)</p>
-              <div v-if="availableMaterials.length" class="flex flex-wrap items-center gap-2">
+              <template v-if="availableMaterials.length">
+              <div class="flex flex-wrap items-center gap-2">
                 <select v-model="materialPick" :disabled="equipmentBusy"
                   class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
                   <option :value="null">+ Agregar material por cantidad…</option>
@@ -359,14 +379,26 @@
                     {{ materialLabel(m) }}
                   </option>
                 </select>
-                <input v-model.number="materialQty" type="number" min="0.01" step="0.01" placeholder="Cant."
-                  :disabled="equipmentBusy"
-                  class="w-24 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
-                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy"
+                <div class="flex items-center gap-1">
+                  <input v-model.number="materialQty" type="number" :min="quantityStep(materialPick)" :step="quantityStep(materialPick)"
+                    :max="materialPick ? materialPick.quantity : null" placeholder="Cant." onwheel="this.blur()"
+                    :disabled="equipmentBusy" data-testid="material-qty"
+                    class="w-28 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
+                  <span class="text-xs text-gray-600 dark:text-gray-300 min-w-[2.5rem]">{{ materialPick?.unit || '' }}</span>
+                </div>
+                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy || !!materialQtyError"
                   class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
                   Agregar
                 </button>
               </div>
+              <p v-if="materialPick && materialQtyError" class="mt-1 text-[11px] text-rose-600 dark:text-rose-400" data-testid="material-qty-error">
+                {{ materialQtyError }}
+              </p>
+              <p v-else-if="materialPick" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                Disponible en {{ materialPick.source_label }}: {{ fmtQty(materialPick.quantity) }}{{ materialPick.unit ? ` ${materialPick.unit}` : '' }}
+                · {{ materialDecimals(materialPick) === 0 ? 'cantidades enteras' : `hasta ${materialDecimals(materialPick)} decimal(es)` }}.
+              </p>
+              </template>
               <p v-else-if="equipmentLoaded"
                 class="text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                 No hay materiales que puedas usar en esta orden.
@@ -397,55 +429,18 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cable utilizado (metros)</label>
-            <input v-model="sheet.cable_meters" type="number" min="0" step="0.5"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Nivel de señal</label>
-            <input v-model="sheet.signal_level" type="text" placeholder="-25 dBm"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Marca del módem</label>
-            <input v-model="sheet.modem_brand" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Modelo del módem</label>
-            <input v-model="sheet.modem_model" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">MAC del módem</label>
-            <input v-model="sheet.modem_mac" type="text" placeholder="AA:BB:CC:DD:EE:FF"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Serial ONU</label>
-            <input v-model="sheet.onu_serial" type="text"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm font-mono" />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">
-              Materiales adicionales (texto libre)
-            </label>
-            <textarea v-model="sheet.materials" rows="2"
-              placeholder="Sólo lo que no esté en el inventario: amarres, silicona…"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones técnicas</label>
-            <textarea v-model="sheet.observations" rows="3"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm resize-none"></textarea>
-          </div>
+        <!-- La hoja ya no lleva campos a mano: lo instalado es lo registrado
+             arriba, que descuenta del inventario. Una orden anterior que tenía
+             datos digitados los conserva y aquí se ven, sólo en lectura. -->
+        <div v-if="legacyManual.length" data-testid="legacy-sheet"
+          class="p-3 rounded-lg border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-900/10">
+          <p class="text-xs font-medium text-amber-800 dark:text-amber-300 mb-1">
+            Registro manual anterior (no descontó inventario; se conserva como histórico)
+          </p>
+          <ul class="text-xs text-gray-700 dark:text-gray-300 space-y-0.5">
+            <li v-for="f in legacyManual" :key="f.label"><span class="text-gray-500 dark:text-gray-400">{{ f.label }}:</span> {{ f.value }}</li>
+          </ul>
         </div>
-        <button @click="saveSheet" :disabled="savingSheet"
-          class="mt-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
-          {{ savingSheet ? 'Guardando...' : 'Guardar hoja' }}
-        </button>
       </div>
 
       <!-- Documentos generados (hoja de instalación firmada) -->
@@ -538,7 +533,11 @@
               Factura <span class="font-mono">#{{ installation.invoice_number }}</span>
             </p>
             <p class="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5">
-              Estado: <span :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
+              Estado:
+              <span v-if="plan" class="text-blue-700 dark:text-blue-300 font-semibold">
+                Financiada en {{ plan.count }} cuota{{ plan.count === 1 ? '' : 's' }}
+              </span>
+              <span v-else :class="invoiceStatusClass(installation.invoice_status)">{{ invoiceStatusLabel(installation.invoice_status) }}</span>
             </p>
           </div>
           <!-- El detalle de factura vive en el módulo de facturación y exige sus
@@ -590,13 +589,84 @@
             </p>
           </div>
 
-          <!-- Acuerdo de pago -->
+          <!-- Acuerdo de pago: lo que queda debiendo después del valor
+               recibido se divide en cuotas. La factura de instalación queda
+               saldada (no cuenta para mora ni corte) y las cuotas se cobran
+               dentro de la mensualidad o en facturas aparte, a elección. -->
           <div class="sm:col-span-2">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input v-model="billing.payment_agreement" type="checkbox"
-                class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
-              <span class="text-sm text-gray-700 dark:text-gray-300">Acuerdo de pago</span>
+            <label class="flex items-start gap-2" :class="billing.no_charge ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'">
+              <input v-model="billing.payment_agreement" @change="onAgreementToggle" type="checkbox" :disabled="billing.no_charge"
+                class="mt-0.5 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+              <span>
+                <span class="text-sm text-gray-700 dark:text-gray-300">Acuerdo de pago</span>
+                <span class="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Divide en cuotas lo que queda debiendo después del valor recibido. La factura de instalación
+                  queda saldada y no cuenta para mora ni corte; las cuotas sí, cuando venzan.
+                </span>
+              </span>
             </label>
+
+            <div v-if="billing.payment_agreement && !billing.no_charge"
+              class="mt-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-3 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Número de cuotas</label>
+                  <input v-model.number="billing.installments_count" type="number" min="1" :max="MAX_CUOTAS" step="1"
+                    class="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+                    :class="{ 'border-red-400 dark:border-red-500': billingErrors.installments_count }" />
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Cómo se cobran</label>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label v-for="m in MODOS_CUOTA" :key="m.value"
+                      class="flex items-start gap-2 rounded-lg border p-2 cursor-pointer transition"
+                      :class="billing.installments_mode === m.value
+                        ? 'border-blue-500 bg-white dark:bg-gray-800'
+                        : 'border-gray-200 dark:border-gray-600 bg-white/60 dark:bg-gray-800/60'">
+                      <input v-model="billing.installments_mode" type="radio" :value="m.value"
+                        class="mt-0.5 text-blue-600 focus:ring-blue-500" />
+                      <span>
+                        <span class="block text-sm font-medium text-gray-800 dark:text-gray-100">{{ m.label }}</span>
+                        <span class="block text-[11px] text-gray-500 dark:text-gray-400">{{ m.help }}</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <div v-if="billing.installments_mode === 'separate'">
+                  <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Vence la 1.ª cuota</label>
+                  <input v-model="billing.installments_first_due_date" type="date"
+                    class="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm"
+                    :class="{ 'border-red-400 dark:border-red-500': billingErrors.installments_first_due_date }" />
+                  <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Las demás, mes a mes desde esta fecha.</p>
+                </div>
+              </div>
+
+              <p v-for="campo in ['installments_count', 'installments_mode', 'installments_first_due_date', 'payment_agreement']"
+                :key="campo" v-show="billingErrors[campo]" class="text-xs text-red-600 dark:text-red-400">
+                {{ billingErrors[campo]?.[0] }}
+              </p>
+
+              <p class="text-xs text-blue-900 dark:text-blue-200">
+                <template v-if="billingBalance > 0 && cuotasPrevistas.length">
+                  Se financian <strong>{{ fmtMoney(billingBalance) }}</strong> en
+                  <strong>{{ cuotasPrevistas.length }} cuota{{ cuotasPrevistas.length === 1 ? '' : 's' }}</strong>
+                  de {{ fmtMoney(cuotasPrevistas[0]) }}<template v-if="cuotasPrevistas.length > 1 && cuotasPrevistas.at(-1) !== cuotasPrevistas[0]">
+                  (la última de {{ fmtMoney(cuotasPrevistas.at(-1)) }})</template>,
+                  {{ billing.installments_mode === 'separate' ? 'cada una en su propia factura.' : 'una en cada factura mensual a partir de la próxima.' }}
+                </template>
+                <template v-else-if="billingBalance <= 0">
+                  No queda saldo por financiar: el valor recibido cubre la instalación.
+                </template>
+                <template v-else>
+                  Indica en cuántas cuotas y cómo se cobran.
+                </template>
+              </p>
+              <p v-if="plan && plan.items.some(c => c.locked)" class="text-[11px] text-blue-800/80 dark:text-blue-300/80">
+                Las cuotas ya cobradas no cambian: si modificas valores o número de cuotas, se reparte de nuevo solo lo que falta.
+              </p>
+            </div>
           </div>
 
           <!-- Valor de instalación -->
@@ -762,7 +832,13 @@
           </div>
           <div v-if="billing.payment_agreement">
             <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Acuerdo de pago</p>
-            <p class="text-sm text-gray-700 dark:text-gray-300">Sí</p>
+            <p class="text-sm text-gray-700 dark:text-gray-300">
+              <template v-if="billing.installments_count">
+                {{ billing.installments_count }} cuota{{ billing.installments_count === 1 ? '' : 's' }} ·
+                {{ billing.installments_mode === 'separate' ? 'facturas aparte' : 'dentro de la mensualidad' }}
+              </template>
+              <template v-else>Sí</template>
+            </p>
           </div>
           <div v-if="billing.payment_notes" class="sm:col-span-2">
             <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Observaciones del pago</p>
@@ -793,10 +869,42 @@
             <span>{{ fmtMoney(billing.payment_received) }}</span>
           </div>
           <div class="flex justify-between text-sm font-semibold mt-1"
-            :class="billingBalance > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
-            <span>{{ billingBalance > 0 ? 'Saldo pendiente' : 'Pagado en su totalidad' }}</span>
+            :class="billingBalance <= 0
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : (plan ? 'text-blue-700 dark:text-blue-300' : 'text-amber-600 dark:text-amber-400')">
+            <span>
+              {{ billingBalance <= 0
+                ? 'Pagado en su totalidad'
+                : (plan ? `Financiado en ${plan.count} cuota${plan.count === 1 ? '' : 's'}` : 'Saldo pendiente') }}
+            </span>
             <span>{{ fmtMoney(billingBalance) }}</span>
           </div>
+        </div>
+
+        <!-- Plan de cuotas tal como quedó guardado (no la previsión del
+             formulario): qué cuota se cobró en qué factura y cuáles esperan. -->
+        <div v-if="plan" class="mt-4 rounded-lg border border-blue-200 dark:border-blue-800 overflow-hidden">
+          <div class="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-xs font-semibold text-blue-900 dark:text-blue-200 flex justify-between">
+            <span>Cuotas del acuerdo · {{ plan.mode === 'separate' ? 'facturas aparte' : 'dentro de la mensualidad' }}</span>
+            <span>{{ fmtMoney(plan.financed) }}</span>
+          </div>
+          <ul class="divide-y divide-gray-100 dark:divide-gray-700">
+            <li v-for="c in plan.items" :key="c.number" class="px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span class="text-gray-700 dark:text-gray-200">Cuota {{ c.number }} de {{ c.of }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                <template v-if="c.state === 'pending'">Se cobra en la próxima mensualidad</template>
+                <template v-else>
+                  <RouterLink v-if="canEditBilling && c.invoice_id" :to="`/billing/invoices/${c.invoice_id}`" class="underline">
+                    Factura #{{ c.invoice_number }}</RouterLink>
+                  <span v-else>Factura #{{ c.invoice_number }}</span>
+                  <template v-if="c.due_date"> · vence {{ c.due_date }}</template>
+                  · <span :class="c.paid ? 'text-emerald-600 dark:text-emerald-400' : invoiceStatusClass(c.invoice_status)">
+                    {{ c.paid ? 'Pagada' : invoiceStatusLabel(c.invoice_status) }}</span>
+                </template>
+              </span>
+              <span class="font-medium text-gray-800 dark:text-white">{{ fmtMoney(c.amount) }}</span>
+            </li>
+          </ul>
         </div>
 
         <button v-if="canEditBilling" @click="saveBilling" :disabled="savingBilling"
@@ -928,7 +1036,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api, { apiClient } from '@/services/api'
 import installationEquipmentApi from '@/services/api/installation-equipment'
@@ -937,6 +1045,7 @@ import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 import SerialDevicePicker from '@/components/SerialDevicePicker.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
+import { cableSummary, fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
 const route  = useRoute()
 const router = useRouter()
@@ -958,24 +1067,33 @@ const sheet = ref({
   pppoe_password: '',
   pppoe_local_address: '',
   local_address_manual: false,
-  // Hoja técnica. Los equipos ya NO viven aquí: son filas de
-  // installation_equipment, porque una visita lleva varios y hay que
-  // descontarlos del inventario.
-  cable_meters: '',
+  // Lo que no es inventario: medición y nota de la visita.
   signal_level: '',
+  observations: '',
+  // Retirados (§ 114): todo lo instalado va anclado al inventario
+  // (installation_equipment). Se cargan sólo para mostrar el registro de
+  // órdenes anteriores; no se editan ni viajan al guardar.
+  cable_meters: '',
   modem_brand: '',
   modem_model: '',
   modem_mac: '',
   onu_serial: '',
+  antenna_model: '',
   materials: '',
-  observations: '',
 })
+
+// Campos de la hoja que ya no se escriben. El servidor los ignora si llegan y
+// conserva lo que estaba guardado.
+const LEGACY_SHEET_FIELDS = ['cable_meters', 'modem_brand', 'modem_model', 'modem_mac', 'onu_serial', 'antenna_model', 'materials']
 const savingSheet = ref(false)
 
 const billing = ref({
   no_charge:          false,
   no_charge_reason:   '',
   payment_agreement:  false,
+  installments_mode:  null,
+  installments_count: null,
+  installments_first_due_date: '',
   installation_cost:  null,
   additional_items:   [],
   discount:           null,
@@ -1006,6 +1124,14 @@ const serialModelFilter = ref(null)
 const serialPicker = ref(null)
 const materialPick = ref(null)
 const materialQty = ref(1)
+// Clave del intento de «Agregar» material. Se conserva mientras no haya
+// respuesta definitiva, para que el reintento no descuente dos veces; cambiar
+// el material o la cantidad ya es otro registro.
+const materialKey = ref(null)
+watch([materialPick, materialQty], () => { materialKey.value = null })
+const materialQtyError = computed(() => materialPick.value ? quantityError(materialPick.value, materialQty.value) : '')
+// Lo mismo para cada unidad con serial: la clave va atada al equipo elegido.
+const deviceKeys = new Map()
 const chargePick = ref(null)
 // Lo decide el servidor en /equipment/available: firmada o cancelada, no se
 // cargan ni se quitan líneas.
@@ -1021,6 +1147,22 @@ const materialRow = ref(null)
  * preparar la carga: usar lo previsto sigue pasando por «Agregar», que es lo
  * que descuenta y lo que el servidor valida.
  */
+// Cable usado: calculado de las líneas en metros, no digitado aparte.
+const cable = computed(() => cableSummary(equipmentItems.value))
+// Lo que se digitó a mano antes de que todo saliera del inventario.
+const legacyManual = computed(() => {
+  const sh = sheet.value
+  const has = (v) => v !== '' && v !== null && v !== undefined
+  const out = []
+  if (has(sh.cable_meters)) out.push({ label: 'Cable', value: `${fmtQty(sh.cable_meters)} m` })
+  if (has(sh.modem_brand) || has(sh.modem_model)) out.push({ label: 'Módem', value: `${sh.modem_brand || ''} ${sh.modem_model || ''}`.trim() })
+  if (has(sh.modem_mac)) out.push({ label: 'MAC del módem', value: sh.modem_mac })
+  if (has(sh.onu_serial)) out.push({ label: 'Serial ONU', value: sh.onu_serial })
+  if (has(sh.antenna_model)) out.push({ label: 'Antena', value: sh.antenna_model })
+  if (has(sh.materials)) out.push({ label: 'Otros insumos', value: sh.materials })
+  return out
+})
+
 const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).map(p => {
   const used = equipmentItems.value
     .filter(it => p.stock_id && it.stock_id === p.stock_id)
@@ -1111,10 +1253,6 @@ const materialLabel = (m) => {
   return `${name} — ${fmtQty(m.quantity)}${m.unit ? ` ${m.unit}` : ''} en ${m.source_label}`
 }
 
-const fmtQty = (n) => {
-  const value = Number(n) || 0
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace('.', ',')
-}
 
 const loadEquipment = async () => {
   try {
@@ -1135,31 +1273,26 @@ const loadAvailableEquipment = async () => {
   } catch { /* non-blocking: sin permiso de inventario se digita manual */ }
 }
 
-/**
- * Al cargar el primer equipo con serial se rellenan marca/modelo/MAC/serial de
- * la hoja: son los mismos datos y volver a digitarlos sólo genera diferencias
- * entre el inventario y el acta. Si el técnico ya escribió algo, no se pisa.
- */
-const applyDeviceToSheet = (device) => {
-  if (!device) return
-  if (!sheet.value.modem_brand && device.brand)  sheet.value.modem_brand = device.brand
-  if (!sheet.value.modem_model && device.model)  sheet.value.modem_model = device.model
-  if (!sheet.value.modem_mac   && device.mac)    sheet.value.modem_mac   = device.mac
-  if (!sheet.value.onu_serial  && device.serial) sheet.value.onu_serial  = device.serial
-}
-
 /** Registra la unidad elegida en el selector (el botón «Agregar» de allí). */
 const addDevice = async (device) => {
   if (!device) return
 
+  if (!deviceKeys.has(device.id)) deviceKeys.set(device.id, newRequestKey())
+
   equipmentBusy.value = true
   try {
-    const { data } = await installationEquipmentApi.add(installationId.value, { device_id: device.id })
+    const { data } = await installationEquipmentApi.add(installationId.value, {
+      device_id: device.id,
+      client_request_id: deviceKeys.get(device.id),
+    })
+    deviceKeys.delete(device.id)
     equipmentItems.value = data.equipment ?? equipmentItems.value
-    applyDeviceToSheet(device)
     await loadAvailableEquipment()
-    toast.value?.success('Equipo cargado', `${deviceFullLabel(device)}: descontado del inventario y registrado en el historial.`)
+    toast.value?.success('Equipo cargado', data.replayed
+      ? `${deviceFullLabel(device)} ya estaba registrado: no se descontó otra vez.`
+      : `${deviceFullLabel(device)}: descontado del inventario y registrado en el historial.`)
   } catch (e) {
+    if (!keepKeyAfterError(e)) deviceKeys.delete(device.id)
     toast.value?.error('Error', firstError(e) || 'No se pudo cargar el equipo.')
   } finally {
     equipmentBusy.value = false
@@ -1170,11 +1303,13 @@ const addMaterial = async () => {
   const material = materialPick.value
   if (!material) return
 
-  const quantity = Number(materialQty.value) || 0
-  if (quantity <= 0) {
-    toast.value?.error('Cantidad inválida', 'Indica cuánto material se usó.')
+  const error = quantityError(material, materialQty.value)
+  if (error) {
+    toast.value?.error('Cantidad inválida', error)
     return
   }
+  const quantity = Number(materialQty.value)
+  if (!materialKey.value) materialKey.value = newRequestKey()
 
   equipmentBusy.value = true
   try {
@@ -1183,13 +1318,18 @@ const addMaterial = async () => {
       quantity,
       source_type: material.source_type,
       source_id:   material.source_id,
+      client_request_id: materialKey.value,
     })
     equipmentItems.value = data.equipment ?? equipmentItems.value
     materialPick.value = null
     materialQty.value = 1
+    materialKey.value = null
     await loadAvailableEquipment()
-    toast.value?.success('Material cargado', 'Descontado del saldo de quien lo aportó.')
+    toast.value?.success('Material cargado', data.replayed
+      ? 'Ese registro ya estaba guardado: no se descontó otra vez.'
+      : 'Descontado del saldo de quien lo aportó.')
   } catch (e) {
+    if (!keepKeyAfterError(e)) materialKey.value = null
     toast.value?.error('Error', firstError(e) || 'No se pudo cargar el material.')
   } finally {
     equipmentBusy.value = false
@@ -1287,6 +1427,40 @@ const billingBalance = computed(() =>
   Math.max(0, billingTotal.value - (Number(billing.value.payment_received) || 0))
 )
 
+// ── Acuerdo de pago en cuotas ──
+const MAX_CUOTAS = 24
+const MODOS_CUOTA = [
+  { value: 'monthly',  label: 'Dentro de la mensualidad', help: 'Una sola factura al mes: cada mensualidad trae la siguiente cuota.' },
+  { value: 'separate', label: 'Facturas aparte',          help: 'Cada cuota es su propia factura, con vencimiento mes a mes.' },
+]
+
+// El plan GUARDADO (lo devuelve el servidor). La previsión del formulario es
+// `cuotasPrevistas`; las dos difieren si ya hay cuotas cobradas.
+const plan = computed(() => installation.value?.installment_plan ?? null)
+
+/** Mismo reparto que el servidor: pesos enteros y la última lleva el resto. */
+const cuotasPrevistas = computed(() => {
+  const n = Number(billing.value.installments_count) || 0
+  const total = billingBalance.value
+  if (n < 1 || n > MAX_CUOTAS || total <= 0) return []
+  const base = Math.floor(total / n)
+  return [...Array(n - 1).fill(base), Math.round((total - base * (n - 1)) * 100) / 100]
+})
+
+const enUnMes = () => {
+  const d = new Date()
+  d.setMonth(d.getMonth() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Al marcar el acuerdo se proponen valores para no arrancar con un 422. */
+const onAgreementToggle = () => {
+  if (!billing.value.payment_agreement) return
+  if (!billing.value.installments_count) billing.value.installments_count = 2
+  if (!billing.value.installments_mode) billing.value.installments_mode = 'monthly'
+  if (!billing.value.installments_first_due_date) billing.value.installments_first_due_date = enUnMes()
+}
+
 const fmtMoney = (v) =>
   new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(v) || 0)
 
@@ -1353,6 +1527,9 @@ const loadInstallation = async ({ silent = false } = {}) => {
         no_charge:          !!data.no_charge,
         no_charge_reason:   data.no_charge_reason   ?? '',
         payment_agreement:  data.payment_agreement  ?? false,
+        installments_mode:  data.installments_mode  ?? null,
+        installments_count: data.installments_count ?? null,
+        installments_first_due_date: data.installments_first_due_date ?? '',
         installation_cost:  data.installation_cost  ?? null,
         additional_items:   items,
         discount:           data.discount           ?? null,
@@ -1443,8 +1620,9 @@ const loadNetworkResources = async () => {
  */
 const buildSheetPayload = () => {
   const payload = { ...sheet.value }
-  if (payload.cable_meters === '') delete payload.cable_meters
-  else payload.cable_meters = Number(payload.cable_meters)
+  // Los campos retirados no viajan: el servidor conserva el valor histórico y
+  // lo instalado sale de las líneas de equipos y materiales.
+  for (const k of LEGACY_SHEET_FIELDS) delete payload[k]
 
   for (const k of ['sectorial_id', 'router_id', 'plan_id']) {
     if (payload[k] == null || payload[k] === '') delete payload[k]
@@ -1509,6 +1687,12 @@ const saveBilling = async () => {
       no_charge:          billing.value.no_charge,
       no_charge_reason:   billing.value.no_charge_reason || null,
       payment_agreement:  billing.value.payment_agreement,
+      // Sin acuerdo no viaja plan: el servidor además los limpia.
+      installments_mode:  billing.value.payment_agreement ? (billing.value.installments_mode || null) : null,
+      installments_count: billing.value.payment_agreement ? toNum(billing.value.installments_count) : null,
+      installments_first_due_date: billing.value.payment_agreement && billing.value.installments_mode === 'separate'
+        ? (billing.value.installments_first_due_date || null)
+        : null,
       installation_cost:  toNum(billing.value.installation_cost),
       additional_items:   items,
       additional_charges: items.reduce((s, it) => s + it.amount, 0),
@@ -1529,7 +1713,9 @@ const saveBilling = async () => {
       // gente a ignorar los avisos rojos que sí importan.
       toast.value?.success('Cartera guardada', 'Orden sin cobro: no se generó factura.')
     } else if (data.invoice_warning) {
-      toast.value?.error('Sin factura', data.invoice_warning)
+      // Con factura el aviso es una advertencia (p. ej. cliente «no
+      // facturar» con cuotas en la mensualidad), no un «sin factura».
+      toast.value?.error(data.invoice ? 'Atención' : 'Sin factura', data.invoice_warning)
     } else if (data.invoice) {
       toast.value?.success('Cartera guardada', `Factura #${data.invoice.number} generada correctamente.`)
     } else {

@@ -9,7 +9,14 @@
       otro: `NotificationToast` es sólo un adaptador que escribe en la misma
       cola. Ver `composables/useNotifications.js`.
     -->
-    <NotificationHost />
+    <!--
+      Se oculta con el panel suspendido (KAN-126): las páginas que alcanzaron a
+      montarse fallan con 423 y cada una mostraría su propio error encima de la
+      pantalla de «servicio suspendido», que ya dice lo que pasa.
+    -->
+    <template v-if="!suspension">
+      <NotificationHost />
+    </template>
 
     <!--
       Aviso de "hay una versión nueva" (KAN-101 · P-46). También fuera del
@@ -25,8 +32,10 @@ import { onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from './stores/auth';
 import NotificationHost from './components/NotificationHost.vue';
 import NewVersionBanner from './components/NewVersionBanner.vue';
+import { useServiceSuspension } from './composables/useServiceSuspension.js';
 
 const authStore = useAuthStore();
+const { suspension } = useServiceSuspension();
 
 const applyPreferences = (prefs) => {
     const html = document.documentElement;

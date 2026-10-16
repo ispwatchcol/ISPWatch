@@ -96,6 +96,32 @@ El sistema **nunca recarga solo**: si estás a media ficha, no vas a perder lo e
 termines, recarga tú. Si un compañero te dice que un arreglo «ya está» y tú sigues viendo el
 problema, este aviso —o simplemente recargar— suele ser la explicación.
 
+### Si aparece «Servicio suspendido»
+
+En vez del panel puede salirte una pantalla que dice **Servicio suspendido**. Significa que
+la suscripción de tu empresa a ISPWatch tiene una **factura vencida sin pagar**. La pantalla
+dice desde cuándo y, en el recuadro **Cómo pagar**, a dónde hacer el pago.
+
+**Lo que se suspende es el acceso al panel, no el internet de tus clientes.** Mientras dure:
+
+- Tus clientes **siguen navegando**.
+- Las tareas automáticas **siguen corriendo**: facturas del mes, recordatorios, cortes por
+  mora y reconexiones automáticas.
+- Lo que **no** puedes hacer es entrar a trabajar en el panel: registrar pagos a mano, crear
+  clientes, atender tickets, reconectar a alguien desde su ficha… Tenlo en cuenta: si un
+  cliente te paga en efectivo durante la suspensión, no vas a poder registrarlo hasta que se
+  levante.
+
+**Cuando pagues:** el servicio se reactiva solo en cuanto se registra el pago. Pulsa **Ya
+pagué, comprobar de nuevo**; puede tardar hasta un minuto en reflejarse. Si el pago ya está
+registrado, el panel vuelve a cargarse y sigues donde estabas.
+
+Desde esa pantalla también puedes **cerrar sesión** y escribirle a soporte con el botón verde
+de WhatsApp.
+
+> Si la suspensión fue **manual** (no por una factura), el mensaje te pide comunicarte con
+> soporte: en ese caso el pago por sí solo no la levanta.
+
 ---
 
 ## 3. Cómo moverse por el sistema
@@ -601,10 +627,10 @@ El prospecto queda en estado **agendado**.
 
 El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
 
-1. **Llena los datos técnicos**: en *Conexión / Red* elige sectorial, core, plan y la
-   **IP del cliente**; en *Hoja técnica de instalación* van equipos, mediciones y
-   observaciones. Al terminar pulsa **Guardar datos técnicos** (el botón guarda las dos
-   partes de una vez).
+1. **Llena los datos técnicos** en *Conexión / Red*: sectorial, core, plan, la **IP del
+   cliente**, el **nivel de señal** medido y las **observaciones técnicas** de la visita. Al
+   terminar pulsa **Guardar datos técnicos**. Los equipos y materiales van aparte, en el paso
+   2, y se guardan solos al agregarlos.
    > **La IP del cliente no es la IP local del PPPoE.** La primera es la que queda
    > asignada al abonado y es la que viaja al alta cuando conviertes el prospecto en
    > cliente; la *IP local* es la punta del router dentro del secret PPPoE. Cada campo
@@ -621,7 +647,21 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
      no descuenta nada: la unidad se registra al pulsar **Agregar**, y en la línea queda su serial
      y su MAC.
    - **Materiales por cantidad** (amarres y RJ45 por unidades, cable por metros): eliges el
-     material y de quién sale, escribes la cantidad y pulsas **Agregar**.
+     material y de quién sale, escribes la cantidad y pulsas **Agregar**. Junto a la cantidad ves
+     la **unidad** del producto y cuánto hay disponible en esa fuente. Si escribes más de lo
+     disponible, o decimales en un producto que se cuenta entero (un conector), el botón se
+     desactiva y te dice por qué. Si la señal se cae y pulsas **Agregar** otra vez, el sistema
+     reconoce que es el mismo registro y **no descuenta dos veces**.
+   - **Todo lo instalado va anclado al inventario.** La hoja ya **no** tiene casillas para
+     escribir a mano marca, modelo o MAC del módem, serial de la ONU, cable ni «otros insumos»:
+     esos datos son los del equipo y los materiales que registras aquí, que sí descuentan del
+     inventario. El **cable** se ve sumado debajo de la lista (por ejemplo «Cable: 120 m ·
+     FIBRA ÓPTICA 120 m»), y la hoja firmada imprime cada equipo con su **serial y su MAC**.
+     Si algo que usaste no está en el inventario, hay que crearlo allí primero (*Inventarios →
+     Agregar material* o *Agregar equipo con serial*).
+   - En órdenes **anteriores** que tenían esos datos escritos a mano, se siguen viendo en un
+     recuadro **Registro manual anterior**, sólo de lectura: no se borran, pero tampoco cuentan
+     como consumo de inventario.
    > Sólo aparece lo que **tú** puedes registrar: lo tuyo, lo del técnico de esa orden y —si
    > administras inventario— las bodegas. El apartado de equipos con serial **siempre se ve**; si
    > no tienes ninguna unidad a mano, te lo explica y te dice el siguiente paso: pedir que te la
@@ -671,11 +711,42 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > y **cobrar no vuelve a descontar el inventario**. Una línea ya agregada no se vuelve a ofrecer
    > mientras no guardes; después de guardar, revisa que no la cobres dos veces. Los servicios
    > (visita, mano de obra) se siguen agregando con **+ Agregar adicional**.
+
+   **Acuerdo de pago: la instalación en cuotas.** Si el cliente no paga todo hoy, marca
+   **Acuerdo de pago**. Lo que queda debiendo **después del valor recibido** se divide en
+   cuotas:
+
+   - **Número de cuotas**: de 1 a 24. Se reparten en pesos enteros y la última lleva el resto
+     ($100.000 en 3 cuotas = $33.333 + $33.333 + $33.334). Debajo ves cuánto se financia y de
+     cuánto queda cada cuota antes de guardar.
+   - **Cómo se cobran**, a elección del asesor:
+     - **Dentro de la mensualidad**: cada factura mensual trae la siguiente cuota como un renglón
+       más («Cuota 2 de 3 · instalación»). El cliente recibe **una sola factura al mes**.
+     - **Facturas aparte**: cada cuota sale como su propia factura, con vencimiento mes a mes desde
+       la fecha que indiques en **Vence la 1.ª cuota** (por defecto, dentro de un mes).
+
+   Al guardar, la factura de la instalación queda **Financiada en N cuotas**: ya no cuenta como
+   deuda vencida ni provoca corte. Las cuotas **sí**: si el cliente no paga la mensualidad que
+   trae su cuota —o una factura de cuota vencida—, aplica la mora de siempre. Debajo del resumen
+   aparece la lista **Cuotas del acuerdo** con cada cuota, en qué factura quedó y si está pagada.
+
+   > **Cambiar el acuerdo después.** Puedes cambiar valores o número de cuotas y volver a guardar:
+   > se reparte de nuevo **sólo lo que falta**. Las cuotas ya cobradas (las que ya salieron en una
+   > mensualidad o cuya factura ya recibió un pago) no cambian, y tampoco se puede cambiar de
+   > «mensualidad» a «facturas aparte» si ya hay cuotas cobradas. Si quitas el acuerdo, lo que no
+   > se ha cobrado vuelve a la factura de la instalación como saldo pendiente.
+   >
+   > **Cliente «No facturar».** Con cuotas *dentro de la mensualidad* no se le cobran mientras
+   > tenga esa marca, porque no se le generan mensualidades: el sistema te avisa al guardar. Usa
+   > *facturas aparte* si las quieres cobrar ya.
+   >
+   > En **Caja** y en la ficha de facturación del cliente verás aparte las *cuotas de instalación
+   > por cobrar*: no se suman todas a la próxima factura, van una por mes.
 5. **Muestra la hoja antes de firmar**: en el bloque *Firmas y cierre de orden* está el botón
    **Ver hoja antes de firmar**. Abre el documento tal como va a quedar —todavía sin firmas—
    para que el cliente lea lo que está firmando. Incluye lo que acabas de escribir aunque no
-   hayas pulsado *Guardar hoja*, y **no guarda ni cierra nada**: puedes abrirlo las veces que
-   necesites.
+   hayas pulsado *Guardar datos técnicos*, y **no guarda ni cierra nada**: puedes abrirlo las
+   veces que necesites.
    > Esto importa sobre todo con un **prospecto**, que aún no es cliente y no tiene ficha
    > donde consultar el documento después.
    >
@@ -717,8 +788,9 @@ Al completar la instalación se genera automáticamente la **factura de instalac
    - datos personales del prospecto (nombre, cédula, teléfono, dirección, estrato);
    - la **fecha de instalación**, que decide el prorrateo de la primera factura;
    - los **datos técnicos** de la orden: core, plan, sectorial (o caja NAP), **IP del
-     cliente**, credenciales PPPoE y MAC del módem. Si la caja es una NAP, el alta entra
-     sola en modo **fibra** y deduce la OLT.
+     cliente**, credenciales PPPoE y la **MAC del equipo instalado** (la del primer equipo con
+     serial registrado en la orden). Si la caja es una NAP, el alta entra sola en modo
+     **fibra** y deduce la OLT.
 3. Revisa, completa lo que falte y guarda.
 
 Al guardar, el prospecto queda enlazado al cliente, su estado pasa a **convertido** y sus
@@ -1108,6 +1180,12 @@ o reconecta al cliente a mano en el equipo. Mientras un reintento está corriend
 bloquea; si alguien más lo está intentando a la vez, el sistema avisa en vez de duplicar la
 operación.
 
+**El sistema también reintenta solo.** Cada hora vuelve a intentar las reconexiones
+pendientes, cada vez con más espacio entre intentos. Si el router vuelve a responder o
+completas el dato que faltaba, el cliente queda reconectado y la alerta desaparece sin que
+hagas nada. Tras varios intentos fallidos se detiene y el caso queda marcado como *agotado*
+en **Acciones masivas**: ahí sí necesita una persona.
+
 > 💡 **Por qué el pago se guarda igual.** Cobrar y reconectar son dos cosas distintas. Que el
 > router no responda no es razón para perder un recaudo ni para hacer que el cliente pague dos
 > veces: el dinero queda registrado y el problema del equipo se resuelve aparte.
@@ -1453,6 +1531,10 @@ versión de firmware y estado.
 **Puertos:** por defecto API 8728 y web 80. **Si el SSH del equipo no está en el 22, tienes
 que indicarlo en el campo de puerto SSH**, o el sistema no podrá conectarse.
 
+**Al editar un router, la contraseña aparece vacía.** No se borró: por seguridad, el sistema
+ya no la muestra ni la envía al navegador. Si dejas el campo en blanco, se conserva la que
+estaba guardada. Escribe una solo si quieres cambiarla.
+
 ### 11.2 El método de control
 
 Aquí eliges **cómo controla el router a los clientes**. Sólo puede haber **uno activo**:
@@ -1491,9 +1573,10 @@ cambio; **tu sistema lo ejecuta**. Al pagar, lo reactiva y publica la reconexió
 Ten presente que **ISPWatch no puede comprobar que el corte se aplicó**: eso ocurre en tu
 servidor. En los otros métodos verifica y reintenta; aquí la verificación es tuya.
 
-Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos
-y datos de VPN**. El formulario todavía exige nombre, IP, usuario y contraseña del equipo,
-versión de firmware y estado, aunque en este modo no se usen. Como ISPWatch no se conecta
+Sobre los datos del router: puedes dejar vacíos **interfaz LAN/WAN, rangos de IP, puertos,
+datos de VPN, IP, usuario y contraseña del equipo y versión de firmware**. Sólo son
+obligatorios el nombre y el estado. Si después pasas el router a otro método de control, el
+formulario te pedirá esos datos antes de guardar, porque ahí sí se conecta al equipo. Como ISPWatch no se conecta
 a ningún equipo, **un router puede ser sólo un agrupador** y no un Mikrotik real — útil
 para separar clientes por criterio propio, ya que la facturación se configura por router.
 Cuidado al consolidar: dentro de un mismo router, dos clientes no pueden tener la misma IP
@@ -1712,6 +1795,11 @@ Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**
 Cada elemento tiene tres pestañas: **Fotos** (para documentar la instalación en campo),
 **Notas** (observaciones de mantenimiento) e **Historial** (registro automático de cambios).
 
+Las fotos solo las ve quien tiene sesión iniciada en tu empresa, con permiso de sectoriales
+o de soporte. Un enlace copiado no sirve fuera de esa sesión. Desde el 2026-10-05 se guardan
+en almacenamiento permanente. Las subidas **antes** de esa fecha pueden aparecer sin imagen:
+se perdieron en un despliegue y no se pueden recuperar. Vuelve a subirlas si las necesitas.
+
 ---
 
 ## 13. Planes de internet
@@ -1745,13 +1833,36 @@ Dos opciones importantes:
 
 1. **Soporte → Nuevo Ticket.**
 2. Elige el **cliente**.
-3. Escribe el **asunto** y la **descripción**.
+3. Elige el **asunto** de la lista (por ejemplo *Sin internet*, *Internet lento*, *Traslado*) y
+   escribe la **descripción**. Si ninguno sirve, elige **Otro…** y escríbelo a mano.
+   > Elegir de la lista es lo que permite después **filtrar los tickets por asunto**: «SIN
+   > INTERNET», «sin internet» y «no tiene internet» escritos a mano son tres asuntos distintos
+   > para el sistema. Los escritos a mano se agrupan como **Otro** en el filtro.
 4. Elige **categoría** (Técnico, Facturación, Servicios, General) y **prioridad**
    (Baja, Media, Alta, Urgente).
 5. Si el problema es de un elemento de red concreto, selecciona el **sectorial** afectado.
 6. Si la visita **no se le cobra al cliente**, marca **Sin cobro al cliente** en el bloque
    *Cargo Asociado*. Con eso el ticket no podrá generar cargos — ni hoy ni dentro de un mes.
 7. Guarda.
+
+### 14.1.1 Asuntos frecuentes (la lista del desplegable)
+
+**Soporte → botón Asuntos** (arriba, junto a *Nuevo Ticket*). Lo ve quien tiene el permiso
+*Tickets · administrar asuntos frecuentes*; los roles **Administrador** lo reciben
+automáticamente al actualizar.
+
+- **Agregar**: escribe el nombre y pulsa *Agregar*. No se puede repetir un nombre, aunque cambien
+  las mayúsculas.
+- **Renombrar**: cambia el texto en la fila. Los tickets que ya lo usaban **conservan el texto con
+  que se radicaron**, pero siguen agrupados bajo ese asunto en el filtro.
+- **Ordenar**: flechas ▲▼. Es el orden del desplegable.
+- **Desactivar**: deja de ofrecerse al radicar, pero sus tickets se siguen pudiendo filtrar.
+- **Eliminar** (✕): sólo si **ningún** ticket lo usa. El número junto a cada asunto dice cuántos
+  tickets lo tienen.
+
+**Filtrar por asunto:** en la lista de tickets, el primer filtro es **Todos los asuntos**. Elige
+uno, o **Otro (escrito a mano)** para ver los que no tienen asunto de la lista (incluidos los
+tickets anteriores a este cambio).
 
 ### 14.2 Trabajar el ticket
 
@@ -2012,6 +2123,15 @@ Si falta algo, el bloque **Ciclo de vida** te lo dice **antes** de abrir el cuad
 la lista de lo que falta. Cerrar **no borra nada**: la causa sospechada, las notas, los adjuntos
 y los estados anteriores se quedan.
 
+**Revisar el asunto y el diagnóstico al cerrar.** Al pulsar **Proponer cierre**, **Cerrar
+ticket** o **Cierre especial**, el cuadro muestra arriba la sección **Revisa antes de cerrar**,
+con el **asunto** y el **diagnóstico técnico** ya cargados y editables. Corrígelos ahí mismo si
+lo que se encontró en la visita no es lo que se reportó (se radicó como *Sin internet* y era
+*Daño en fibra*), y completa la causa confirmada, la acción y el resultado sin tener que salir a
+*Editar*. Al confirmar se guardan primero esos cambios y después se cierra; si el cierre falla
+(por ejemplo, falta la medición final), lo que corregiste **ya quedó guardado**. Los campos que
+tu rol no puede cambiar aparecen bloqueados. El cambio de asunto queda en el historial.
+
 **Cierre especial.** Para cuando hay que cerrar sin uno de esos requisitos. Exige permiso aparte,
 un motivo de al menos 10 caracteres, y deja en el historial **cuál requisito faltó** y quién lo
 autorizó. No es un cierre normal con otro nombre: se distingue en la bitácora. Si no falta nada,
@@ -2074,11 +2194,12 @@ Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificació
 
 | Sección | Qué guarda |
 |---|---|
-| **Stock / Modelos** | Los modelos de equipo que manejas (marca, modelo, precio) |
+| **Stock / Modelos** | El catálogo: modelos de equipo con serial **y** materiales por cantidad (marca, modelo, precio por unidad, cómo se cuenta) |
 | **Proveedores** | A quién le compras, con datos del asesor comercial |
 | **Sucursales** | Dónde están físicamente los equipos. El campo **Número** admite tanto un consecutivo (`2`) como el teléfono de la sucursal, con indicativo si lo necesitas (`+57 601 123 4567`) |
-| **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC |
-| **Entregas y traspasos** | Pasar equipos de la bodega a un técnico y recibirlos de vuelta |
+| **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC. Se agregan con **Agregar equipo con serial** |
+| **Agregar material** | Atajo al alta de un material por cantidad en Stock / Modelos |
+| **Entregas y traspasos** | Pasar equipos y material de la bodega a un técnico y recibirlos de vuelta; abajo, **Entrada de material** (donde nace la existencia de un material) |
 | **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
 
 ### 15.1 Por serial o por cantidad
@@ -2088,7 +2209,64 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
 - **Por serial** — antenas, routers, ONU. Cada unidad se registra aparte con su serial y su MAC,
   y el sistema sabe en todo momento quién la tiene.
 - **Por cantidad** — RJ45, cable, platos, cinta. No se registra uno por uno: se lleva un saldo
-  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida: unidad, metro, rollo.
+  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida (unidad, metro, rollo) y
+  la **precisión**: *sólo enteros* para piezas que no se parten (conectores, amarres) o *hasta 2
+  decimales* para lo que se mide (cable, fibra: 12,5 m). Al escribir una unidad de longitud se
+  sugiere 2 decimales. La precisión se exige en entradas, entregas, órdenes y tickets.
+
+#### Dar de alta un material paso a paso (ej. «Fibra drop», 100 metros)
+
+Todo esto lo hace un usuario con permiso **Ver inventario** (`view_inventory`), que es el que abre
+el menú *Inventarios*.
+
+> **No uses «Agregar equipo con serial» para un material.** Ese formulario es sólo para aparatos
+> con serial y MAC. Antes también mostraba los materiales y dejaba guardarlos con un serial: el
+> material quedaba como un «equipo», no sumaba metros y no aparecía en órdenes ni tickets. Ahora
+> ese formulario sólo lista modelos por serial y te indica el camino correcto.
+
+1. **Crear el material.** *Inventarios → Agregar material* (o el botón **Agregar material** en
+   *Stock / Modelos*). La ventana ya viene en **Por cantidad**, con unidad *metro* y *hasta 2
+   decimales*. Escribe marca (`GENÉRICO`) y modelo (`Fibra drop`), ajusta la unidad si hace
+   falta (*unidad* y *sólo enteros* para conectores) y el **precio por metro**. Pulsa **Crear**.
+   No pide serial ni MAC.
+2. **Registrar la existencia.** En la fila del material verás *Existencia: 0 metro* y el enlace
+   **Registrar entrada**. Te lleva a *Entregas y traspasos → Entrada de material* con el material
+   ya elegido: escribe **100**, elige en *Entra a* la bodega y pulsa **Registrar entrada**. Crear el
+   material en el paso 1 **no** le da existencia; este paso sí.
+3. **Comprobar.** De vuelta en *Stock / Modelos*, el material muestra *Existencia: 100 metro*.
+4. **Entregar al técnico.** En *Entregas y traspasos*: *Sale de* = la bodega, *Entra a* = el
+   técnico, escribe los metros en la fila del material y pulsa **Registrar entrega**.
+5. **Consumir.** El técnico lo ve en *Equipos y materiales usados* de su orden y de su ticket
+   («Fibra drop — 30 metro en Mis equipos»), escribe los metros y pulsa **Agregar**. Cada consumo
+   se descuenta una vez y queda en *Movimientos* con su orden o su ticket.
+
+**Qué significa el precio.** Es **un solo precio de catálogo por unidad de medida** (por metro,
+por conector), no un costo total. El sistema lo usa en dos sitios, y sólo en esos:
+
+- al consumir, la línea guarda ese precio y el cobro sugiere *cantidad × precio* (12,5 m ×
+  1.500 = 18.750). El cobro lo registra quien tiene permiso de cartera y se puede editar; consumir
+  no factura nada;
+- si en Configuración activaste **Gasto automático al ingresar inventario**, cada entrada crea un
+  gasto de *cantidad × precio* (100 m × 1.500 = 150.000). Apagado, que es lo normal, no hay gasto.
+
+Como es el mismo número para las dos cosas, decide si lo usas como costo de compra o como precio
+de venta según cuál de esos dos usos te importe; el sistema no lleva hoy dos precios separados.
+
+Si un material muestra «*N registro(s) con serial sobre este material*», alguien lo guardó por el
+formulario de equipos antes de este cambio. Esos registros **no cuentan** como existencia: revisa
+en *Lista de equipos* y dalos de baja; la existencia real se registra con *Entrada de material*.
+
+Quien administra inventario ve además la **Existencia** de cada modelo. Un material *por
+cantidad* que muestra **0** está creado en el catálogo pero **no tiene entrada registrada**: por
+eso no aparece en órdenes ni tickets. Regístrala en *Entregas y traspasos → Entrada de material*.
+
+**Ejemplo: fibra óptica para los técnicos.** Creas «Fibra óptica», por cantidad, unidad *metro*,
+hasta 2 decimales. Registras la entrada de 9830 m a la *Bodega principal*. Un técnico sin permiso
+de inventario **no ve la bodega** en su orden —le aparece un aviso de que el saldo está donde él
+no puede tomar—: le entregas, por ejemplo, 500 m en *Entregas y traspasos* (sale de la bodega,
+entra al técnico). Desde ese momento ve «FIBRA ÓPTICA — 500 metro en Mis equipos» en sus órdenes y
+tickets; si usa 120 m, le quedan 380 y el movimiento queda en *Movimientos* con su orden o ticket.
+Quien administra inventario sí puede registrar el consumo directamente desde la bodega.
 
 Esto **no se puede cambiar** una vez el modelo tiene existencias, porque las dos formas de contar
 no se mezclan. Si lo intentas, el sistema te lo impide y te dice cuántas existencias hay que mover
@@ -2463,6 +2641,11 @@ avisar si los tenían; ya no.)
 > cláusulas) usa `<div>` en lugar de `<table>`: el texto fluye solo de una página a la siguiente.
 > Las tablas están bien para lo que son: filas de datos cortas.
 >
+> Desde el 2026-10-05 la **vista previa te avisa**: si una celda tiene mucho texto (más de
+> unos 2.500 caracteres), aparece en *Revisa…* con el comienzo de esa celda para que la
+> encuentres. El aviso no significa que ya se haya cortado. Compara el final de esa sección
+> en la vista previa, y si falta texto, pásalo a `<div>`.
+>
 > Las alturas fijas (`height="..."`) que dejan algunos editores visuales se descartan
 > automáticamente, porque en el PDF sólo producen páginas en blanco. Los anchos (`width="..."`)
 > sí se respetan.
@@ -2526,6 +2709,11 @@ corresponde:
   la sección 17.5.1.
 - **Si eres del equipo de ISPWatch** (tenant operador) → la misma pestaña te muestra las
   integraciones de **todos los ISP**, sin límites. Es lo que se describe a continuación.
+
+> Si eres superadministrador y en **Configuración** ves el aviso *«La emisión centralizada de
+> llaves de API está apagada»*, el tenant operador está mal configurado y esa vista no le
+> aparece a nadie. Hasta que se corrija, solo funciona el auto-servicio (17.5.1). Se corrige
+> en la configuración del servidor (`API_KEYS_OPERATOR_TENANT_ID`), no desde el panel.
 
 **Qué puede hacer una llave — y qué no**
 
@@ -2626,8 +2814,10 @@ En la tabla de llaves, la columna **Estado** te dice de un vistazo si la llave e
 > **Sobre las IPs.** Es normal pelearse con un `403` al principio, y la tentación es
 > ensanchar la lista hasta que funcione. No lo hagas: esa lista es justamente lo que
 > hace que una llave filtrada no le sirva a nadie fuera de tu servidor. Si no sabes qué
-> IP poner, llama a `GET /api/v1/partner/ping` con la llave: la respuesta te dice desde
-> qué IP te está viendo el servidor.
+> IP poner, llama a `GET /api/v1/partner/ping` con la llave. Si la IP es la correcta,
+> responde con la IP desde la que te ve el servidor. Si no lo es, responde `403
+> ip_not_allowed` y el campo `your_ip` de esa misma respuesta trae la IP que hay que
+> autorizar.
 
 **Ver qué está pasando**
 
@@ -2649,6 +2839,15 @@ Es el primer dato que te va a pedir soporte. Sale del servidor, así que es el n
 —no uno guardado en tu navegador de la última vez que entraste—.
 
 Si dice `—`, es que no se pudo consultar en ese momento; recarga la página.
+
+**Estado del Sistema** (desde el 2026-10-05) comprueba de verdad que las tareas automáticas
+estén corriendo: facturas del mes, recordatorios y cortes.
+
+- **Operativo** (verde): están al día.
+- **Revisar** (ámbar): llevan varios minutos sin correr o no han arrancado desde la última
+  actualización. Durante una actualización puede verse ámbar unos minutos. Si sigue así,
+  avísale a soporte: mientras tanto no se generan facturas ni se corta a nadie.
+- **Sin datos** (gris): no se pudo consultar.
 
 ### 17.7 Auditoría
 
@@ -2748,8 +2947,9 @@ Necesitas el permiso **Gestionar mis llaves de API**.
    llaves: pruebas, producción, y la nueva mientras se rota la vieja.
 2. **Pide la IP pública del integrador.** Es el error más común: no es la IP de su oficina
    ni la de su computador, sino la del **servidor** que va a llamar. Si hay dudas, que
-   consulte el chequeo de la API (`/ping`): la respuesta le dice con qué IP lo ve
-   ISPWatch. Esa es la que va en la lista.
+   llame al chequeo de la API (`/ping`) con la llave. Si su IP no está autorizada, el
+   rechazo (`ip_not_allowed`) trae en `your_ip` la IP con la que lo ve ISPWatch. Esa es la
+   que va en la lista.
 3. **Elige los permisos**, sólo los que necesite:
 
    | Permiso | Da acceso a |
@@ -2767,11 +2967,15 @@ Necesitas el permiso **Gestionar mis llaves de API**.
 que emitir la nueva y avisarle al integrador: el día del vencimiento su sistema deja de
 recibir datos.
 
+Una semana antes, el sistema manda **un correo de aviso** al *correo de contacto* de la
+integración. Por eso conviene llenarlo al registrarla. Si ya emitiste la llave nueva, el aviso
+de la vieja no llega.
+
 ### 19.3 El integrador reporta un error
 
 | Le dice | Qué es | Qué hacer |
 |---|---|---|
-| «IP no autorizada» | Llama desde una IP que no está en la lista | Que consulte `/ping` y te pase la IP que ve el servidor |
+| «IP no autorizada» | Llama desde una IP que no está en la lista | Que te pase el `your_ip` de esa respuesta de error (o búscala en *Ver peticiones*) |
 | «No tengo permiso» | A la llave le falta el ability de esa área | Emitir una llave nueva: **los permisos de una llave existente no se editan** |
 | «La llave no vale» | Vencida, revocada o mal copiada | Revisar en el panel si sigue activa y su fecha |
 | «Funcionaba y dejó de funcionar» | Casi siempre el vencimiento | Mirar la fecha antes que nada |
@@ -2814,6 +3018,11 @@ llamar, cada cuánto va a sincronizar, y quién avisa cuando la llave esté por 
 ---
 
 ## 20. Preguntas frecuentes
+
+**En vez del panel me sale «Servicio suspendido».**
+La suscripción de tu empresa a ISPWatch tiene una factura vencida. Tus clientes siguen
+navegando; lo que se bloquea es el panel. Paga con los datos que muestra la pantalla y pulsa
+**Ya pagué, comprobar de nuevo**. Ver [Si aparece «Servicio suspendido»](#si-aparece-servicio-suspendido).
 
 **No veo una sección del menú.**
 Tu rol no tiene el permiso. Pide a un administrador que lo revise en **Roles**.

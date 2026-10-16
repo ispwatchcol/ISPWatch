@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Constants\Permissions;
 use App\Services\InstallationBillingService;
+use App\Services\InstallationInstallmentPlanner;
 use App\Services\InstallationPlanService;
 use App\Models\CustomerDocument;
 use App\Models\CustomerInstallation;
@@ -25,8 +26,11 @@ class CustomerInstallationController extends Controller
 {
     protected TemplateRenderer $templateRenderer;
 
-    public function __construct(TemplateRenderer $templateRenderer, private InstallationPlanService $planService)
-    {
+    public function __construct(
+        TemplateRenderer $templateRenderer,
+        private InstallationPlanService $planService,
+        private InstallationInstallmentPlanner $installmentPlanner,
+    ) {
         $this->templateRenderer = $templateRenderer;
     }
 
@@ -241,6 +245,7 @@ class CustomerInstallationController extends Controller
             'payment_agreement', 'installation_cost', 'additional_charges', 'additional_items',
             'discount', 'discount_reason', 'payment_method', 'payment_received',
             'payment_notes', 'customer_retention', 'special_attention', 'promotion_notes',
+            'installments_mode', 'installments_count', 'installments_first_due_date',
         ] as $field) {
             unset($row[$field]);
         }
@@ -344,7 +349,15 @@ class CustomerInstallationController extends Controller
         $inst = $this->resolveInstallation($request, $installationId);
         $inst->load([...self::ROW_RELATIONS, 'documents']);
 
-        return response()->json($this->formatRowForUser($request, $inst));
+        $row = $this->formatRowForUser($request, $inst);
+
+        // Sólo en el detalle (no en los listados: serían N consultas más) y
+        // sólo a quien ve la cartera: son cifras.
+        if ($row['can_view_billing']) {
+            $row['installment_plan'] = $this->installmentPlanner->summary($inst->invoice);
+        }
+
+        return response()->json($row);
     }
 
     public function store(Request $request, $customerId)
@@ -677,7 +690,25 @@ class CustomerInstallationController extends Controller
             'customer_retention' => 'nullable|boolean',
             'special_attention'  => 'nullable|boolean',
             'promotion_notes'    => 'nullable|string',
-        ] + $this->noChargeRules());
+            // Acuerdo de pago en cuotas. Que vengan juntos con la casilla
+            // marcada lo exige el planificador, que es quien sabe si queda
+            // algo por financiar (si todo se pagó, no hace falta plan).
+            'installments_mode'  => ['nullable', Rule::in(CustomerInstallation::INSTALLMENT_MODES)],
+            'installments_count' => 'nullable|integer|min:1|max:' . CustomerInstallation::MAX_INSTALLMENTS,
+            'installments_first_due_date' => 'nullable|date',
+        ] + $this->noChargeRules(), [
+            'installments_count.max' => 'Máximo ' . CustomerInstallation::MAX_INSTALLMENTS . ' cuotas.',
+            'installments_count.min' => 'Al menos una cuota.',
+            'installments_mode.in'   => 'Elige si las cuotas van dentro de la mensualidad o en facturas aparte.',
+        ]);
+
+        // Sin acuerdo no hay plan: se limpian los tres campos para que la
+        // orden no quede diciendo «3 cuotas» con la casilla apagada.
+        if (array_key_exists('payment_agreement', $data) && !$data['payment_agreement']) {
+            $data['installments_mode']  = null;
+            $data['installments_count'] = null;
+            $data['installments_first_due_date'] = null;
+        }
 
         // additional_charges siempre refleja la suma de los adicionales itemizados
         // cuando el cliente los envía; así los reportes agregados siguen cuadrando.
@@ -705,11 +736,20 @@ class CustomerInstallationController extends Controller
             $this->assertFreeVisitHasNoMoney($installation, $data);
         }
 
-        $installation->update($data);
-        $installation->refresh();
-
         $invoice        = null;
         $invoiceWarning = null;
+
+        // La orden y su factura (con su plan de cuotas) en UNA transacción: si
+        // el plan se rechaza —menos cuotas de las ya cobradas, falta el número
+        // de cuotas— la orden tampoco queda guardada a medias.
+        DB::transaction(function () use ($installation, $data, $sinCobro, $billingService, &$invoice) {
+            $installation->update($data);
+            $installation->refresh();
+
+            if (!$sinCobro && $installation->customer_id) {
+                $invoice = $billingService->upsertInstallationInvoice($installation, $installation->tenant_id);
+            }
+        });
 
         if ($sinCobro) {
             // Aquí está el nudo de todo el cambio: se guarda la cartera (el
@@ -719,15 +759,28 @@ class CustomerInstallationController extends Controller
             // cobro por una visita que iba de regalo.
             $invoiceWarning = 'Esta orden está marcada sin cobro al cliente: no se generó factura. '
                 . 'Los equipos cargados siguen descontados del inventario.';
-        } elseif ($installation->customer_id) {
-            $invoice = $billingService->upsertInstallationInvoice($installation, $installation->tenant_id);
-        } else {
+        } elseif (!$installation->customer_id) {
             $invoiceWarning = 'No se generó factura: la instalación no tiene un cliente asignado aún.';
+        } elseif ($invoice?->estaAnulada()) {
+            $invoiceWarning = "La factura #{$invoice->number} de esta instalación está anulada en Facturación: "
+                . 'se guardó la cartera, pero la factura no se recalcula. Si hay que cobrarla, emite una nueva desde Facturación.';
+        } elseif ($installation->payment_agreement
+            && $installation->installments_mode === CustomerInstallation::INSTALLMENTS_MONTHLY
+            && $installation->customer?->customerProfile?->exclude_from_billing) {
+            // No se rechaza —la marca «no facturar» puede quitarse mañana—,
+            // pero quien pacta las cuotas tiene que saber que hoy no se cobran.
+            $invoiceWarning = 'Este cliente está marcado «no facturar»: no se le generan mensualidades, así que '
+                . 'las cuotas dentro de la mensualidad no se cobrarán hasta que se le quite la marca. '
+                . 'Usa facturas aparte si las quieres cobrar ya.';
         }
+
+        $fresca = $installation->fresh(self::ROW_RELATIONS);
+        $row    = $this->formatRowForUser($request, $fresca);
+        $row['installment_plan'] = $this->installmentPlanner->summary($fresca->invoice);
 
         return response()->json([
             'message'         => 'Información de cartera actualizada correctamente.',
-            'installation'    => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
+            'installation'    => $row,
             'invoice'         => $invoice?->load('items'),
             'invoice_warning' => $invoiceWarning,
         ]);
@@ -846,12 +899,59 @@ class CustomerInstallationController extends Controller
 
         $data = $request->validate($this->sheetValidationRules('required'));
 
-        $installation->update(['sheet' => $data['sheet']]);
+        // `?? []`: Laravel descarta las claves de `sheet` sin regla, así que
+        // una petición que sólo trae campos retirados llega sin `sheet`.
+        $installation->update(['sheet' => $this->withStoredLegacy($installation, $data['sheet'] ?? [])]);
 
         return response()->json([
             'message'      => 'Hoja de instalación guardada.',
             'installation' => $this->formatRowForUser($request, $installation->fresh(self::ROW_RELATIONS)),
         ]);
+    }
+
+    /**
+     * Campos de la hoja que YA NO SE ESCRIBEN: lo que registraban sale ahora
+     * del inventario de la orden (`installation_equipment`).
+     *
+     *  · `cable_meters` (2026-10-10, § 111): era una cifra a mano, paralela al
+     *    inventario — se podían declarar 120 m sin que salieran de ningún
+     *    saldo. Ahora es la suma calculada de los materiales en metros.
+     *  · marca, modelo y MAC del módem, serial ONU, antena y «otros insumos»
+     *    (2026-10-11, § 114): repetían a mano lo que ya dice la línea del
+     *    equipo con serial —y podían contradecirla—, o eran insumos fuera del
+     *    inventario. Decisión de operación: todo lo que se instala va anclado
+     *    al inventario.
+     *
+     * Señal y observaciones técnicas NO están aquí: no son inventario y se
+     * siguen capturando (ahora en la tarjeta Conexión / Red).
+     */
+    private const LEGACY_SHEET_FIELDS = [
+        'cable_meters', 'modem_brand', 'modem_model', 'modem_mac',
+        'onu_serial', 'antenna_model', 'materials',
+    ];
+
+    /**
+     * Lo guardado en un campo retirado NO se borra: es el registro histórico
+     * de órdenes anteriores y la hoja en PDF lo sigue imprimiendo. Lo que
+     * llegue en la petición se ignora —la pantalla vieja en caché, un cliente
+     * de la API— y se conserva el guardado. Como el guardado reemplaza la hoja
+     * entera, el valor viejo se vuelve a poner aunque la petición no lo traiga.
+     */
+    private function withStoredLegacy(CustomerInstallation $installation, array $sheet): array
+    {
+        $stored = $installation->getOriginal('sheet') ?? [];
+
+        foreach (self::LEGACY_SHEET_FIELDS as $campo) {
+            unset($sheet[$campo]);
+
+            $valor = $stored[$campo] ?? null;
+
+            if ($valor !== null && $valor !== '') {
+                $sheet[$campo] = $valor;
+            }
+        }
+
+        return $sheet;
     }
 
     /**
@@ -862,14 +962,10 @@ class CustomerInstallationController extends Controller
     {
         return [
             'sheet'                  => $presence . '|array',
-            'sheet.cable_meters'     => 'nullable|numeric',
-            'sheet.modem_brand'      => 'nullable|string|max:80',
-            'sheet.modem_model'      => 'nullable|string|max:80',
-            'sheet.modem_mac'        => 'nullable|string|max:80',
-            'sheet.onu_serial'       => 'nullable|string|max:120',
+            // Los campos de equipo (marca, modelo, MAC, serial, cable, otros
+            // insumos) ya no tienen regla: si llegan, `withStoredLegacy()` los
+            // descarta. Ver LEGACY_SHEET_FIELDS.
             'sheet.signal_level'     => 'nullable|string|max:40',
-            'sheet.antenna_model'    => 'nullable|string|max:120',
-            'sheet.materials'        => 'nullable|string|max:1000',
             'sheet.observations'     => 'nullable|string|max:2000',
             'sheet.inventory_device_id'  => 'nullable|integer',
             // Conexión / red
@@ -905,7 +1001,7 @@ class CustomerInstallationController extends Controller
 
         if (!empty($data['sheet'])) {
             $draft = array_filter($data['sheet'], fn ($v) => $v !== null && $v !== '');
-            $installation->sheet = array_merge($installation->sheet ?? [], $draft);
+            $installation->sheet = $this->withStoredLegacy($installation, array_merge($installation->sheet ?? [], $draft));
         }
 
         $pdf = $this->buildSheetPdf($installation, '', null);

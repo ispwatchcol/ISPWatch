@@ -19,6 +19,7 @@ use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\TicketInterventionController;
 use App\Http\Controllers\TicketMeasurementController;
+use App\Http\Controllers\TicketSubjectController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
@@ -49,6 +50,7 @@ use App\Http\Controllers\ExpenseCategoryController;
 use App\Http\Controllers\DocumentTemplateController;
 use App\Http\Controllers\ContractSignatureLinkController;
 use App\Http\Controllers\PublicContractController;
+use App\Http\Controllers\SaasStatusController;
 use App\Http\Controllers\ApiClientController;
 use App\Http\Controllers\TenantApiKeyController;
 use App\Http\Controllers\Api\Partner\PartnerBillingController;
@@ -94,10 +96,20 @@ Route::middleware('throttle:public-contract')->group(function () {
 // API pública autentica igual de bien contra CUALQUIER ruta con auth:sanctum,
 // así que la barrera tiene que estar donde no se pueda olvidar al agregar un
 // endpoint nuevo. Ver App\Http\Middleware\DenyApiClients.
-Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
+//
+// `saas_active` (KAN-126) va aquí por la misma razón: si Converza suspendió al
+// ISP por falta de pago, TODO el panel responde 423 y el frontend muestra la
+// pantalla de «servicio suspendido». Las únicas excepciones son las dos rutas
+// de abajo con `withoutMiddleware`. Ver App\Http\Middleware\EnsureSaasServiceActive.
+Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(function () {
 
     // ─── AUTH ───
-    Route::get('/auth/me', [AuthController::class, 'me']);
+    // Abierta durante la suspensión: la sesión sigue identificada.
+    Route::get('/auth/me', [AuthController::class, 'me'])->withoutMiddleware('saas_active');
+
+    // ─── ESTADO DEL SERVICIO (KAN-126) ───
+    // Abierta durante la suspensión: es como la pantalla sabe si ya puede volver.
+    Route::get('/saas/status', [SaasStatusController::class, 'show'])->withoutMiddleware('saas_active');
 
     // ─── DASHBOARD ───
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
@@ -476,6 +488,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
 
     Route::middleware('permission:view_sectorials,view_support')->group(function () {
         Route::get('/sectorials/{sectorial}/photos',  [SectorialPhotoController::class, 'index']);
+        // Entrega autenticada de la foto: misma puerta que el listado (P-40).
+        Route::get('/sectorials/{sectorial}/photos/{photo}', [SectorialPhotoController::class, 'show']);
         Route::get('/sectorials/{sectorial}/notes',   [SectorialNoteController::class, 'index']);
         Route::get('/sectorials/{sectorial}/history', [SectorialHistoryController::class, 'index']);
         Route::get('/sectorials/{sectorial}/tickets', [SectorialHistoryController::class, 'tickets']);
@@ -499,9 +513,9 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     | `view_sectorials` ni `manage_routers`. La ESCRITURA sí exige el permiso
     | dueño del módulo, a secas.
     |
-    | Nota: no existe un permiso `delete_clients` en App\Constants\Permissions.
-    | El borrado de cliente se apoya en `edit_internet_service` para no inventar
-    | un permiso nuevo que ningún rol sembrado tendría (ver MEJORAS_RECOMENDADAS).
+    | El borrado de cliente tiene permiso propio, `delete_customers` (P-1,
+    | migración 2026_08_31_000001): sólo lo tienen los roles admin. Ya no se
+    | apoya en `edit_internet_service`.
     |
     */
 
@@ -640,6 +654,18 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
         // tocar (supuesto S-3 del diseño).
         Route::get('/support/archived', [SupportTicketController::class, 'archived'])
             ->middleware('permission:ticket_archive,ticket_restore');
+
+        // Asuntos frecuentes del ticket (catálogo por ISP). Antes del
+        // apiResource por lo mismo que `archived`: `support/{support}` casaría
+        // con `support/subjects`. Leer basta con `ticket_view` (quien radica o
+        // filtra necesita la lista); administrarlos es `ticket_manage_catalogs`
+        // (D-13, concedido a `admin` por la migración 2026_10_11_000002).
+        Route::get('/support/subjects', [TicketSubjectController::class, 'index']);
+        Route::middleware('permission:ticket_manage_catalogs')->group(function () {
+            Route::post('/support/subjects', [TicketSubjectController::class, 'store']);
+            Route::put('/support/subjects/{subject}', [TicketSubjectController::class, 'update']);
+            Route::delete('/support/subjects/{subject}', [TicketSubjectController::class, 'destroy']);
+        });
 
         Route::post('/support/{ticket}/archive', [SupportTicketController::class, 'archive'])
             ->middleware('permission:ticket_archive');
@@ -803,6 +829,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients'])->group(function () {
     // primero que pregunta soporte, y exigir `view_settings` se lo negaría
     // justamente a quien está llamando a pedir ayuda.
     Route::get('/system/version', [SettingsController::class, 'version']);
+    // Estado real del tile «Estado del Sistema» (P-33): el latido del planificador.
+    Route::get('/system/status', [SettingsController::class, 'status']);
 
     // ─── HELP CENTER / MANUAL ───
     // La LECTURA queda abierta a cualquier autenticado: es el manual del

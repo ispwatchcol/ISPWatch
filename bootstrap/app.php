@@ -42,6 +42,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'api_key'          => \App\Http\Middleware\EnsureApiKeyRequest::class,
             'deny_api_clients' => \App\Http\Middleware\DenyApiClients::class,
 
+            // Panel cerrado si Converza suspendió al ISP por falta de pago
+            // (KAN-126). Va en el grupo auth:sanctum de routes/api.php.
+            'saas_active'      => \App\Http\Middleware\EnsureSaasServiceActive::class,
+
             // Abilities de Sanctum: `ability:a,b` exige AL MENOS una; se usa
             // esa semántica (y no `abilities`, que las exige todas) porque
             // cada endpoint depende de un único permiso de lectura.

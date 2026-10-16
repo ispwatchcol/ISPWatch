@@ -94,7 +94,7 @@
                     Disponible: {{ fmtQty(m.quantity) }}{{ m.unit ? ` ${m.unit}` : '' }}
                   </p>
                 </div>
-                <input v-model.number="materialQty[m.stock_id]" type="number" min="0" :max="m.quantity" step="0.01"
+                <input v-model.number="materialQty[m.stock_id]" type="number" min="0" :max="m.quantity" :step="quantityStep(m)"
                   placeholder="0"
                   class="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
                          bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm
@@ -122,13 +122,15 @@
         </p>
       </div>
 
-      <!-- Entrada de material nuevo (compra) -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6">
+      <!-- Entrada de material nuevo (compra). Stock enlaza aquí con
+           ?entrada=<id>#entrada desde «Registrar entrada». -->
+      <div id="entrada" ref="entrySection" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 md:p-6 scroll-mt-4">
         <h2 class="text-base font-bold text-gray-800 dark:text-white mb-1">Entrada de material</h2>
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          Para dar de alta consumibles comprados (RJ45, cable, platos). Los equipos con serial se
-          registran en
-          <RouterLink to="/inventory/create" class="underline">Agregar equipo</RouterLink>.
+          Aquí nace la existencia de un material por cantidad (cable, fibra, RJ45): elige el material, cuánto
+          entra en su unidad y a qué bodega o persona. Crear el material en Stock no le da existencia. Los
+          equipos con serial se registran en
+          <RouterLink to="/inventory/create" class="underline">Agregar equipo con serial</RouterLink>.
         </p>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -141,7 +143,7 @@
               {{ `${s.brand ?? ''} ${s.model ?? ''}`.trim() }}{{ s.unit ? ` (${s.unit})` : '' }}
             </option>
           </select>
-          <input v-model.number="entry.quantity" type="number" min="0.01" step="0.01" placeholder="Cantidad"
+          <input v-model.number="entry.quantity" type="number" :min="quantityStep(entryStock)" :step="quantityStep(entryStock)" placeholder="Cantidad"
             class="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl
                    bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm
                    focus:ring-2 focus:ring-purple-500 outline-none" />
@@ -174,12 +176,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import inventoryApi from '@/services/api/inventory'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import catalogsApi from '@/services/api/catalogs'
 import { firstError } from '@/utils/apiError'
+import { quantityStep } from '@/utils/materialQuantity'
 import NotificationToast from '@/components/NotificationToast.vue'
 
 const toast = ref(null)
@@ -189,6 +192,11 @@ const saving = ref(false)
 const branches = ref([])
 const staff = ref([])
 const stocks = ref([])
+// Precisión del producto elegido en la entrada (enteros o decimales).
+const entryStock = computed(() => {
+  const s = stocks.value.find(x => x.id === entry.value?.stock_id)
+  return s ? { decimals: s.quantity_decimals } : null
+})
 
 // Origen y destino se manejan con una clave "tipo:id" porque un <select> sólo
 // guarda un valor y el custodio son dos datos (si es sucursal o persona, y cuál).
@@ -330,8 +338,21 @@ const submitEntry = async () => {
   }
 }
 
+const route = useRoute()
+const entrySection = ref(null)
+
 onMounted(async () => {
   await loadCatalogs()
   await loadHoldings()
+
+  // Viene de Stock → «Registrar entrada»: el material ya elegido y la vista en
+  // la sección, para que el segundo paso del alta no haya que buscarlo.
+  const preset = Number(route.query.entrada)
+  if (preset && consumableStocks.value.some(s => s.id === preset)) {
+    entry.value.stock_id = preset
+  }
+  if (route.hash === '#entrada' || preset) {
+    entrySection.value?.scrollIntoView({ block: 'start' })
+  }
 })
 </script>

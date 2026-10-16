@@ -43,10 +43,10 @@ class EnsureApiKeyRequest
             [$reason, $status, $message] = $denial;
             $this->log($request, $status, $startedAt, $reason);
 
-            return response()->json([
+            return response()->json(array_merge([
                 'error'   => $reason,
                 'message' => $message,
-            ], $status);
+            ], $denial[3] ?? []), $status);
         }
 
         try {
@@ -103,9 +103,10 @@ class EnsureApiKeyRequest
     }
 
     /**
-     * Devuelve [motivo, status, mensaje] si hay que rechazar; null si pasa.
+     * Devuelve [motivo, status, mensaje, campos extra] si hay que rechazar;
+     * null si pasa. Los campos extra se suman al cuerpo del error.
      *
-     * @return array{0: string, 1: int, 2: string}|null
+     * @return array{0: string, 1: int, 2: string, 3?: array<string, mixed>}|null
      */
     private function deny(Request $request): ?array
     {
@@ -167,7 +168,17 @@ class EnsureApiKeyRequest
                 'ip'        => $request->realIp(),
             ]);
 
-            return ['ip_not_allowed', 403, 'La IP de origen no está autorizada para esta llave.'];
+            // `your_ip` (P-37 / KAN-39): la IP con la que llegó la petición. Es
+            // la única pista que tiene el integrador, porque `/ping` pasa por
+            // este mismo middleware y con la IP mal nunca se alcanza. No es una
+            // fuga: es su propia IP de salida, y el cuerpo no dice nada del ISP
+            // ni de la allowlist.
+            return [
+                'ip_not_allowed',
+                403,
+                'La IP de origen no está autorizada para esta llave.',
+                ['your_ip' => $request->realIp()],
+            ];
         }
 
         $this->rememberSourceIp($token, $request->realIp());

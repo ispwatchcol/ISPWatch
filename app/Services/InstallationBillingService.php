@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CustomerCredit;
 use App\Models\CustomerInstallation;
 use App\Models\Invoice;
+use App\Models\InvoiceCarryover;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
@@ -13,8 +14,10 @@ use Illuminate\Support\Facades\Log;
 
 class InstallationBillingService
 {
-    public function __construct(protected BillingService $billingService)
-    {
+    public function __construct(
+        protected BillingService $billingService,
+        protected InstallationInstallmentPlanner $installments,
+    ) {
     }
 
     /**
@@ -38,6 +41,15 @@ class InstallationBillingService
             $existing = Invoice::where('installation_id', $installation->id)
                 ->where('tenant_id', $tenantId)
                 ->first();
+
+            // Una factura ANULADA en Facturación no se resucita desde la
+            // cartera. Antes, volver a guardar la orden le reescribía ítems y
+            // estado y la dejaba viva otra vez sin que nadie lo decidiera; con
+            // cuotas, además, colgaría un plan de una factura sin efecto (C13).
+            // El controlador avisa con el número.
+            if ($existing && $existing->estaAnulada()) {
+                return $existing;
+            }
 
             if ($existing) {
                 return $this->updateInvoice($existing, $items, $subtotal, $total, $installation, $tenantId);
@@ -124,10 +136,11 @@ class InstallationBillingService
     /**
      * Create, update, or remove the Payment record tied to this invoice.
      *
-     * Assumption: installation invoices are single-payment invoices managed
-     * exclusively by this service. If the billing team manually applies extra
-     * payments via the regular billing UI, those allocations are preserved but
-     * counted when recalculating balance_due.
+     * La cartera gestiona UN pago: el que lleva `installation_id` de esta
+     * orden (KAN-124). Antes tomaba la primera asignación de la factura, y si
+     * esa era un abono hecho en Facturación lo reescribía o, con «Valor
+     * recibido» en 0, lo borraba. Las demás asignaciones se respetan y cuentan
+     * al recalcular balance_due.
      */
     private function syncPayment(Invoice $invoice, CustomerInstallation $installation, int $tenantId): void
     {
@@ -135,19 +148,21 @@ class InstallationBillingService
         $total      = (float) $invoice->total;
         $toAllocate = min($received, $total);
 
-        // Find the (at most one) payment previously created by this flow
-        $allocation      = PaymentAllocation::where('invoice_id', $invoice->id)->with('payment')->first();
-        $existingPayment = $allocation?->payment;
+        $existingPayment = Payment::where('installation_id', $installation->id)
+            ->where('tenant_id', $tenantId)
+            ->orderBy('id')
+            ->first();
+        $allocation = $existingPayment
+            ? PaymentAllocation::where('invoice_id', $invoice->id)
+                ->where('payment_id', $existingPayment->id)
+                ->first()
+            : null;
 
         if ($received > 0) {
-            // El pago sobre el que hay que cuadrar el excedente. Se asigna en
-            // cada rama y no con `$existingPayment ?? $payment`: cuando hay un
-            // pago viejo pero su asignacion se perdio, la rama que corre es la
-            // de creacion, y aquella expresion habria acreditado el excedente
-            // sobre el pago equivocado.
+            // El pago sobre el que hay que cuadrar el excedente.
             $pagoVigente = null;
 
-            if ($existingPayment && $allocation) {
+            if ($existingPayment) {
                 // La forma de pago sólo se recalcula si la orden trae una
                 // DISTINTA de la que tiene el pago. Volver a guardar la orden
                 // con el mismo texto no puede desenlazar el pago de su forma
@@ -161,7 +176,12 @@ class InstallationBillingService
                     'amount' => $received,
                     'notes'  => $installation->payment_notes  ?: $existingPayment->notes,
                 ], $method));
-                $allocation->update(['amount' => $toAllocate]);
+                // Si la asignación se perdió, se repone sobre el MISMO pago:
+                // crear otro duplicaría el dinero recibido.
+                PaymentAllocation::updateOrCreate(
+                    ['payment_id' => $existingPayment->id, 'invoice_id' => $invoice->id],
+                    ['amount' => $toAllocate]
+                );
                 $pagoVigente = $existingPayment;
             } else {
                 $method = $this->billingService->resolvePaymentMethod($tenantId, null, $installation->payment_method);
@@ -175,6 +195,7 @@ class InstallationBillingService
                     'payment_method_id' => $method['payment_method_id'],
                     'notes'        => $installation->payment_notes,
                     'status'       => 'completed',
+                    'installation_id' => $installation->id,
                 ]);
                 PaymentAllocation::create([
                     'payment_id' => $payment->id,
@@ -192,7 +213,8 @@ class InstallationBillingService
             // descuadre de caja (BooksAuditService C6).
             $this->syncExcessCredit($pagoVigente, $received - $toAllocate);
         } else {
-            // Remove the installation payment; leave any manual payments untouched
+            // Se quita sólo el pago de la cartera; los abonos de Facturación
+            // no llevan su marca y quedan intactos.
             if ($allocation) {
                 $allocation->delete();
             }
@@ -220,13 +242,33 @@ class InstallationBillingService
             ->where('type', CustomerCredit::TYPE_APPLIED)
             ->sum('amount'));
 
-        $invoice->balance_due = max(0.0, $total - $allocated - $creditApplied);
+        // Lo que ya salió por abonos parciales (pagados en Facturación sobre
+        // esta factura) tampoco se vuelve a deber. Antes este recálculo lo
+        // ignoraba: guardar la cartera después de un abono parcial le devolvía
+        // a la factura el faltante que ya viajaba a la mensualidad, y la
+        // ecuación C1 dejaba de cuadrar (se cobraba dos veces).
+        $faltantesFuera = round((float) InvoiceCarryover::shortfalls()
+            ->where('from_invoice_id', $invoice->id)
+            ->sum('amount'), 2);
 
+        // Lo que la factura debe ANTES del acuerdo de pago.
+        $debe = max(0.0, round($total - $allocated - $creditApplied - $faltantesFuera, 2));
+
+        // Acuerdo de pago: lo financiado sale de aquí y espera en cuotas.
+        $financiado = $this->installments->sync($invoice, $installation, $debe, auth()->id());
+
+        $invoice->carried_out = round($faltantesFuera + $financiado, 2);
+        $invoice->balance_due = max(0.0, round($debe - $financiado, 2));
+
+        // `partial` siempre que el saldo esté por debajo del total —por pago,
+        // saldo a favor o cuotas—, no sólo cuando hay asignaciones: si no, la
+        // factura financiada o saldada con crédito decía «issued» con un saldo
+        // menor que su total (C4).
         $invoice->status = match (true) {
-            $total <= 0                    => 'paid',
-            $invoice->balance_due <= 0     => 'paid',
-            $allocated > 0                 => 'partial',
-            default                        => 'issued',
+            $total <= 0                                  => 'paid',
+            $invoice->balance_due <= 0                   => 'paid',
+            $invoice->balance_due + 0.009 < $total       => 'partial',
+            default                                      => 'issued',
         };
         $invoice->save();
     }

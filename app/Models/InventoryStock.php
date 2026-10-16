@@ -20,12 +20,17 @@ class InventoryStock extends Model
         'price',
         'is_serialized',
         'unit',
+        'quantity_decimals',
     ];
 
     protected $casts = [
         'is_serialized' => 'boolean',
         'price'         => 'decimal:2',
+        'quantity_decimals' => 'integer',
     ];
+
+    /** Tope de decimales: saldos y kardex son decimal(12,2). */
+    public const MAX_QUANTITY_DECIMALS = 2;
 
     public function devices()
     {
@@ -41,5 +46,29 @@ class InventoryStock extends Model
     public function label(): string
     {
         return trim(($this->brand ?? '') . ' ' . ($this->model ?? '')) ?: 'Sin nombre';
+    }
+
+    /**
+     * Decimales que admite la cantidad de este producto. Un serializado se
+     * cuenta por unidad (0); uno por cantidad, lo que declare, que por default
+     * es 2 —lo que el sistema aceptaba antes de existir la columna—.
+     */
+    public function quantityDecimals(): int
+    {
+        if ($this->is_serialized) {
+            return 0;
+        }
+
+        $decimals = $this->quantity_decimals ?? self::MAX_QUANTITY_DECIMALS;
+
+        return max(0, min(self::MAX_QUANTITY_DECIMALS, (int) $decimals));
+    }
+
+    /** ¿La cantidad respeta la precisión del producto? */
+    public function acceptsQuantity(float $quantity): bool
+    {
+        $factor = 10 ** $this->quantityDecimals();
+
+        return abs(round($quantity * $factor) - $quantity * $factor) < 1e-6;
     }
 }

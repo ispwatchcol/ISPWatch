@@ -105,6 +105,7 @@ Dos mecanismos encadenados:
 | `403` | Sin permiso · correo no verificado · tenant no resoluble · límite de clientes alcanzado |
 | `404` | Recurso inexistente o de otro tenant (no se distingue: evita enumeración) |
 | `422` | Error de validación **o error de base de datos traducido** por `ErrorMessages` |
+| `423` | **Panel suspendido**: Converza marcó al ISP por falta de pago (KAN-126). Toda ruta del panel, salvo `/api/auth/me` y `/api/saas/status`. Ver § 4 |
 | `429` | Rate limit del login |
 | `500` | Error interno (los detalles van al log, nunca a la respuesta) |
 
@@ -293,6 +294,11 @@ Devuelve el usuario autenticado con sus **permisos actualizados desde la base de
 El frontend lo usa para refrescar permisos sin cerrar sesión (necesario tras cambiar un rol).
 Misma estructura de `data` que el login.
 
+`data.api_key_operator_issue` (desde KAN-38) es `null` salvo para un usuario
+`is_superadmin` cuando `API_KEYS_OPERATOR_TENANT_ID` apunta a un tenant inexistente o no está
+configurado. En ese caso trae el motivo legible y Configuración lo muestra como aviso. A los
+demás usuarios nunca se les envía la configuración de la plataforma.
+
 ### `GET /api/dashboard/stats`
 
 Estadísticas del tenant del usuario. Incluye: total de clientes, clientes activos,
@@ -301,6 +307,49 @@ tickets abiertos y urgentes, ingresos del mes (facturas `paid`) y pagos del mes.
 
 **403** si el usuario no tiene `tenant_id`:
 `{"success":false,"message":"No se pudo determinar el tenant del usuario autenticado."}`
+
+### Panel suspendido por Converza — `423` (KAN-126)
+
+Si Converza (Core Brain) suspendió al ISP por una factura vencida, **toda** ruta del grupo
+autenticado del panel responde, antes de comprobar permisos o validar el cuerpo:
+
+```json
+HTTP/1.1 423 Locked
+
+{
+  "success": false,
+  "code": "service_suspended",
+  "message": "El servicio está suspendido por una factura vencida. Se reactiva solo al registrar el pago.",
+  "data": {
+    "suspended": true,
+    "reason": "billing",
+    "since": "2026-10-10T08:00:00-05:00",
+    "message": "El servicio está suspendido por una factura vencida. Se reactiva solo al registrar el pago.",
+    "payment_instructions": "Nequi 300 000 0000"
+  }
+}
+```
+
+- `reason`: `billing` (se levanta solo al registrar el pago), `manual` o `null`.
+- `since` y `payment_instructions` pueden ser `null`. `message` siempre trae texto.
+- El cliente reconoce el corte por `code`, no sólo por el `423`.
+
+**No responden 423:** `GET /api/auth/me`, `GET /api/saas/status`, la API partner
+(`/api/v1/partner/*`), el login y las rutas públicas. Tampoco los usuarios con rol `client` o
+ficha de cliente, ni el superadministrador. Ver ARQUITECTURA § 17.
+
+### `GET /api/saas/status`
+
+¿El panel de quien pregunta está suspendido? Abierta durante la suspensión: es lo que usa la
+SPA al montarse y el botón «Ya pagué» de la pantalla.
+
+```json
+{ "success": true, "data": { "suspended": false, "reason": null, "since": null, "message": null, "payment_instructions": null } }
+```
+
+Con el panel suspendido, `data` es el mismo objeto del `423` de arriba. La respuesta sale de la
+misma caché que usa el middleware (5 min si está al día, 1 min si está suspendido): llamarla
+seguido no consulta a Converza cada vez.
 
 ---
 
@@ -626,7 +675,7 @@ pertenece al tenant. En transacción, fija `status = convertido`, `converted_use
 | `GET` | `/api/installations/planning-catalog` | `view_support` | Productos del tenant para **planificar** la orden, con disponibilidad agregada (2026-09-30) |
 | `GET` | `/api/installations/{installation}` | auth | Detalle |
 | `PUT` | `/api/installations/{installation}/prospect` | auth | Actualiza el prospecto asociado |
-| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales y descuento. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
+| `PUT` | `/api/installations/{installation}/billing` | `edit_discount` | Costos, adicionales, descuento y **acuerdo de pago en cuotas**. **Escritura: sólo `edit_discount`** — `view_installation_cost` no alcanza |
 | `PUT` | `/api/installations/{installation}/sheet` | auth | Guarda el acta (JSON) |
 | `POST` | `/api/installations/{installation}/photos` | auth | Sube fotos |
 | `POST` | `/api/installations/{installation}/sheet-preview` | auth | **PDF** de la hoja sin firmar (vista previa) |
@@ -727,16 +776,70 @@ conciliación es posterior (entrega B).
 > Reenviar el mismo valor no cuenta como cambio (`''` y `null` se normalizan), así que el
 > formulario completo se puede guardar sin permisos de cartera mientras la marca no se mueva.
 
+> 🧾 **Acuerdo de pago en cuotas** (2026-10-11). `PUT /api/installations/{installation}/billing`
+> acepta, junto a `payment_agreement`:
+>
+> | Campo | Valores | Para qué |
+> |---|---|---|
+> | `installments_mode` | `monthly` \| `separate` | Dentro de la mensualidad (cada factura mensual cobra la siguiente cuota) o una factura aparte por cuota |
+> | `installments_count` | entero 1–24 | En cuántas cuotas se divide lo que queda después de `payment_received` |
+> | `installments_first_due_date` | fecha | Vencimiento de la 1.ª cuota en modo `separate` (las demás, mes a mes). Por defecto, dentro de un mes |
+>
+> Con `payment_agreement: false` los tres se guardan en `null`. La factura de instalación
+> queda saldada (`balance_due = 0`, `carried_out` = lo financiado) y no cuenta para mora ni
+> corte; las cuotas sí, cuando vencen. Reparto en pesos enteros: $100.000 en 3 → 33.333 +
+> 33.333 + 33.334.
+>
+> | Situación | Respuesta |
+> |---|---|
+> | Acuerdo marcado, queda saldo y falta `installments_count` o `installments_mode` | **422** en `installments_count`. La orden **no** se guarda (todo va en una transacción) |
+> | Acuerdo marcado y `payment_received` cubre el total | 200, sin plan: no hay nada que financiar |
+> | Menos cuotas de las que ya se cobraron | **422** en `installments_count` |
+> | Cambiar `installments_mode` con cuotas ya cobradas | **422** en `installments_mode` |
+> | Un saldo por debajo de lo ya cobrado en cuotas | **422** (`installments_count` o `payment_agreement`) — se corrige en Facturación |
+> | Modo `monthly` con un cliente «no facturar» | 200 con `invoice_warning`: esas cuotas no se cobran mientras tenga la marca |
+> | La factura de instalación está **anulada** | 200 con `invoice_warning`; se guarda la cartera y la factura **no** se recalcula (antes se «resucitaba») |
+>
+> «Cobrada» quiere decir: en `monthly`, que ya viajó a una mensualidad; en `separate`, que su
+> factura ya recibió algún pago, saldo a favor o abono. Lo cobrado queda fijo y lo que falta
+> se reparte entre las cuotas que faltan; las facturas aparte intactas se **reescriben en su
+> sitio** (mismo número) y las sobrantes se **anulan**.
+>
+> La respuesta (y `GET /api/installations/{installation}` para quien ve la cartera) trae
+> `installment_plan`, o `null` si no hay plan:
+>
+> ```json
+> { "installment_plan": {
+>     "financed": 120000, "count": 3, "mode": "separate", "pending": 0,
+>     "items": [
+>       { "number": 1, "of": 3, "amount": 40000, "state": "billed",
+>         "invoice_id": 812, "invoice_number": "00000812", "invoice_status": "issued",
+>         "due_date": "2026-11-11", "paid": false, "locked": false } ] } }
+> ```
+>
+> `state` es `pending` (espera la próxima mensualidad) o `billed` (ya está en una factura).
+> Los tres campos `installments_*` se filtran por permiso igual que el resto de la cartera.
+
 > ⚠️ **Límite operativo conocido:** subir varias fotos en una sola petición produce
 > `413`/`504` sin JSON en el gateway. El frontend comprime en el navegador y envía
 > **una foto por petición**.
 
 #### `PUT /api/installations/{installation}/sheet`
 
-Guarda la hoja como JSON (`sheet`). Además de la parte técnica (equipos, mediciones,
-materiales), lleva la configuración de red de la orden: `sectorial_id`, `router_id`,
-`plan_id`, `client_ip`, `vlan` y, en cores PPPoE, `pppoe_username` / `pppoe_password` /
-`pppoe_local_address` / `local_address_manual`.
+Guarda la hoja como JSON (`sheet`): `signal_level` (≤ 40), `observations` (≤ 2000) y la
+configuración de red de la orden: `sectorial_id`, `router_id`, `plan_id`, `client_ip`, `vlan`
+y, en cores PPPoE, `pppoe_username` / `pppoe_password` / `pppoe_local_address` /
+`local_address_manual`.
+
+> **Campos retirados (2026-10-11).** `modem_brand`, `modem_model`, `modem_mac`, `onu_serial`,
+> `antenna_model`, `materials` y `cable_meters` ya **no se escriben**: lo instalado sale de
+> `installation_equipment` (`/api/installations/{installation}/equipment`). Si llegan se
+> ignoran sin error, y el valor que una orden anterior tenga guardado **se conserva** aunque la
+> petición no lo traiga. Como el guardado reemplaza la hoja entera, mándala completa.
+>
+> `GET /api/prospects/{prospect}` añade a cada orden `installed_device_mac`: la MAC del primer
+> equipo con serial registrado en ella (o `null`). Es lo que usa el alta del cliente al
+> convertir el prospecto, en lugar de la casilla `modem_mac`.
 
 > `client_ip` se envía **siempre**, también en cores con PPPoE: es la IP que queda asignada
 > al abonado y la que consume el alta de cliente al convertir el prospecto. El frontend lo
@@ -752,8 +855,8 @@ prospecto, que todavía no es cliente— lea lo que va a firmar.
 
 - **Body (opcional):** `sheet` con los mismos campos que `PUT .../sheet`. Se
   mezcla **en memoria** sobre la hoja guardada, así la vista previa refleja lo
-  que el técnico tiene escrito aunque no haya pulsado "Guardar hoja". Nunca se
-  persiste.
+  que el técnico tiene escrito aunque no haya pulsado "Guardar datos técnicos". Nunca se
+  persiste. Los campos retirados se ignoran igual que al guardar.
 - **Respuesta:** `application/pdf` en línea (`Content-Disposition: inline`).
   El frontend lo pide con `responseType: 'blob'`.
 - Respeta el tenant: una orden de otro tenant devuelve `404`.
@@ -933,6 +1036,21 @@ queman el enlace de forma permanente, incluso ante los dígitos correctos.
 > Nota de seguridad presente en el código: la variante `GET` de `test-secret-sync` exige
 > **el mismo permiso** que la `POST`; de lo contrario sería un bypass de autorización por método.
 
+### `POST`/`PUT /api/routers` — datos del equipo según el método de control
+
+`ip`, `user_rb`, `password_rb` y `firmware_version` dependen del método en que **queda** el
+router (tras normalizar los flags de modo):
+
+| Caso | Regla |
+|---|---|
+| Alta con `radius = true` | Opcionales (`nullable`). Si viene `ip`, tiene que ser una IP válida |
+| Alta con cualquier otro modo, o sin modo | Obligatorios, como siempre |
+| Edición de un router que queda en RADIUS | Se pueden omitir **y vaciar** (`null` o `""`) |
+| Edición que **saca** al router de RADIUS | Obligatorios en ese request los que el router no tenga guardados |
+| Cualquier otra edición | `sometimes|required`, como siempre |
+
+`name` y `status` siguen siendo obligatorios en todos los casos (KAN-102).
+
 ### `GET /api/routers` — campo calculado
 
 Cada fila incluye `active_customers_count`: clientes con `service_status` en
@@ -964,6 +1082,13 @@ Cuerpo del `409`:
 
 `requires_force` solo aparece en el segundo caso. `?force=1` **nunca** habilita el borrado
 de un router con clientes vivos: ahí el rechazo es incondicional.
+
+### Credenciales del router en las respuestas
+
+Desde KAN-45, **ninguna** respuesta de `/api/routers*` (listado, detalle, alta, edición) ni
+de `POST /api/routers/{router}/verify-vpn` incluye `password_rb`, `vpn_password` ni
+`wg_private_key`. En su lugar, cada router trae `has_password_rb` (bool). En `PUT`, omitir
+`password_rb` conserva la guardada; enviarla la reemplaza.
 
 ### `POST /api/routers` — cuerpo (`StoreRouterRequest`)
 
@@ -1012,7 +1137,8 @@ Cada acción crea una fila nueva en `router_outage_events` (nunca actualiza). Lo
 | `GET/POST` | `/api/sectorials` | Lista / crea elemento de red |
 | `GET/PUT/DELETE` | `/api/sectorials/{id}` | Detalle / actualiza / elimina |
 | `GET/POST` | `/api/sectorials/{sectorial}/photos` | Fotos |
-| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto |
+| `GET` | `/api/sectorials/{sectorial}/photos/{photo}` | Entrega la foto, autenticada (P-40): `view_sectorials` o `view_support`; sectorial de otro tenant o foto de otro sectorial → 404; en línea solo `image/jpeg/png/gif/webp`, el resto como descarga; `Cache-Control: private, no-store`. Es la `url` que devuelve el listado |
+| `DELETE` | `/api/sectorials/{sectorial}/photos/{photo}` | Elimina foto (borra el archivo de `s3` y del disco `public` heredado) |
 | `GET/POST` | `/api/sectorials/{sectorial}/notes` | Notas |
 | `PUT/DELETE` | `/api/sectorials/{sectorial}/notes/{note}` | Edita / elimina nota |
 | `GET` | `/api/sectorials/{sectorial}/history` | Bitácora de cambios |
@@ -1542,6 +1668,23 @@ Excepciones: los **cargos adicionales** y las **facturas manuales** no absorben
 arrastres, y un **mes de cortesía** (factura en cero) tampoco — el saldo espera a la
 siguiente factura cobrable.
 
+**Cuotas de instalación** (2026-10-11). Las filas con `installment_number` son cuotas de
+un acuerdo de pago, no faltantes: la mensual absorbe **una por acuerdo** (la de número más
+bajo), cada una en su propio ítem `installment` («Cuota 2 de 3 · instalación (factura
+#…)»). El detalle de factura las trae en `carryovers_out` con `installment_number` e
+`installment_count`.
+
+`GET /api/billing/customers/{customerId}/balance` separa las dos cosas:
+
+| Campo | Qué es |
+|---|---|
+| `carryover_balance` | Faltantes de abonos parciales pendientes: se suman **enteros** a la próxima factura |
+| `installments_balance` | Cuotas de instalación que esperan la mensualidad |
+| `installments_pending` | Cuántas son (se cobra una por mensualidad) |
+
+Hasta el 2026-10-11 `carryover_balance` sumaba cualquier arrastre pendiente; las cuotas
+ya no entran ahí.
+
 ### Operaciones del ciclo
 
 | Método | Ruta | Descripción |
@@ -1549,8 +1692,10 @@ siguiente factura cobrable.
 | `POST` | `/api/billing/run-monthly` | Dispara la generación mensual manualmente. Responde `{ message, errors }`: `errors` es el **número** de clientes o routers que fallaron (el detalle no se devuelve porque la corrida recorre todos los tenants; está en el log y en `billing_action_logs`) |
 | `POST` | `/api/billing/run-overdue` | Procesa morosos |
 | `POST` | `/api/billing/run-auto-cut` | Dispara el corte automático |
-| `GET` | `/api/billing/configs` | Configuraciones de facturación (tabla `billing`) |
-| `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración |
+| `GET` | `/api/billing/configs` | Configuraciones de facturación **del tenant de la sesión** (KAN-121) |
+| `PUT` | `/api/billing/configs/{id}` | Actualiza una configuración del propio tenant; si es de otro, responde 404 |
+
+> **Aislamiento (KAN-121).** `Billing` no tiene scope global. El controlador acepta dos casos: `tenant_id` igual al de la sesión, o `tenant_id` NULL en filas antiguas ligadas a un router del propio tenant. Antes de este cambio, el listado devolvía las configuraciones de todos los ISP y el `PUT` permitía modificar la de otro.
 | `POST` | `/api/billing/additional-charges` | Cargo adicional sin ticket |
 
 **`PUT /api/billing/configs/{id}`** — todos los campos son opcionales; sólo se actualiza lo
@@ -2028,6 +2173,72 @@ también si está **cancelada**.
 Todas las escrituras pasan por `InventoryLedger`, así que **no existe forma de mover existencias
 sin dejar la línea de kardex**: el saldo y el historial se escriben en la misma transacción.
 
+### 15.3 Consumo por cantidad: precisión, reenvío y cable (2026-10-10)
+
+Vale igual para `POST /api/installations/{id}/equipment` y `POST /api/support/{id}/equipment`.
+
+**Precisión del producto.** `inventory_stock.quantity_decimals` (0, 1 o 2) decide cuántos
+decimales admite la cantidad. El ledger la exige en entradas y entregas
+(`POST /api/inventory/transfers`) y en el consumo de órdenes y tickets: `quantity` con más
+decimales responde `422` en `quantity` («se registra en cantidades enteras» / «admite hasta N
+decimal(es)»). `quantity <= 0` y `quantity` mayor que el saldo del custodio también son `422`,
+sin mover nada.
+
+**Clave de reenvío** (opcional, recomendada):
+
+```json
+{ "stock_id": 12, "quantity": 120, "source_type": "user", "source_id": 7,
+  "client_request_id": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed" }
+```
+
+| Respuesta | Cuándo |
+|---|---|
+| `201` + `replayed: false` | Primera vez con esa clave (o sin clave): se descontó y se creó la línea |
+| `200` + `replayed: true` | La clave ya existe **en esta misma orden o ticket**: devuelve la línea guardada, no descuenta ni registra historial otra vez |
+| `422` en `client_request_id` | La clave ya se usó en **otra** orden o ticket |
+
+Máximo 64 caracteres, única por tenant (índice `*_client_request_unique`). Dos peticiones
+simultáneas con la misma clave: una inserta y la otra revierte su transacción y responde como
+reenvío. El retiro (`direction: in`) no la usa: el estado del equipo ya impide repetirlo.
+
+**Campos nuevos en las respuestas:**
+
+| Endpoint | Campo | Qué es |
+|---|---|---|
+| `…/equipment/available` → `materials[]` | `decimals` | Precisión del producto (para el `step` del input) |
+| `…/equipment` (líneas) | `decimals` | Ídem, en cada línea |
+| `GET /api/inventory-stock` | `quantity_decimals` | Precisión configurada |
+| `GET /api/inventory-stock` | `available` | Existencia total del producto (equipos disponibles o suma de saldos). **Sólo** para quien administra inventario (`role_id = 1` o `view_inventory`); a quien sólo ve soporte no se le envía |
+| `GET /api/inventory/movements` | `support_ticket_id` | Ticket del movimiento, junto a `installation_id` |
+| `GET /api/inventory/holdings` | `materials[].decimals` | Precisión, para la entrega |
+
+`POST`/`PUT /api/inventory-stock` aceptan `quantity_decimals` (`0`–`2`). Bajarla con saldos que
+tienen más decimales responde `422` en `quantity_decimals`.
+
+**Hoja técnica sin «Cable utilizado».** `PUT /api/installations/{id}/sheet` y `…/sheet-preview`
+**ignoran** `sheet.cable_meters`: el cable usado es la suma de las líneas de material en metros.
+Si la orden ya tenía un valor guardado, se conserva tal cual (histórico); no se borra ni se
+reescribe. El campo sigue aceptándose en la validación para no romper clientes viejos.
+
+### 15.4 Equipos con serial sólo de modelos «por serial» (2026-10-11)
+
+- `POST /api/inventory` con un `stock_id` de un modelo `is_serialized = false` responde `422` en
+  `stock_id`: «es un material por cantidad: no lleva serial ni MAC…». `PUT /api/inventory/{id}`
+  responde igual si **cambia** el modelo a uno de material; si el modelo no cambia (fila antigua
+  creada así antes de la regla), se puede editar.
+- La carga masiva (`POST /api/import/inventory`) rechaza la fila cuyo marca+modelo es un material
+  por cantidad, con error en el campo `modelo`; las demás filas se importan.
+- `GET /api/inventory-stock` agrega, para quien administra inventario, `serial_rows`: filas de
+  `inventory_device` colgadas de un material. **No** se suman a `available` (antes sí: un material
+  con 100 m y una fila con serial mostraba 101).
+- `GET …/equipment/available` (orden y ticket) ya no ofrece en `devices` filas de modelos por
+  cantidad.
+
+El alta correcta de un material son dos llamadas: `POST /api/inventory-stock` con
+`is_serialized: false`, `unit` y `quantity_decimals`, y `POST /api/inventory/transfers` sin
+`source_*` (entrada). `price` es el precio de catálogo **por unidad de medida** (ver
+MANUAL_USUARIO §15.1 para sus dos usos).
+
 ---
 
 ## 16. Soporte
@@ -2108,6 +2319,10 @@ la visita.
 | `GET` | `/api/support/{ticket}/attachments/{attachment}/download` | `ticket_view_evidence` | Descarga del adjunto (`attachment`) |
 | `GET` | `/api/support/{ticket}/history` | `ticket_view_history` | **Historial inalterable** del ticket, paginado y descendente |
 | `GET` | `/api/support/archived` | `ticket_archive` **o** `ticket_restore` | **Expedientes archivados**, paginado y filtrable |
+| `GET` | `/api/support/subjects` | `ticket_view` | **Asuntos frecuentes** del ISP, retirados incluidos, con `usage` (tickets que lo usan). `?active=1` sólo los vigentes |
+| `POST` | `/api/support/subjects` | `ticket_manage_catalogs` | Crea un asunto (`name` ≤ 120, `sort_order?`, `is_active?`). Duplicado sin importar mayúsculas → **422** |
+| `PUT` | `/api/support/subjects/{subject}` | `ticket_manage_catalogs` | Renombra, reordena o activa/desactiva. Renombrar **no** reescribe el texto de los tickets viejos |
+| `DELETE` | `/api/support/subjects/{subject}` | `ticket_manage_catalogs` | Borra sólo si ningún ticket (ni archivado) lo usa; si no, **409** `subject_in_use` |
 | `POST` | `/api/support/{ticket}/archive` | `ticket_archive` | **Archiva** el expediente (reversible y auditado) |
 | `POST` | `/api/support/{ticket}/restore` | `ticket_restore` | **Restaura** un expediente archivado |
 
@@ -2120,7 +2335,7 @@ la visita.
 >
 > | Campo | Permiso |
 > |---|---|
-> | `subject`, `description`, `sectorial_id` | `ticket_edit` |
+> | `subject`, `subject_id`, `description`, `sectorial_id` | `ticket_edit` |
 > | `staff_id` | `ticket_assign` |
 > | `priority` | `ticket_set_priority` |
 > | `category` | `ticket_set_category` |
@@ -2159,6 +2374,27 @@ siempre.
 | Cambiar `no_charge` con permiso | 200, y evento `no_charge_changed` en el historial (`old_value`/`new_value` legibles, motivo en `metadata.reason`) |
 
 Marcarlo al **crear** el ticket no exige permiso aparte: va dentro de `ticket_create`.
+
+**Asunto del catálogo** (2026-10-11). `POST /api/support` y `PUT /api/support/{id}` aceptan
+`subject_id` (asunto de `ticket_subjects` del **mismo** ISP; de otro → **422**):
+
+| Envío | Resultado |
+|---|---|
+| `subject_id` | El servidor copia el nombre del asunto a `subject`; lo que venga en `subject` se ignora |
+| `subject_id: null` + `subject` | «Otro…»: texto libre, como siempre. Sin texto → **422** en `subject` |
+| Sólo `subject` (cliente que no conoce el catálogo) | Igual que antes al crear. Al editar, si el texto **cambia** sobre un ticket con asunto de catálogo, el ticket pasa a «Otro» (`subject_id = null`) |
+| Elegir un asunto **desactivado** | **422** en `subject_id`. Reenviar el que el ticket ya tiene sí vale |
+| `subject_id` igual al actual | No toca el texto: el ticket conserva lo que se radicó aunque el asunto se haya renombrado |
+
+`POST` exige uno de los dos (`subject_id` o `subject`). El listado `GET /api/support` y el de
+archivados filtran con `?subject_id=<id>`; `?subject_id=other` devuelve los que **no** tienen
+asunto de catálogo (escritos a mano y anteriores al catálogo). Cambiar el asunto deja el
+evento `subject_changed` en el historial (textos viejo y nuevo en `old_value`/`new_value`,
+`metadata.from_catalog`).
+
+`GET /api/catalogs/ticket` añade `subjects`: `[{ "id": 3, "name": "Sin internet" }]`, sólo los
+vigentes del ISP de la sesión y en su orden. Es aditivo: las demás claves no cambian. La API
+de socios (`/v1/partner`) **no** cambia: sigue exponiendo sólo `subject` (el texto).
 
 ### Pruebas técnicas del ticket (PR F2 · 2026-09-25)
 
@@ -2762,6 +2998,7 @@ el frontend sólo lo lee si el header existe.
 | `kind` | Qué pasó |
 |---|---|
 | `needs_advanced_mode` | El borrador es un documento completo pero se va a renderizar en **modo seguro**: el shell fijo lo desarma y el PDF no se parecerá al editor |
+| `long_table_cell` | Una celda `<td>`/`<th>` tiene más de `TemplateDiagnostics::LONG_TABLE_CELL_CHARS` (2.500) caracteres de texto visible. dompdf no parte celdas entre páginas y **recorta en silencio** lo que no cabe (P-8). `token` es el inicio del texto de la celda, no un marcador. Se reportan como máximo 2, la más larga primero |
 | `malformed_placeholder` | Llaves desparejadas (`{{token}`) o basura dentro (`{{ token&nbsp;}}`): no se reconoce, así que **se imprime literal** en vez de blanquearse |
 | `foreign_marker` | Marcador de otro sistema **sin llaves** (`NUMERO_CONTRATO_TAG`): aquí es texto y se imprime tal cual |
 | `foreign_placeholder` | `{{token}}` con el nombre de otro sistema; hay equivalente conocido (`config/document_placeholder_aliases.php`) |
@@ -2873,6 +3110,24 @@ que usa el campo "A nombre de quién" de un gasto.
 |---|---|---|
 | `POST` | `/api/settings/cache/clear` | `view_settings` |
 | `GET` | `/api/system/version` | — (cualquier usuario autenticado) |
+| `GET` | `/api/system/status` | — (cualquier usuario autenticado) |
+
+`/api/system/status` (KAN-68) alimenta el recuadro «Estado del Sistema». Lee el latido del
+planificador con **la misma clave y el mismo umbral** que `/health`
+(`config/health.php`, 300 s por defecto):
+
+```json
+{ "scheduler": { "status": "ok", "last_run_seconds_ago": 42, "max_silence_seconds": 300 } }
+```
+
+`status` puede ser:
+
+- `ok`: latió dentro del umbral;
+- `stale`: pasó el umbral;
+- `never`: no ha latido desde el despliegue;
+- `not_expected`: entorno con `HEALTH_SCHEDULER_EXPECTED=false`.
+
+No expone nada más.
 
 `/api/system/version` devuelve la versión del despliegue que atiende:
 
@@ -3176,7 +3431,7 @@ distinga «me cambió la IP» de «me revocaron la llave» sin llamar por teléf
 | 401 | *(sin cuerpo propio)* | Token inexistente, vencido o de un dueño que no es `ApiClient` |
 | 401 | `invalid_credentials` | Autenticó pero no con una llave de API (p. ej. sesión del panel) |
 | 401 | `key_revoked` / `key_expired` | Llave revocada o vencida |
-| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave |
+| 403 | `ip_not_allowed` | La IP de origen no está en la allowlist de la llave. El cuerpo trae además `your_ip`, la IP con la que llegó la petición (desde OpenAPI 1.2.0, KAN-39). Es el único rechazo que la incluye |
 | 403 | `client_disabled` | El cliente de API está desactivado |
 | 403 | `tenant_missing` | La llave no tiene tenant asignado (falla cerrado) |
 | 403 | `https_required` | Petición por HTTP plano en producción |

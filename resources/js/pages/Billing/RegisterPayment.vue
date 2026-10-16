@@ -31,6 +31,9 @@ const netBalance       = ref(0)
 // Abonos parciales anteriores que ya cerraron su factura y se cobrarán en la
 // próxima: no se deben hoy, pero el cajero tiene que saber que existen.
 const carryoverBalance = ref(0)
+// Cuotas de instalación que esperan la mensualidad (una por factura).
+const installmentsBalance = ref(0)
+const installmentsPending = ref(0)
 // Estado de corte del cliente seleccionado. Se pinta ANTES de cobrar: el cajero
 // tiene que saber que está suspendido y que el pago lo va a reconectar.
 const suspension       = ref(null)
@@ -191,6 +194,8 @@ const getBalance = async () => {
     creditBalance.value   = 0
     netBalance.value      = 0
     carryoverBalance.value = 0
+    installmentsBalance.value = 0
+    installmentsPending.value = 0
     suspension.value      = null
     try {
         const res = await billingService.getBalance(form.value.customer_id)
@@ -198,6 +203,8 @@ const getBalance = async () => {
         creditBalance.value    = res.data.credit_balance    ?? 0
         netBalance.value       = res.data.net_balance       ?? res.data.balance ?? 0
         carryoverBalance.value = res.data.carryover_balance ?? 0
+        installmentsBalance.value = res.data.installments_balance ?? 0
+        installmentsPending.value = res.data.installments_pending ?? 0
         suspension.value       = res.data.suspension        ?? null
     } catch (e) {
         // ignore
@@ -460,6 +467,11 @@ onMounted(() => {
                         <div v-if="carryoverBalance > 0" class="mb-2">
                             <span class="text-xs font-medium bg-amber-400/30 rounded-lg px-2 py-1 inline-block">
                                 ↷ ${{ Number(carryoverBalance).toLocaleString('es-CO') }} pendiente de abonos anteriores
+                            </span>
+                        </div>
+                        <div v-if="installmentsBalance > 0" class="mb-2">
+                            <span class="text-xs font-medium bg-blue-400/30 rounded-lg px-2 py-1 inline-block">
+                                ${{ Number(installmentsBalance).toLocaleString('es-CO') }} en {{ installmentsPending }} cuota(s) de instalación por cobrar, una por mensualidad
                             </span>
                         </div>
                         <p class="text-sm opacity-70">Saldo neto descontando crédito disponible.</p>

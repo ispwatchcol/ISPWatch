@@ -1219,8 +1219,10 @@ const applyInstallationSheet = (installation) => {
     setIfEmpty('pppoe_username',      sheet.pppoe_username)
     setIfEmpty('pppoe_password',      sheet.pppoe_password)
     setIfEmpty('pppoe_local_address', sheet.pppoe_local_address)
-    // El módem de la hoja es el equipo del cliente: sirve como MAC del lease DHCP.
-    setIfEmpty('mac_address',  sheet.modem_mac)
+    // La MAC del lease DHCP es la del equipo que se instaló, leída del
+    // inventario de la orden. `sheet.modem_mac` es la casilla manual retirada
+    // (§ 114): sólo la traen órdenes anteriores, y queda como respaldo.
+    setIfEmpty('mac_address',  installation.installed_device_mac || sheet.modem_mac)
 
     // Fibra: si el elemento de red de la orden es una caja NAP, el alta tiene que
     // entrar en modo fibra o el select de "Caja" queda vacío (la lista inalámbrica

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CutType;
 use App\Models\ScriptVersion;
+use App\Models\TicketSubject;
 use App\Models\TypeBilling;
 use App\Models\User;
 use App\Support\TicketCatalogs;
@@ -92,6 +93,15 @@ class CatalogController extends Controller
             // tecnologia. NO son codigos y `test_type` sigue siendo texto libre
             // (decision S-4, coherente con D-06).
             'measurement_suggestions' => TicketMeasurements::sugerenciasPorTecnologia(),
+
+            // Asuntos frecuentes del ISP (`ticket_subjects`): sólo los que se
+            // pueden elegir hoy. Es vocabulario propio del tenant —no hay filas
+            // de plataforma—, así que el scope de `BelongsToTenant` basta. Van
+            // con id y no con código: son de cada ISP y no tienen código
+            // estable que un integrador pueda conocer.
+            'subjects' => TicketSubject::query()->active()->ordered()->get(['id', 'name'])
+                ->map(fn (TicketSubject $s) => ['id' => $s->id, 'name' => $s->name])
+                ->values(),
 
             // Para que un consumidor sepa si su copia sigue vigente sin
             // volver a descargarla entera.

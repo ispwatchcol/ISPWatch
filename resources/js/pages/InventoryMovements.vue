@@ -202,6 +202,10 @@
                     class="block text-[11px] text-indigo-600 dark:text-indigo-400 underline">
                     Orden #{{ m.installation_id }}
                   </RouterLink>
+                  <RouterLink v-if="m.support_ticket_id" :to="`/support/${m.support_ticket_id}`"
+                    class="block text-[11px] text-indigo-600 dark:text-indigo-400 underline">
+                    Ticket #{{ m.support_ticket_id }}
+                  </RouterLink>
                 </td>
                 <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{{ m.created_by || '—' }}</td>
               </tr>

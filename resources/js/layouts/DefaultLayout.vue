@@ -1,5 +1,16 @@
 <template>
-    <div class="flex min-h-screen bg-gray-100 dark:bg-gray-900">
+    <!--
+        Converza suspendió al ISP por falta de pago (KAN-126): en vez del panel,
+        la pantalla de «servicio suspendido». Sin sidebar y sin página: nada que
+        se monte aquí podría cargar sus datos de todos modos. El botón de
+        WhatsApp se queda: es el canal de soporte de ISPWatch.
+    -->
+    <div v-if="suspension">
+        <ServiceSuspendedScreen />
+        <WhatsAppButton />
+    </div>
+
+    <div v-else class="flex min-h-screen bg-gray-100 dark:bg-gray-900">
         <!-- Mobile Header (Visible only on mobile) -->
         <div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-40 flex items-center justify-between px-4">
             <!-- Logo area -->
@@ -49,13 +60,23 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import Sidebar from '../components/Sidebar.vue';
 import WhatsAppButton from '../components/WhatsAppButton.vue';
+import ServiceSuspendedScreen from '../components/ServiceSuspendedScreen.vue';
+import { apiClient } from '../services/api.js';
+import { checkServiceStatus, useServiceSuspension } from '../composables/useServiceSuspension.js';
 
 const isSidebarOpen = ref(false);
 const route = useRoute();
+const { suspension } = useServiceSuspension();
+
+// No bloquea el render: si el ISP está suspendido, la pantalla aparece en
+// cuanto llega la respuesta (o el primer 423 de la página, lo que sea antes).
+onMounted(() => {
+    checkServiceStatus((url) => apiClient.get(url));
+});
 
 // Close sidebar when route changes
 watch(() => route.path, () => {

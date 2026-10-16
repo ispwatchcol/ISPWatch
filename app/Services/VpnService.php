@@ -274,6 +274,11 @@ class VpnService
 # ====================================
 /ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
 /ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
+# ICMP sólo desde la red de gestión (P-26): sin esto un equipo con drop por
+# defecto queda mudo al ping y OverlayReachabilityProbe no puede distinguir
+# «filtra ICMP» de «no hay nadie». Mismo comentario: el remove de arriba la
+# limpia también, así que re-aplicar el script no la duplica.
+/ip firewall filter add chain=input action=accept protocol=icmp src-address={$mgmtNet} comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # WATCHDOG
@@ -428,6 +433,11 @@ TENANT;
 # script no duplica la regla ni requiere inspeccionar las reglas existentes.
 /ip firewall filter remove [find comment="ISPWatch-CORE-MGMT"]
 /ip firewall filter add chain=input action=accept protocol=tcp src-address={$mgmtNet} dst-port=22,8291,8728 comment="ISPWatch-CORE-MGMT" place-before=0
+# ICMP sólo desde la red de gestión (P-26): sin esto un equipo con drop por
+# defecto queda mudo al ping y OverlayReachabilityProbe no puede distinguir
+# «filtra ICMP» de «no hay nadie». Mismo comentario: el remove de arriba la
+# limpia también, así que re-aplicar el script no la duplica.
+/ip firewall filter add chain=input action=accept protocol=icmp src-address={$mgmtNet} comment="ISPWatch-CORE-MGMT" place-before=0
 
 # ====================================
 # BLINDAJE DEL TÚNEL CONTRA MULTI-WAN
@@ -589,10 +599,10 @@ SCRIPT;
                     'uptime' => $result['uptime'] ?? null,
                     'caller_id' => $result['caller_id'] ?? null,
                     'duplicate_tunnels' => $duplicates,
-                    // Credenciales de gestión del RB (columnas legacy = fuente de verdad,
-                    // las que escribe el formulario; *_encrypted no se mantiene — ver 4f24551)
+                    // Usuario de gestión del RB. La contraseña NO viaja (P-2 /
+                    // KAN-45): el formulario recarga el router tras verificar y
+                    // muestra si hay una guardada, sin el secreto.
                     'user_rb' => $router->user_rb,
-                    'password_rb' => $router->password_rb,
                 ];
             } else {
                 Log::info('[VPN] No hay PPP activo para usuario', [

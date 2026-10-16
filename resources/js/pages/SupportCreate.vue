@@ -74,19 +74,13 @@
                         </div>
 
                         <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                    Asunto <span class="text-red-500">*</span>
-                                </label>
-                                <input
-                                    v-model="form.subject"
-                                    type="text"
-                                    placeholder="Ej: Problema con conexión a internet"
-                                    class="w-full px-3 py-2 rounded-lg border bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    :class="errors.subject ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'"
-                                />
-                                <p v-if="errors.subject" class="mt-1 text-sm text-red-500">{{ errors.subject }}</p>
-                            </div>
+                            <!-- Del catálogo de asuntos del ISP, o «Otro…» con texto
+                                 libre. Del catálogo es lo que permite filtrar después. -->
+                            <TicketSubjectField
+                                v-model="asunto"
+                                :error="errors.subject || errors.subject_id"
+                                :puede-administrar="canManageSubjects"
+                            />
 
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Descripción</label>
@@ -256,9 +250,9 @@
                             <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ selectedStaff.user_name }} {{ selectedStaff.user_lastname }}</p>
                         </div>
 
-                        <div v-if="form.subject" class="mb-4 p-3 bg-gray-50 dark:bg-gray-700/40 rounded-lg">
+                        <div v-if="asuntoTexto" class="mb-4 p-3 bg-gray-50 dark:bg-gray-700/40 rounded-lg">
                             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Asunto</p>
-                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ form.subject }}</p>
+                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ asuntoTexto }}</p>
                         </div>
 
                         <div v-if="addCharge" class="mb-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-900/30">
@@ -279,7 +273,7 @@
                             </div>
                         </div>
 
-                        <div v-if="!selectedCustomer && !form.subject" class="text-center py-6 text-gray-400 dark:text-gray-500 text-sm italic">
+                        <div v-if="!selectedCustomer && !asuntoTexto" class="text-center py-6 text-gray-400 dark:text-gray-500 text-sm italic">
                             Completa el formulario para ver el resumen
                         </div>
 
@@ -315,7 +309,9 @@ import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
+import TicketSubjectField from '../components/TicketSubjectField.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 
@@ -329,9 +325,15 @@ const {
 const form = ref({
     user_id: '',
     staff_id: '',
-    subject: '',
     description: ''
 })
+
+// Asunto: `{ subject_id, subject }`. Ver TicketSubjectField.
+const asunto = ref({ subject_id: null, subject: '' })
+const asuntoTexto = computed(() => asunto.value.subject?.trim() || '')
+
+const authStore = useAuthStore()
+const canManageSubjects = computed(() => authStore.hasPermission('ticket_manage_catalogs'))
 
 // Lo habitual es abrir el ticket sin diagnóstico y completarlo tras la visita,
 // pero quien atiende por teléfono a veces ya sabe el síntoma. Se ofrece, no se
@@ -401,7 +403,7 @@ const formatCurrency = (val) => {
 const validate = () => {
     errors.value = {}
     if (!form.value.user_id) errors.value.user_id = 'El cliente es requerido'
-    if (!form.value.subject || form.value.subject.trim() === '') errors.value.subject = 'El asunto es requerido'
+    if (!asunto.value.subject_id && !asuntoTexto.value) errors.value.subject = 'Elige un asunto o escribe uno'
     return Object.keys(errors.value).length === 0
 }
 
@@ -425,7 +427,10 @@ const handleSubmit = async () => {
         const ticketRes = await api.support.create({
             user_id: form.value.user_id,
             staff_id: form.value.staff_id || null,
-            subject: form.value.subject,
+            // Con asunto del catálogo el servidor copia su nombre; con «Otro…»
+            // manda el texto. Se envían los dos y el servidor decide.
+            subject_id: asunto.value.subject_id || null,
+            subject: asuntoTexto.value || null,
             description: form.value.description,
             no_charge: noCharge.value,
             no_charge_reason: noChargeReason.value || null,

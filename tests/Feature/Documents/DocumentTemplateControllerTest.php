@@ -251,7 +251,7 @@ class DocumentTemplateControllerTest extends TestCase
     {
         Sanctum::actingAs($this->admin);
 
-        $fakePdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class)->shouldIgnoreMissing(\Mockery::self());
+        $fakePdf = $this->fakePdf();
         $fakePdf->shouldReceive('stream')
             ->once()
             ->with('vista-previa.pdf')
@@ -283,6 +283,38 @@ class DocumentTemplateControllerTest extends TestCase
             $decoded[0]['label']
         );
         $this->assertNotEmpty($decoded[0]['message']);
+        $this->assertSame(['kind', 'token', 'label', 'message'], array_keys($decoded[0]));
+    }
+
+    /**
+     * P-8 / KAN-60: una celda con texto largo llega al editor por el mismo
+     * canal que el resto de los avisos, con el PDF entregado igual.
+     */
+    public function test_preview_warns_about_a_table_cell_long_enough_to_be_cut_by_dompdf(): void
+    {
+        Sanctum::actingAs($this->admin);
+
+        $fakePdf = $this->fakePdf();
+        $fakePdf->shouldReceive('stream')->once()
+            ->andReturn(response('%PDF-fake', 200, ['Content-Type' => 'application/pdf']));
+
+        $renderer = \Mockery::mock(\App\Services\Templates\TemplateRenderer::class);
+        $renderer->shouldReceive('previewContract')->once()->andReturn($fakePdf);
+        $renderer->shouldReceive('lastRenderWarnings')->once()->andReturn([]);
+        $this->app->instance(\App\Services\Templates\TemplateRenderer::class, $renderer);
+
+        $clausula = str_repeat('El titular autoriza el tratamiento de sus datos personales. ', 60);
+
+        $response = $this->postJson('/api/document-templates/contract/preview', [
+            'body_html'        => '<table><tr><td>' . $clausula . '</td></tr></table>',
+            'is_advanced_mode' => true,
+        ]);
+
+        $response->assertStatus(200);
+        $decoded = json_decode((string) $response->headers->get('X-Template-Warnings'), true);
+
+        $this->assertIsArray($decoded);
+        $this->assertSame(TemplateDiagnostics::KIND_LONG_TABLE_CELL, $decoded[0]['kind']);
         $this->assertSame(['kind', 'token', 'label', 'message'], array_keys($decoded[0]));
     }
 

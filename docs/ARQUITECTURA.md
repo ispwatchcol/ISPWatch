@@ -25,6 +25,10 @@
 12. [Dependencias críticas](#12-dependencias-críticas)
 13. [Despliegue](#13-despliegue)
 14. [API pública de solo lectura](#14-api-pública-de-solo-lectura)
+15. [Trazabilidad del flujo de caja](#15-trazabilidad-del-flujo-de-caja)
+15. [Catálogos versionados del ticket de soporte](#15-catálogos-versionados-del-ticket-de-soporte)
+16. [Observabilidad y dominios de fallo](#16-observabilidad-y-dominios-de-fallo)
+17. [Corte del panel por falta de pago del SaaS (Converza)](#17-corte-del-panel-por-falta-de-pago-del-saas-converza)
 
 ---
 
@@ -300,6 +304,30 @@ cualquier custodio —recoger lo que un técnico no usó es su función— porqu
 `view_inventory` y el movimiento queda escrito. Lo que nunca se permite es *consumir* existencias
 ajenas en silencio.
 
+**Precisión, reenvío y concurrencia (2026-10-10).** El ledger es también quien valida la
+**cantidad**: `assertQuantityFor()` exige la precisión del producto
+(`inventory_stock.quantity_decimals`: enteros para piezas, hasta 2 decimales para metros) en
+`transferQuantity()` y en los dos `assignMaterialTo*()`. Contra el **doble descuento**:
+
+| Riesgo | Defensa |
+|---|---|
+| Dos consumos simultáneos del mismo saldo | `lockForUpdate()` sobre la fila de `inventory_balances` (ya existía) |
+| El mismo `POST` reenviado (doble clic, red caída) | `client_request_id` + `unique(tenant_id, client_request_id)`; `InventoryLedger::once()` devuelve la línea existente y, si la carrera la gana otro, revierte su transacción entera |
+| Dos registros simultáneos del mismo serial | `assertDeviceStillAt()` relee el equipo **bloqueado** dentro de la transacción y aborta si ya cambió de custodio |
+| Dos «Quitar» simultáneos de la misma línea de orden | `releaseFromInstallation()` relee la línea bloqueada; el segundo no la encuentra y no devuelve nada |
+
+**Catálogo y existencia son dos pasos.** Crear un producto en `inventory_stock` no le da
+existencia. Un material la obtiene sólo por una entrada del ledger (saldo en
+`inventory_balances`), y un equipo con serial, sólo como fila de `inventory_device` de un modelo
+**por serial**: desde 2026-10-11 el alta de equipos y la carga masiva rechazan un modelo por
+cantidad, y la disponibilidad ignora las filas antiguas que lo hicieron.
+
+**Sin fuentes paralelas.** El consumo de material sólo existe como línea de
+`installation_equipment`/`ticket_equipment`. El antiguo «Cable utilizado (metros)» de la hoja
+(`sheet.cable_meters`) ya no se escribe —el servidor ignora lo que llegue y conserva el valor
+histórico—; la pantalla muestra un resumen calculado de las líneas en metros. «Materiales
+adicionales» queda como nota para lo que no se lleva en inventario y lo dice en pantalla.
+
 **4. Por dónde sale el inventario: la visita.** Hay dos puertas, y hasta el 2026-09-23 sólo
 estaba construida una.
 
@@ -404,7 +432,7 @@ como los reintentos del failover** (`retryFailedInvoice`). El orden no es casual
 |---|---|---|
 | 1 | `Invoice::create` con el cargo del plan | `balance_due` sale del total, **sin atajos**: un mes de cortesía nace en cero porque su subtotal *es* cero |
 | 2 | Ítem del plan (`type = plan`) | Prorrateo y cortesía ya resueltos por `FirstInvoicePolicy` |
-| 3 | `applyPendingCarryoversTo()` — arrastre de abonos parciales | Se salta en meses de cortesía, a propósito: espera a la siguiente factura cobrable |
+| 3 | `applyPendingCarryoversTo()` — arrastre de abonos parciales y **una cuota por acuerdo de pago** de instalación | Se salta en meses de cortesía, a propósito: espera a la siguiente factura cobrable. Qué entra lo decide `chargeablePendingCarryovers()`, que también usa la vista previa de facturas faltantes |
 | 4 | **`applyAdditionalServicesTo()`** — servicios adicionales recurrentes | Después del arrastre y **antes** del crédito |
 | 5 | `applyCreditToInvoice()` — saldo a favor | Aplicarlo antes del paso 4 lo calcularía contra un total incompleto y dejaría `balance_due` mal |
 | 6 | Notificación | Decide por `balance_due > 0`, no por el motivo: una cortesía con adicionales **sí** se avisa |
@@ -594,6 +622,60 @@ Dos consecuencias de diseño que conviene tener presentes:
 Los PDF que el ISP sube a mano (`type = contrato`, `signed = false`) **no** reciben número:
 no se puede sellar por dentro un archivo ajeno, y un consecutivo que no aparece en el papel
 prometería una trazabilidad que el documento no tiene.
+
+### Acuerdo de pago de la instalación en cuotas (2026-10-11)
+
+La casilla «Acuerdo de pago» de la cartera existía desde junio y no hacía nada: la factura de
+instalación nacía vencida el mismo día por todo el saldo y, con `overdue_invoices = 1`, al
+cliente que había pactado pagar en cuotas se le cortaba al día siguiente.
+
+**El modelo.** Las cuotas no son un concepto contable nuevo: son **arrastres** numerados.
+
+```
+Factura de instalación (madre)       total 150.000 · abono 30.000
+  carried_out = 120.000  ─────────►  invoice_carryovers  (installment 1/3, 2/3, 3/3 · 40.000 c/u)
+  balance_due = 0 (paid)                 │ monthly  → pending; cada mensualidad absorbe UNA
+                                         │ separate → applied a su propia factura (vence mes a mes)
+```
+
+Es el mismo camino por el que ya salía el faltante de un abono parcial, así que la ecuación
+de la factura (C1 de `billing:audit-books`), la coherencia del arrastre (C13), anular, borrar
+y «marcar como no pagada» funcionan sin una regla nueva. La única regla nueva está en
+`BillingService::chargeablePendingCarryovers()`: de cada acuerdo, sólo la cuota de número más
+bajo que siga pendiente.
+
+**Dos modos, a elección del asesor** (`customer_installations.installments_mode`):
+
+| | `monthly` | `separate` |
+|---|---|---|
+| Facturas que recibe el cliente | Una al mes (la mensualidad trae la cuota) | La mensualidad + una por cuota |
+| Cuándo cuenta para mora/corte | Si no paga la mensualidad | Cuando vence cada cuota |
+| Tope de facturación | No le afecta | Las cuotas que **no han vencido** no cuentan (`pendingInvoiceCount`) |
+| Cliente «no facturar» | Las cuotas no se cobran (aviso al guardar) | Se cobran igual |
+
+**Quién la arma:** `InstallationInstallmentPlanner::sync()`, llamado desde
+`InstallationBillingService::syncPayment()` dentro de la misma transacción que la factura.
+Calcula lo que la madre debe *antes* de financiar (total − asignado − saldo a favor −
+faltantes ya arrastrados), deja fijo lo ya **cobrado** y reparte lo que falta. «Cobrada» es,
+en `monthly`, la cuota que ya viajó a una mensualidad; en `separate`, la que su factura ya
+recibió dinero. Lo que no cuadra (menos cuotas que las cobradas, cambiar de modo con cuotas
+cobradas, un saldo por debajo de lo cobrado) se rechaza con 422 y, como el controlador
+envuelve orden + factura en una transacción, la orden tampoco queda a medias. Las facturas
+aparte intactas se reescriben **en su sitio**; las sobrantes se **anulan**, nunca se borran.
+
+**Lo que no hace, a propósito:** no cobra intereses (es un diferimiento, no un crédito), no
+tiene calendario propio en modo `monthly` (la cuota sigue al ciclo de facturación del router:
+si una mensualidad se anula, la cuota se corre un mes) y no emite avisos propios.
+
+**Dos arreglos que salieron del camino.** `syncPayment()` recalculaba el saldo ignorando los
+faltantes de abonos parciales ya arrastrados (re-guardar la cartera los volvía a deber), y
+volver a guardar la cartera de una factura **anulada** la resucitaba. Ver bitácora § 113.
+
+**Qué pago es de la cartera (KAN-124).** `syncPayment()` sólo gestiona el pago marcado con
+`payments.installation_id` de la orden. Los abonos que entran por Facturación sobre la misma
+factura no llevan esa marca: la cartera no los edita ni los borra, aunque cuentan para el
+saldo. Antes tomaba la primera asignación de la factura y podía borrar un abono ajeno. Ver
+bitácora § 116.
 
 ### Plantillas de documentos (`app/Services/Templates`)
 
@@ -956,6 +1038,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `billing:verify-monthly` | Auditoría de *no-show*: detecta routers que no facturaron |
 | `billing:auto-cut` | Corte automático por mora |
 | `billing:reconcile-suspensions` | Reconcilia DB ⇄ RouterBoard (re-corta lo no confirmado) |
+| `billing:reconcile-reconnections` | Reconcilia en el sentido inverso (reabre lo que la BD da por activo y el equipo no confirmó) |
 | `billing:verify-cuts` | Auditoría de *no-show* de cortes |
 | `billing:verify-orphan-payments` | Auditoría de caja: dinero recibido que ya no respalda factura ni saldo |
 | `billing:audit-books` | **Cierre de libros**: las catorce invariantes contables. Lector puro |
@@ -974,6 +1057,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences` | Repara secuencias de PostgreSQL desincronizadas |
 | `documents:migrate-to-s3 {--dry-run}` | Migra documentos locales a S3 |
+| `documents:audit-storage {--tenant=} {--show=50}` | **Solo lectura.** Lista los documentos de cliente sin archivo en S3, separa los anteriores al 2026-07-29 y no cuenta como perdido un error de consulta (P-9) |
 | `router:diagnose-wan` | Diagnóstico de interfaz WAN |
 | `router:probe-overlay {id?} {--tenant=}` | Sondea la flota: ¿qué routers responden de verdad en su dirección del overlay? |
 
@@ -1006,6 +1090,7 @@ Detalle completo en [`BASE_DATOS.md`](BASE_DATOS.md).
 | **Google Maps JS API** | Mapa de clientes (clave **por tenant**, cifrada en BD) | `tenant.google_maps_api_key` |
 | **MikroTik CORE** | Punto de entrada SSH/API a toda la red de routers | `MIKROTIK_CORE_*` |
 | **Converza** | Sistema externo que lee `router_outage_events` en **solo lectura** y difunde por WhatsApp la falla masiva | Contrato de datos, no HTTP |
+| **Converza (Core Brain)** | Le cobra el SaaS a cada ISP. ISPWatch le pregunta por HTTP si el ISP está suspendido y, si lo está, le cierra el panel (§ 17) | `CONVERZA_URL`, `CONVERZA_SAAS_STATUS_TOKEN` |
 
 > ⚠️ El lado Converza de la integración de falla masiva **no está en este repositorio**;
 > ISPWatch únicamente registra los eventos append-only.
@@ -1546,6 +1631,7 @@ Definido en `routes/console.php`. Requiere `schedule:run` cada minuto en el serv
 | Cada hora | `billing:retry-failed` | Sólo procesa filas con `next_retry_at` vencido |
 | Cada hora | `billing:auto-cut` | Gate por `cut_day` + `cut_time` de cada router |
 | Cada hora | `billing:reconcile-suspensions` | Failover DB ⇄ RouterBoard |
+| Cada hora | `billing:reconcile-reconnections` | Failover de reconexiones (P-29) |
 | Cada hora | `billing:send-reminders` | `withoutOverlapping(55)`; idempotente por ciclo |
 | Diario 06:00 | `billing:verify-monthly` | Auditoría *no-show* de facturación |
 | Diario 07:00 | `billing:verify-cuts` | Auditoría *no-show* de cortes |
@@ -1756,6 +1842,10 @@ de instalación.
   (llave, tenant, ruta, IP, código, milisegundos, motivo del rechazo). El logging
   nunca lanza: un fallo de auditoría no puede tumbar la petición del cliente.
 - `api-keys:prune-logs` corre a diario (03:30) y conserva 90 días.
+- `api-keys:expiring` corre a diario (08:30). Avisa por correo, **una vez por llave**
+  (`expiry_notified_at`), de las llaves vivas que vencen en 7 días. Los destinatarios son
+  `api_clients.contact_email` y `api_keys.self_service.notify_email`. Omite las integraciones
+  que ya rotaron a una llave que dura más (P-KEYS-1, KAN-43).
 - El cubo de rate limit es **propio del token**, no compartido con el limitador
   general de la API: el consumo del integrador no puede comerse la capacidad que
   el personal del ISP necesita para cobrar y reconectar.
@@ -2081,6 +2171,31 @@ estable, y muestra el segundo, que no lo es. La SPA los obtiene de
 `GET /api/catalogs/ticket` mediante el composable `useTicketCatalogs()`, que sustituyó a
 los mapas de etiquetas que estaban duplicados en cinco componentes.
 
+### 15.7 Asuntos frecuentes: un catálogo del ISP, no de plataforma (2026-10-11)
+
+El asunto era texto libre y por eso no servía para filtrar. `ticket_subjects` es la lista de
+asuntos de **cada ISP**, que administra quien tiene `ticket_manage_catalogs` (D-13, concedido
+a `admin`) desde Soporte → *Asuntos*.
+
+No sigue el modelo de los siete catálogos de arriba: no hay filas de plataforma, no hay
+`code` estable ni vigencia por fechas (basta `is_active`), y no se versiona para el
+integrador. Es vocabulario operativo —lo que un ISP llama «Caída de nodo» otro lo llama
+«Masivo»— y meterlo en `ticket_category` ataría el contrato de socios al gusto de cada
+cliente.
+
+Tres decisiones:
+
+- **El texto se conserva.** `support_ticket.subject` sigue siendo la verdad que leen la API
+  de socios, la búsqueda y los tickets viejos; al elegir del catálogo el servidor copia el
+  nombre y guarda `subject_id`. El filtro va por id, así que renombrar un asunto no rompe la
+  agrupación ni reescribe expedientes.
+- **«Otro…» existe.** El asunto raro de una vez no justifica una fila. Al filtrar, esos tickets
+  (y los anteriores al catálogo) se agrupan en `subject_id=other`.
+- **Se corrige al cerrar.** El modal de proponer cierre / cerrar / cierre especial muestra el
+  asunto y el diagnóstico editables y los guarda con el `PUT` de siempre **antes** de la
+  acción, porque los requisitos de cierre se evalúan sobre lo guardado. Los permisos son los
+  de siempre, campo por campo; lo que el rol no puede cambiar se muestra bloqueado.
+
 ---
 
 ## 16. Observabilidad y dominios de fallo
@@ -2221,3 +2336,111 @@ web, `LOG_LEVEL=info` y la URL de Healthchecks son del planificador.
 **Precedencia:** una variable declarada en un componente gana sobre la de nivel de app. Es
 útil para la excepción deliberada del `LOG_LEVEL`, y es una trampa para todo lo demás —
 una copia vieja olvidada dentro de un componente sombrea silenciosamente al valor bueno.
+
+---
+
+## 17. Corte del panel por falta de pago del SaaS (Converza)
+
+Añadido con KAN-126 (§ 115 de la bitácora).
+
+### 17.1 Quién corta a quién
+
+Converza (Core Brain) le cobra a cada ISP su suscripción. Si una factura vence sin pagar,
+Converza corta **su** panel y marca la cuenta como suspendida. El de ISPWatch no lo puede
+cortar él: lee la base de ISPWatch en solo lectura (principio no negociable del Brain). Por
+eso publica el estado y **ISPWatch decide**:
+
+```
+GET {CONVERZA_URL}/saas/estado/{tenant_id}
+Authorization: Bearer {CONVERZA_SAAS_STATUS_TOKEN}
+
+200 {"suspended": true, "known": true, "reason": "billing", "since": "…",
+     "message": "…", "payment_instructions": "…"}
+```
+
+El contrato del lado Converza es `docs/core-brain.md` § 8 de su repositorio
+(`SaasStatusController`). `reason` es `billing` (se levanta solo al registrar el pago) o
+`manual`; un ISP que no es cuenta de Converza responde `known: false, suspended: false`.
+
+### 17.2 Las piezas
+
+```
+SPA ── petición del panel ──► auth:sanctum ─► deny_api_clients ─► saas_active ─► permission:… ─► controlador
+                                                                        │
+                                                                        ▼
+                                                     ConverzaServiceStatus::forUser()
+                                                        caché local (store `file`)
+                                                        └─ si falta: GET a Converza (timeout 3 s)
+                                                                        │
+                                                         suspendido ─► 423 {code: service_suspended}
+```
+
+| Pieza | Archivo | Papel |
+|---|---|---|
+| Cliente HTTP + caché | `app/Services/Saas/ConverzaServiceStatus.php` | Pregunta, interpreta y recuerda |
+| Middleware `saas_active` | `app/Http/Middleware/EnsureSaasServiceActive.php` | 423 a toda ruta del panel |
+| `GET /api/saas/status` | `app/Http/Controllers/SaasStatusController.php` | La SPA pregunta si está cortada |
+| Estado en la SPA | `resources/js/composables/useServiceSuspension.js` | Lo escriben el interceptor y la pantalla |
+| Interceptor | `resources/js/services/api.js` | Reconoce el 423 `service_suspended` |
+| Pantalla | `resources/js/components/ServiceSuspendedScreen.vue` | Reemplaza al panel en `DefaultLayout` |
+
+El middleware va en el **grupo** `auth:sanctum` de `routes/api.php`, junto a
+`deny_api_clients`, por la misma razón que aquel: un endpoint nuevo del panel no puede
+quedarse sin él por olvido. Una prueba recorre todas las rutas y lo fija. Las dos
+excepciones se declaran en la ruta con `withoutMiddleware('saas_active')`:
+`GET /api/auth/me` (la sesión sigue identificada) y `GET /api/saas/status` (la pantalla
+necesita saber cuándo volver). Cerrar sesión no necesita excepción: es del navegador.
+
+### 17.3 Qué NO se corta
+
+El corte es del **panel**, no del servicio del ISP a sus clientes:
+
+| Sigue igual | Por qué no le alcanza |
+|---|---|
+| Facturación, recordatorios, cortes y reconexiones automáticas | Corren en el planificador, no en HTTP |
+| API partner (`/api/v1/partner`) | Grupo de rutas propio, sin `saas_active` |
+| Firma remota del contrato, login, `/health` | Fuera del grupo autenticado |
+| El cliente final que entra con su usuario | Rol `client` o ficha de cliente ⇒ no ve la suspensión |
+| El superadministrador de la plataforma | `users.is_superadmin` ⇒ no se consulta |
+
+Lo del cliente final es deliberado: enseñarle la pantalla sería contarle que su proveedor
+nos debe.
+
+### 17.4 Falla abierto
+
+Sólo un `"suspended": true` literal corta. Todo lo demás deja pasar:
+
+| Situación | Resultado | Se recuerda |
+|---|---|---|
+| `CONVERZA_URL` o el token vacíos | No se consulta nada | — |
+| Converza al día / `known: false` | Pasa | 5 min |
+| Suspendido | 423 | **1 min** |
+| Timeout, conexión rechazada, 401, 404, 429, 5xx, JSON sin `suspended` | Pasa (y queda en el log) | 1 min |
+| La caché no responde | Pasa (log de error) | — |
+
+Los tiempos son decisiones, no detalles:
+
+- **Suspendido, 1 min y no 5.** Converza levanta el corte en el acto al registrar el pago;
+  el ISP no debería esperar cinco minutos para volver a entrar. Los suspendidos son pocos.
+- **Error, 1 min.** Sin recordarlo, con Converza caído cada petición del panel esperaría el
+  timeout entero. Medido contra un servidor que tarda 10 s: la primera petición tarda 3,0 s
+  y las siguientes, 4 ms.
+- **Caché propia y local.** `CACHE_STORE=database` en producción: leer el estado de ahí
+  sumaría un viaje a Postgres a cada petición. El store es `file` (configurable con
+  `CONVERZA_SAAS_STATUS_CACHE_STORE`); cada instancia recuerda por su cuenta, que con una
+  sola instancia da igual y con varias sólo multiplica las consultas por el número de ellas.
+
+### 17.5 La SPA
+
+1. `DefaultLayout` pregunta `GET /api/saas/status` al montarse, sin bloquear el render, con
+   un suelo de 60 s entre consultas (cada sección monta su propio layout).
+2. Si la respuesta —o cualquier 423 `service_suspended` de cualquier llamada del panel— dice
+   suspendido, el estado queda anotado y `DefaultLayout` pinta `ServiceSuspendedScreen` en
+   vez del sidebar y la página. Las páginas se desmontan y dejan de pedir datos.
+3. `App.vue` oculta `NotificationHost` mientras tanto, para que los 423 de las páginas que
+   alcanzaron a montarse no apilen avisos de error encima de la pantalla.
+4. «Ya pagué» vuelve a preguntar; si el corte se levantó, recarga la página entera.
+
+Los textos de Converza (`message`, `payment_instructions`) se pintan escapados, nunca con
+`v-html`, y el backend los recorta a 2000 caracteres.
+

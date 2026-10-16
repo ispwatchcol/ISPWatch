@@ -1016,6 +1016,10 @@ class BillingController extends Controller
         // verlo: es plata que le va a llegar en la próxima factura.
         $pendingCarryover = \App\Models\InvoiceCarryover::pendingTotalFor((int) $customerId);
 
+        // Cuotas de instalación que esperan la mensualidad: una por factura.
+        // Aparte del arrastre porque NO se suman todas a la próxima factura.
+        $pendingInstallments = \App\Models\InvoiceCarryover::pendingInstallmentsFor((int) $customerId);
+
         // Estado de corte: el cajero tiene que saber ANTES de cobrar que el
         // cliente está suspendido, y que registrar el pago lo va a reconectar.
         $suspension = $this->billingService->suspensionStatusFor((int) $customerId);
@@ -1025,6 +1029,8 @@ class BillingController extends Controller
             'credit_balance'   => $creditBalance,
             'net_balance'      => $netBalance,
             'carryover_balance'=> $pendingCarryover,
+            'installments_balance' => $pendingInstallments['amount'],
+            'installments_pending' => $pendingInstallments['count'],
             'suspension'       => $suspension,
         ]);
     }
@@ -1382,10 +1388,35 @@ class BillingController extends Controller
 
     // ─── Billing Configs ─────────────────────────────────────────────────────
 
-    // List all billing configs with their associated routers
-    public function getBillingConfigs()
+    /**
+     * Configuraciones de facturación del tenant de la sesión (KAN-121).
+     *
+     * `Billing` no lleva scope de tenant (P-RLS-2 / KAN-42), así que sin este
+     * filtro el listado devolvía las de TODOS los ISP, y el PUT dejaba
+     * modificar la de otro — días de facturación y de corte incluidos.
+     *
+     * No basta con `tenant_id`: las filas anteriores a que RouterController lo
+     * poblara pueden tenerlo en NULL y siguen en uso. Esas se reconocen por el
+     * router que las referencia, que sí es del tenant.
+     */
+    private function tenantBillingConfigs(Request $request)
     {
-        $configs = Billing::with('routers:id,name,cut_type_id,billing_router_id')
+        $tenantId = $request->user()?->tenant_id;
+
+        return Billing::query()->where(function ($q) use ($tenantId) {
+            $q->where('tenant_id', $tenantId)
+                ->orWhere(function ($legacy) use ($tenantId) {
+                    $legacy->whereNull('tenant_id')
+                        ->whereHas('routers', fn ($r) => $r->where('tenant_id', $tenantId));
+                });
+        });
+    }
+
+    // List the tenant's billing configs with their associated routers
+    public function getBillingConfigs(Request $request)
+    {
+        $configs = $this->tenantBillingConfigs($request)
+            ->with('routers:id,name,cut_type_id,billing_router_id')
             ->with('routers.cutType:id,name')
             ->get();
 
@@ -1395,7 +1426,8 @@ class BillingController extends Controller
     // Update a billing config (cut_day, cut_time, overdue_invoices, etc.)
     public function updateBillingConfig(Request $request, $id)
     {
-        $billing = Billing::findOrFail($id);
+        // Otro tenant → 404, igual que un id inexistente (KAN-121).
+        $billing = $this->tenantBillingConfigs($request)->findOrFail($id);
 
         $validated = $request->validate([
             'create_invoice' => 'nullable|date',

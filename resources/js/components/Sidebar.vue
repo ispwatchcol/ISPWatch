@@ -314,7 +314,11 @@ const inventariosItems = computed(() => {
     if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Lista de equipos', to: '/inventory', icon: 'bi-hdd-network' });
     if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Agregar equipo', to: '/inventory/create', icon: 'oi-diff-added' });
+        items.push({ name: 'Agregar equipo con serial', to: '/inventory/create', icon: 'oi-diff-added' });
+    // Los materiales (cable, fibra, conectores) no llevan serial: se crean en el
+    // catálogo «por cantidad» y su existencia entra por Entrada de material.
+    if (authStore.hasPermission('view_inventory'))
+        items.push({ name: 'Agregar material', to: '/inventory/stocks?nuevo=material', icon: 'oi-diff-added' });
     if (authStore.hasPermission('view_inventory'))
         items.push({ name: 'Stock / Modelos', to: '/inventory/stocks', icon: 'md-inventory-round' });
     if (authStore.hasPermission('view_inventory'))

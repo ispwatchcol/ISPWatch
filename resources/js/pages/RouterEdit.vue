@@ -106,10 +106,13 @@
             <div>
               <label class="label">Password del RB</label>
               <div class="relative">
+                <!-- La contraseña guardada no viaja al navegador (P-2 / KAN-45):
+                     en blanco = se conserva la actual; se envía sólo si se escribe. -->
                 <input 
                   v-model="form.password" 
                   :type="showPassword ? 'text' : 'password'" 
-                  placeholder="Ej: 123456" 
+                  :placeholder="hasStoredPassword ? 'Déjalo en blanco para conservar la actual' : 'Ej: 123456'"
+                  autocomplete="new-password"
                   class="input pr-10" 
                 />
                  <button 
@@ -629,6 +632,8 @@ const routerId = route.params.id // ID del router a editar
 const loading = ref(false)
 const toast = ref(null)
 const showPassword = ref(false)
+// ¿Hay contraseña guardada? La API sólo dice eso, nunca el valor (P-2).
+const hasStoredPassword = ref(false)
 
 // VPN Script variables
 const vpnScript = ref("")
@@ -777,7 +782,9 @@ const loadRouterData = async () => {
     form.failover = data.failover || ""
     form.external_id = data.external_id || ""
     form.usuario = data.user_rb || ""
-    form.password = data.password_rb || ""
+    // Nunca se prellena: la API ya no devuelve la contraseña (P-2 / KAN-45).
+    form.password = ""
+    hasStoredPassword.value = data.has_password_rb === true
     form.puerto_api = data.puerto_api || 8728
     form.puerto_www = data.puerto_www || 80
     form.puerto_ssh = data.puerto_ssh || null
@@ -959,7 +966,6 @@ const saveRouter = async () => {
     failover: form.failover || null,
     external_id: form.external_id || null,
     user_rb: form.usuario,
-    password_rb: form.password,
     puerto_api: form.puerto_api || 8728,
     puerto_www: form.puerto_www || 80,
     puerto_ssh: form.puerto_ssh || null,
@@ -982,6 +988,12 @@ const saveRouter = async () => {
     radius: form.radius || false,
     falla_general: form.falla_general || false,
     rangos_ip: form.rangos_ip || null,
+  }
+
+  // En blanco = conservar la contraseña guardada. Mandar "" la vaciaría (o la
+  // rechazaría la validación), así que sólo viaja si se escribió una nueva.
+  if (form.password) {
+    payload.password_rb = form.password
   }
 
   // El backend crea/actualiza la config de facturación y enlaza billing_router_id.
@@ -1090,9 +1102,6 @@ const verifyConnection = async () => {
       
       if (data.user_rb) {
         form.usuario = data.user_rb
-      }
-      if (data.password_rb) {
-        form.password = data.password_rb
       }
       
       await loadRouterData()

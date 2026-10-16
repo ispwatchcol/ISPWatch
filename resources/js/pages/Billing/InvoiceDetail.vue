@@ -1,4 +1,5 @@
 <script setup>
+import { downloadBlob } from '@/utils/download'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import billingService from '@/services/billing'
@@ -27,8 +28,18 @@ const carriedInFrom = computed(() =>
         .filter(Boolean)
 )
 const carriedOutTo = computed(() =>
-    (invoice.value?.carryovers_out ?? []).find(c => c.to_invoice?.number)?.to_invoice?.number ?? null
+    (invoice.value?.carryovers_out ?? []).find(c => c.to_invoice?.number && c.installment_number == null)?.to_invoice?.number ?? null
 )
+
+// Cuotas de un acuerdo de pago de instalación: salen de esta factura por
+// `carried_out` igual que un abono parcial, pero no son «la próxima factura».
+const cuotasFuera = computed(() =>
+    (invoice.value?.carryovers_out ?? [])
+        .filter(c => c.installment_number != null)
+        .sort((a, b) => a.installment_number - b.installment_number)
+)
+const totalCuotas = computed(() => cuotasFuera.value.reduce((s, c) => s + Number(c.amount || 0), 0))
+const totalFaltanteFuera = computed(() => Math.max(0, Number(invoice.value?.carried_out || 0) - totalCuotas.value))
 
 const fetchInvoice = async () => {
     loading.value = true
@@ -128,12 +139,7 @@ const downloadPdf = async () => {
     if (!invoice.value) return
     try {
         const response = await billingService.downloadPdf(invoice.value.id)
-        const url = window.URL.createObjectURL(new Blob([response.data]))
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `Invoice-${invoice.value.number}.pdf`)
-        document.body.appendChild(link)
-        link.click()
+        downloadBlob(response.data, `Invoice-${invoice.value.number}.pdf`, 'application/pdf')
     } catch (e) {
         alert('Error downloading PDF')
     }
@@ -311,12 +317,28 @@ onMounted(() => {
                                     <span class="text-slate-600 dark:text-slate-300 font-medium">{{ formatDate(invoice.period_start) }} — {{ formatDate(invoice.period_end) }}</span>
                                 </div>
 
+                                <!-- Acuerdo de pago: financiado en cuotas -->
+                                <div v-if="cuotasFuera.length"
+                                    class="mt-4 pt-4 border-t border-slate-200 dark:border-gray-700 text-sm">
+                                    <div class="flex justify-between items-center text-blue-600 dark:text-blue-400 font-medium">
+                                        <span>Financiado en {{ cuotasFuera[0].installment_count }} cuota(s):</span>
+                                        <span>${{ totalCuotas.toLocaleString() }}</span>
+                                    </div>
+                                    <ul class="mt-1 space-y-0.5 text-xs text-slate-400">
+                                        <li v-for="c in cuotasFuera" :key="c.id">
+                                            Cuota {{ c.installment_number }}: ${{ Number(c.amount).toLocaleString() }}
+                                            <span v-if="c.to_invoice?.number">— en la factura #{{ c.to_invoice.number }}</span>
+                                            <span v-else>— espera la próxima mensualidad</span>
+                                        </li>
+                                    </ul>
+                                </div>
+
                                 <!-- Arrastre por abono parcial -->
-                                <div v-if="Number(invoice.carried_out) > 0"
+                                <div v-if="totalFaltanteFuera > 0.009"
                                     class="mt-4 pt-4 border-t border-slate-200 dark:border-gray-700 text-sm">
                                     <div class="flex justify-between items-center text-amber-600 dark:text-amber-400 font-medium">
                                         <span>↷ Trasladado a la próxima factura:</span>
-                                        <span>${{ Number(invoice.carried_out).toLocaleString() }}</span>
+                                        <span>${{ totalFaltanteFuera.toLocaleString() }}</span>
                                     </div>
                                     <p class="text-xs text-slate-400 mt-1">
                                         Se recibió un abono parcial: la factura se cerró y el faltante se cobra en la siguiente

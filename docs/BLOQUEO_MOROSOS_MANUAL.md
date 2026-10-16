@@ -153,7 +153,10 @@ desbloqueo real quedó pendiente. Lo delatan dos cosas:
 - el log `UNSUSPEND/failed`, reintentable desde **Acciones masivas**;
 - el mensaje rojo *"Pago registrado — revisar reconexión"* que ve el cajero.
 
-Nada lo reintenta solo todavía (**P-29** en `MEJORAS_RECOMENDADAS.md`): hay que mirarlo.
+Desde el 2026-10-05 `billing:reconcile-reconnections` lo reintenta solo cada hora, con el
+mismo backoff y tope de intentos que los cortes (**P-29**). Si agota los intentos queda como
+*agotado* en **Acciones masivas** y ahí sí hay que mirarlo. No reabre a quien se volvió a
+cortar después, ni a una ficha `retirado`/`cancelado`/`suspendido`, ni routers RADIUS.
 
 ### Clientes que quedaron atrapados
 

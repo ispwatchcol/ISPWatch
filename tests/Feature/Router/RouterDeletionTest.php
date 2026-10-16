@@ -174,4 +174,68 @@ class RouterDeletionTest extends TestCase
 
         $this->assertSame(2, (int) $row['active_customers_count']);
     }
+
+    // ── P-FK-1 / KAN-55 ──────────────────────────────────────────
+
+    #[Test]
+    public function force_suelta_explicitamente_a_las_bajas_antes_de_borrar(): void
+    {
+        // Ya no depende de ON DELETE SET NULL: en PostgreSQL la FK es RESTRICT.
+        $tenant = Tenant::factory()->create();
+        $router = $this->router($tenant);
+        $baja   = $this->customer($tenant, $router, 'retirado');
+
+        Sanctum::actingAs($this->admin($tenant));
+        $this->deleteJson("/api/routers/{$router->id}?force=1")->assertOk();
+
+        $this->assertNull(Router::find($router->id));
+        $this->assertNull(CustomerProfile::where('user_id', $baja->user_id)->value('router_id'));
+    }
+
+    #[Test]
+    public function en_postgres_la_base_rechaza_borrar_un_router_con_clientes(): void
+    {
+        if (\Illuminate\Support\Facades\DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('La FK RESTRICT sólo se aplica en PostgreSQL (migración 2026_10_05_120000).');
+        }
+
+        $tenant = Tenant::factory()->create();
+        $router = $this->router($tenant);
+        $this->customer($tenant, $router, 'activo');
+
+        $rechazado = false;
+        try {
+            // Transacción anidada = SAVEPOINT: el error no envenena la
+            // transacción de RefreshDatabase (trampa 25P02, bitácora § 89).
+            \Illuminate\Support\Facades\DB::transaction(
+                fn () => \Illuminate\Support\Facades\DB::delete('DELETE FROM router WHERE id = ?', [$router->id])
+            );
+        } catch (\Illuminate\Database\QueryException $e) {
+            $rechazado = true;
+        }
+
+        $this->assertTrue($rechazado, 'Un DELETE por SQL directo dejó huérfanos a los clientes.');
+        $this->assertNotNull(Router::find($router->id));
+    }
+
+    #[Test]
+    public function en_postgres_queda_una_sola_fk_restrict(): void
+    {
+        if (\Illuminate\Support\Facades\DB::getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('Sólo PostgreSQL.');
+        }
+
+        $fks = \Illuminate\Support\Facades\DB::select(<<<'SQL'
+            SELECT con.conname, con.confdeltype
+              FROM pg_constraint con
+              JOIN pg_class rel     ON rel.oid = con.conrelid
+              JOIN pg_class ref     ON ref.oid = con.confrelid
+              JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ANY (con.conkey)
+             WHERE con.contype = 'f' AND rel.relname = 'customer_profile'
+               AND ref.relname = 'router' AND att.attname = 'router_id'
+        SQL);
+
+        $this->assertCount(1, $fks);
+        $this->assertSame('r', $fks[0]->confdeltype); // r = RESTRICT
+    }
 }

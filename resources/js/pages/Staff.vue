@@ -303,6 +303,7 @@
 </template>
 
 <script setup>
+import { downloadBlob } from '@/utils/download'
 import { computed, onMounted, ref } from 'vue'
 import * as XLSX from 'xlsx'
 import NotificationToast from '@/components/NotificationToast.vue'
@@ -551,14 +552,7 @@ const generateCSV = (withBOM = false) => {
 const downloadFile = (content, filename, mimeType) => {
   if (!content) return
 
-  const blob = new Blob([content], { type: mimeType })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.setAttribute('href', url)
-  link.setAttribute('download', filename)
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  downloadBlob(content, filename, mimeType)
 }
 
 const exportToCSV = () => {

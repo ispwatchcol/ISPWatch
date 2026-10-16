@@ -363,4 +363,101 @@ class TemplateDiagnosticsTest extends TestCase
         $this->assertSame(TemplateDiagnostics::KIND_UNKNOWN_PLACEHOLDER, $findings[0]['kind']);
         $this->assertSame(TemplateDiagnostics::KIND_UNSUPPORTED_FONT, $findings[1]['kind']);
     }
+
+    // ── P-8 / KAN-60: celdas de tabla con texto que puede no caber en una página ──
+
+    private function longText(int $chars, string $unit = 'Cláusula legal. '): string
+    {
+        return mb_substr(str_repeat($unit, (int) ceil($chars / mb_strlen($unit)) + 1), 0, $chars);
+    }
+
+    /** @return array<int,array{kind:string,token:string,label:string,message:string}> */
+    private function longCellFindings(string $html): array
+    {
+        return array_values(array_filter(
+            $this->diagnostics->inspect($html, 'contract'),
+            fn (array $f) => $f['kind'] === TemplateDiagnostics::KIND_LONG_TABLE_CELL
+        ));
+    }
+
+    public function test_a_table_cell_with_more_text_than_the_threshold_is_reported(): void
+    {
+        $text = $this->longText(TemplateDiagnostics::LONG_TABLE_CELL_CHARS + 200);
+        $html = '<table><tr><td><strong>TRATAMIENTO DE DATOS</strong> ' . $text . '</td></tr></table>';
+
+        $findings = $this->longCellFindings($html);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringStartsWith('TRATAMIENTO DE DATOS', $findings[0]['token']);
+        $this->assertStringContainsString('caracteres', $findings[0]['message']);
+        $this->assertStringContainsString('<div>', $findings[0]['message']);
+    }
+
+    public function test_short_cells_and_long_text_outside_tables_are_not_reported(): void
+    {
+        $long = $this->longText(TemplateDiagnostics::LONG_TABLE_CELL_CHARS + 500);
+
+        $html = '<table><tr><td>{{cliente.nombre}}</td><th>Plan</th></tr></table>'
+            . '<div>' . $long . '</div><p>' . $long . '</p>';
+
+        $this->assertSame([], $this->longCellFindings($html));
+    }
+
+    public function test_the_threshold_counts_characters_not_utf8_bytes(): void
+    {
+        // 1.300 «á» son 2.600 bytes pero 1.300 caracteres: no debe avisar.
+        $html = '<table><tr><td>' . str_repeat('á', 1300) . '</td></tr></table>';
+
+        $this->assertSame([], $this->longCellFindings($html));
+    }
+
+    public function test_a_cell_holding_a_nested_table_counts_the_nested_text_too(): void
+    {
+        // dompdf tampoco parte una celda que contiene otra tabla.
+        $half = $this->longText((int) (TemplateDiagnostics::LONG_TABLE_CELL_CHARS * 0.6));
+        $html = '<table><tr><td>Anexo<table><tr><td>' . $half . '</td></tr><tr><td>' . $half
+            . '</td></tr></table></td></tr></table>';
+
+        $findings = $this->longCellFindings($html);
+
+        $this->assertCount(1, $findings);
+        $this->assertStringStartsWith('Anexo', $findings[0]['token']);
+    }
+
+    public function test_at_most_two_long_cells_are_reported_longest_first(): void
+    {
+        $base = TemplateDiagnostics::LONG_TABLE_CELL_CHARS;
+        $html = '<table><tr>'
+            . '<td>Uno ' . $this->longText($base + 100) . '</td>'
+            . '<td>Dos ' . $this->longText($base + 900) . '</td>'
+            . '<td>Tres ' . $this->longText($base + 500) . '</td>'
+            . '</tr></table>';
+
+        $findings = $this->longCellFindings($html);
+
+        $this->assertCount(2, $findings);
+        $this->assertStringStartsWith('Dos', $findings[0]['token']);
+        $this->assertStringStartsWith('Tres', $findings[1]['token']);
+    }
+
+    public function test_it_also_works_on_a_full_advanced_mode_document(): void
+    {
+        $html = '<!DOCTYPE html><html><head><style>td{font-size:10pt}</style></head><body>'
+            . '<table width="100%"><tr><td>' . $this->longText(TemplateDiagnostics::LONG_TABLE_CELL_CHARS + 1)
+            . '</td></tr></table></body></html>';
+
+        $this->assertCount(1, $this->longCellFindings($html));
+    }
+
+    public function test_a_long_cell_ranks_above_placeholder_findings(): void
+    {
+        // Es texto que desaparece del contrato sin dejar hueco: si sobran
+        // hallazgos, no puede ser el que se pierde por el tope.
+        $html = '<p>{{cliente.telefno}}</p><table><tr><td>'
+            . $this->longText(TemplateDiagnostics::LONG_TABLE_CELL_CHARS + 1) . '</td></tr></table>';
+
+        $findings = $this->diagnostics->inspect($html, 'contract');
+
+        $this->assertSame(TemplateDiagnostics::KIND_LONG_TABLE_CELL, $findings[0]['kind']);
+    }
 }

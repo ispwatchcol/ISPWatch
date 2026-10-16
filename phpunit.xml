@@ -22,6 +22,10 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
+        <!-- El estado SaaS de Converza usa por defecto el store `file` (KAN-126);
+             en pruebas, en memoria, para no escribir en storage/ ni arrastrar
+             estado entre corridas. -->
+        <env name="CONVERZA_SAAS_STATUS_CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>

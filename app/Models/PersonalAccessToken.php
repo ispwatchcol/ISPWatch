@@ -29,6 +29,8 @@ class PersonalAccessToken extends SanctumPersonalAccessToken
         'last_used_at' => 'datetime',
         'expires_at'   => 'datetime',
         'revoked_at'   => 'datetime',
+        // Aviso de vencimiento ya enviado (api-keys:expiring, KAN-43).
+        'expiry_notified_at' => 'datetime',
     ];
 
     /**
