@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Constants\Permissions;
+use App\Models\CustomerCredit;
 use App\Models\CustomerInstallation;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\BillingService;
@@ -13,6 +16,7 @@ use App\Services\BooksAuditService;
 use App\Services\InstallationBillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\TestCase;
 
@@ -106,18 +110,99 @@ class InstallationPaymentOwnershipTest extends TestCase
     }
 
     #[Test]
-    public function un_valor_recibido_nuevo_no_reescribe_el_abono_de_facturacion(): void
+    public function con_la_factura_saldada_en_facturacion_la_cartera_rechaza_un_valor_recibido(): void
     {
         $orden   = $this->orden(0);
         $factura = $this->guardarCartera($orden);
         $abono   = $this->abonoEnFacturacion($factura, 100000);
 
-        $this->guardarCartera($orden, ['payment_received' => 20000]);
+        // P-103: antes se asignaba igual y la factura quedaba con 120.000
+        // asignados sobre un total de 100.000. Antes de KAN-124, además, se
+        // reescribía el abono de Facturación.
+        try {
+            DB::transaction(fn () => $this->guardarCartera($orden, ['payment_received' => 20000]));
+            $this->fail('La cartera aceptó registrar dinero sobre una factura ya saldada en Facturación.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('payment_received', $e->errors());
+            $this->assertStringContainsString('$0', $e->errors()['payment_received'][0]);
+        }
 
         $fila = Payment::withoutGlobalScope('tenant')->find($abono->id);
-        $this->assertEquals(100000, (float) $fila->amount, 'La cartera reescribió el monto del abono de Facturación.');
+        $this->assertEquals(100000, (float) $fila->amount);
         $this->assertNull($fila->installation_id);
-        $this->assertEquals(100000, (float) PaymentAllocation::where('payment_id', $abono->id)->sum('amount'));
+        $this->assertSame(1, $this->pagos()->count(), 'Quedó un pago de cartera a medias.');
+        $this->assertEquals(100000, (float) PaymentAllocation::where('invoice_id', $factura->id)->sum('amount'));
+        $this->assertSame([], app(BooksAuditService::class)->run($this->tenant->id));
+    }
+
+    #[Test]
+    public function con_un_abono_parcial_la_cartera_solo_cubre_lo_que_falta(): void
+    {
+        $orden   = $this->orden(40000);
+        $factura = $this->guardarCartera($orden);
+        $this->abonoEnFacturacion($factura, 30000);
+
+        // Facturación cerró la factura: los 30.000 que faltaban viajan a la
+        // mensualidad. Lo recibido por la cartera ya no puede subir…
+        try {
+            $this->guardarCartera($orden, ['payment_received' => 50000]);
+            $this->fail('La cartera cubrió algo que ya viajó a la mensualidad.');
+        } catch (ValidationException) {
+        }
+
+        $propio = $this->pagos()->where('installation_id', $orden->id)->sole();
+        $this->assertEquals(40000, (float) $propio->amount);
+
+        // …pero volver a guardar lo mismo sí se puede.
+        $factura = $this->guardarCartera($orden, ['payment_received' => 40000]);
+        $this->assertEquals(0, (float) $factura->balance_due);
+        $this->assertEquals(40000, (float) PaymentAllocation::where('payment_id', $propio->id)->sum('amount'));
+        $this->assertSame([], app(BooksAuditService::class)->run($this->tenant->id));
+    }
+
+    #[Test]
+    public function por_la_api_el_rechazo_es_un_422_y_la_orden_no_queda_a_medias(): void
+    {
+        // `CheckPermission` deja pasar SIEMPRE a `role_id == 1`: se quema.
+        Role::create([
+            'name' => 'Superadmin global', 'code' => 'superadmin',
+            'permissions' => ['*'], 'tenant_id' => null,
+        ]);
+        $rol = Role::create([
+            'name' => 'Cartera', 'code' => 'staff',
+            'permissions' => [Permissions::VIEW_SUPPORT, Permissions::VIEW_CLIENTS, Permissions::ADD_CLIENTS, Permissions::EDIT_DISCOUNT],
+            'tenant_id' => $this->tenant->id,
+        ]);
+        $asesor = User::factory()->create(['tenant_id' => $this->tenant->id, 'role_id' => $rol->id]);
+
+        $orden   = $this->orden(0);
+        $factura = $this->guardarCartera($orden);
+        $this->abonoEnFacturacion($factura, 100000);
+
+        $this->actingAs($asesor)
+            ->putJson("/api/installations/{$orden->id}/billing", [
+                'payment_received' => 20000,
+                'payment_notes'    => 'Pagó en efectivo al técnico',
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('payment_received');
+
+        $orden->refresh();
+        $this->assertEquals(0, (float) $orden->payment_received, 'La orden guardó el valor rechazado.');
+        $this->assertNull($orden->payment_notes);
+        $this->assertSame(1, $this->pagos()->count());
+    }
+
+    #[Test]
+    public function sin_abonos_de_facturacion_el_cobro_de_mas_sigue_siendo_saldo_a_favor(): void
+    {
+        $orden = $this->orden(120000);
+        $this->guardarCartera($orden);
+
+        $propio = $this->pagos()->where('installation_id', $orden->id)->sole();
+        $this->assertEquals(100000, (float) PaymentAllocation::where('payment_id', $propio->id)->sum('amount'));
+        $this->assertEquals(20000, (float) CustomerCredit::where('from_payment_id', $propio->id)
+            ->where('type', CustomerCredit::TYPE_EARNED)->sum('amount'));
     }
 
     #[Test]

@@ -10843,3 +10843,48 @@ La ventaja es que se verifica el despliegue una vez por release y no una vez por
 
 **Pendiente.** Ni `main` ni `develop` tienen reglas de protección en GitHub: nada impide un push
 directo ni un merge con el CI en rojo. Ver MEJORAS P-104.
+
+## 118. La cartera solo cubre lo que la factura todavía debe (P-103) — 2026-10-16
+
+**El caso.** Tras KAN-124 (§ 116), la cartera ya no tocaba los abonos de Facturación, pero
+seguía asignando `min(recibido, total)` sin restar lo que ya saldaba la factura por otro lado.
+Factura de $100.000 saldada en Facturación + «Valor recibido» $20.000 en la cartera: quedaban
+$120.000 asignados sobre un total de $100.000. El saldo se recortaba a 0, el exceso no llegaba
+a saldo a favor y la auditoría de libros podía denunciarlo.
+
+**Decisión (dev, 2026-10-16; el usuario la delegó).** Había dos caminos: asignar solo el
+faltante y acreditar el resto, o rechazar. Se combinan según **de dónde viene el resto**:
+
+- **Sin abonos de Facturación**, lo que pasa del total es un cobro de más del instalador. Es
+  dinero real y se vuelve saldo a favor, como desde § 113. No cambia.
+- **Con abonos de Facturación**, el exceso casi siempre es **el mismo dinero anotado dos veces**:
+  en caja y en la cartera. Acreditarlo le daría al cliente un saldo que nunca entró, y en
+  silencio. Se rechaza con 422 en `payment_received`, con el máximo permitido en el mensaje. Si
+  el cliente pagó de más de verdad, el excedente se registra en Facturación, donde ya está la
+  factura saldada.
+
+Rechazar es reversible y ruidoso: quien guarda corrige el valor. Acreditar de más es silencioso
+y se descubre en una conciliación de caja, meses después.
+
+**Qué se hizo.**
+
+- `disponibleParaCartera()`: total − asignaciones de **otros** pagos − saldo a favor aplicado
+  − faltantes de abonos parciales ya arrastrados. Es el mismo cálculo que el recálculo de
+  `balance_due`, pero sin el pago de la cartera. La asignación del pago de la cartera es
+  `min(recibido, disponible)`.
+- `exigirQueNoDupliqueFacturacion()`: si hay abonos ajenos y lo recibido pasa de lo
+  disponible, lanza `ValidationException`. El controlador envuelve orden + factura en una
+  transacción, así que **la orden tampoco se guarda**. La pantalla ya muestra el error de
+  `payment_received` debajo del campo y no hubo que tocar el frontend.
+- Un abono **parcial** en Facturación cierra la factura y manda el faltante a la mensualidad
+  (`carryOverShortfall`). Desde entonces la cartera no puede subir lo recibido, pero sí volver
+  a guardar el mismo valor.
+
+**Pruebas** (`InstallationPaymentOwnershipTest`, ahora 8 casos): factura saldada + valor
+recibido → 422 sin efectos y con la auditoría limpia; abono parcial → no se puede subir, sí
+repetir; sin abonos, el cobro de más sigue siendo saldo a favor; por la API → 422 y la orden no
+queda guardada. Contra el código de § 116, los dos casos nuevos del servicio fallan.
+
+**Efecto en datos viejos.** Una factura de instalación que hoy ya está sobreasignada (por el
+defecto anterior) da 422 al volver a guardar su cartera con un valor recibido mayor que el
+disponible. Es intencional: obliga a corregir el valor en vez de perpetuar el descuadre.

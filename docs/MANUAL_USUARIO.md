@@ -711,6 +711,13 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > y **cobrar no vuelve a descontar el inventario**. Una línea ya agregada no se vuelve a ofrecer
    > mientras no guardes; después de guardar, revisa que no la cobres dos veces. Los servicios
    > (visita, mano de obra) se siguen agregando con **+ Agregar adicional**.
+   >
+   > **Si la factura ya se abonó en Facturación.** El **Valor recibido** de la cartera es solo
+   > el dinero que cobró el técnico o el asesor: la cartera nunca borra ni cambia un pago
+   > registrado en Facturación. Si la factura de la instalación ya tiene abonos de Facturación,
+   > el sistema no deja registrar como recibido más de lo que todavía falta. Te dice el máximo
+   > debajo del campo y no guarda nada. Casi siempre es el mismo pago anotado dos veces. Si el
+   > cliente de verdad pagó de más, registra el excedente desde Facturación.
 
    **Acuerdo de pago: la instalación en cuotas.** Si el cliente no paga todo hoy, marca
    **Acuerdo de pago**. Lo que queda debiendo **después del valor recibido** se divide en

@@ -677,6 +677,13 @@ factura no llevan esa marca: la cartera no los edita ni los borra, aunque cuenta
 saldo. Antes tomaba la primera asignación de la factura y podía borrar un abono ajeno. Ver
 bitácora § 116.
 
+**Cuánto cubre la cartera (P-103).** El pago de la cartera se asigna como máximo por lo que la
+factura todavía debe: total − otros pagos − saldo a favor aplicado − faltantes arrastrados.
+Lo que sobra se vuelve saldo a favor (un cobro de más del instalador), **salvo** que haya abonos
+de Facturación. En ese caso el exceso casi siempre es el mismo dinero anotado dos veces, y se
+rechaza con 422 (`ValidationException` en `payment_received`). Como el controlador envuelve
+orden + factura en una transacción, la orden tampoco se guarda. Ver bitácora § 118.
+
 ### Plantillas de documentos (`app/Services/Templates`)
 
 Cada tenant puede personalizar el cuerpo de 3 documentos (factura, contrato, hoja de

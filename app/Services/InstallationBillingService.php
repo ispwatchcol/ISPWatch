@@ -11,6 +11,7 @@ use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class InstallationBillingService
 {
@@ -144,9 +145,8 @@ class InstallationBillingService
      */
     private function syncPayment(Invoice $invoice, CustomerInstallation $installation, int $tenantId): void
     {
-        $received   = max(0.0, (float) ($installation->payment_received ?? 0));
-        $total      = (float) $invoice->total;
-        $toAllocate = min($received, $total);
+        $received = max(0.0, (float) ($installation->payment_received ?? 0));
+        $total    = (float) $invoice->total;
 
         $existingPayment = Payment::where('installation_id', $installation->id)
             ->where('tenant_id', $tenantId)
@@ -157,6 +157,15 @@ class InstallationBillingService
                 ->where('payment_id', $existingPayment->id)
                 ->first()
             : null;
+
+        // P-103: la cartera sólo cubre lo que la factura todavía debe. Antes
+        // asignaba min(recibido, total) sin restar lo que ya la saldaba por
+        // otro lado, y la factura quedaba con más asignado que su total.
+        $toAllocate = min($received, $this->disponibleParaCartera($invoice, $existingPayment));
+
+        if ($received > 0) {
+            $this->exigirQueNoDupliqueFacturacion($invoice, $existingPayment, $received, $toAllocate);
+        }
 
         if ($received > 0) {
             // El pago sobre el que hay que cuadrar el excedente.
@@ -207,10 +216,10 @@ class InstallationBillingService
 
             // El instalador cobró más de lo que valía la instalación: ese
             // excedente es dinero recibido, y hasta ahora no iba a ninguna
-            // parte. `$toAllocate` es min(recibido, total), así que la
-            // diferencia no quedaba ni asignada a la factura ni como saldo a
-            // favor: desaparecía de los libros y sólo reaparecía como un
-            // descuadre de caja (BooksAuditService C6).
+            // parte. `$toAllocate` es lo recibido recortado a lo que la
+            // factura debe, así que la diferencia no quedaba ni asignada a la
+            // factura ni como saldo a favor: desaparecía de los libros y sólo
+            // reaparecía como un descuadre de caja (BooksAuditService C6).
             $this->syncExcessCredit($pagoVigente, $received - $toAllocate);
         } else {
             // Se quita sólo el pago de la cartera; los abonos de Facturación
@@ -271,6 +280,68 @@ class InstallationBillingService
             default                                      => 'issued',
         };
         $invoice->save();
+    }
+
+    /**
+     * Lo que la factura deja para el pago de la cartera: su total menos lo que
+     * ya la cubre por otro lado (abonos de Facturación, saldo a favor aplicado
+     * y faltantes de abonos parciales que ya viajaron a la mensualidad).
+     */
+    private function disponibleParaCartera(Invoice $invoice, ?Payment $pagoCartera): float
+    {
+        $otros = (float) PaymentAllocation::where('invoice_id', $invoice->id)
+            ->when($pagoCartera, fn ($q) => $q->where('payment_id', '!=', $pagoCartera->id))
+            ->sum('amount');
+
+        $credito = abs((float) CustomerCredit::where('to_invoice_id', $invoice->id)
+            ->where('type', CustomerCredit::TYPE_APPLIED)
+            ->sum('amount'));
+
+        $faltantes = (float) InvoiceCarryover::shortfalls()
+            ->where('from_invoice_id', $invoice->id)
+            ->sum('amount');
+
+        return max(0.0, round((float) $invoice->total - $otros - $credito - $faltantes, 2));
+    }
+
+    /**
+     * Con abonos de Facturación sobre la factura, lo recibido en la cartera no
+     * puede pasar de lo que falta.
+     *
+     * Sin abonos ajenos, lo que sobra es un cobro de más del instalador y se
+     * vuelve saldo a favor. Con ellos, lo más probable es que el MISMO dinero
+     * se esté registrando dos veces (en caja y en la cartera), y acreditarlo
+     * le daría al cliente un saldo que nunca entró. Se rechaza y quien guarda
+     * decide; si el cliente de verdad pagó de más, el excedente se registra
+     * en Facturación, que es donde ya está la factura saldada (P-103).
+     *
+     * @throws ValidationException
+     */
+    private function exigirQueNoDupliqueFacturacion(
+        Invoice $invoice,
+        ?Payment $pagoCartera,
+        float $recibido,
+        float $disponible
+    ): void {
+        if ($recibido <= $disponible + 0.009) {
+            return;
+        }
+
+        $abonos = PaymentAllocation::where('invoice_id', $invoice->id)
+            ->when($pagoCartera, fn ($q) => $q->where('payment_id', '!=', $pagoCartera->id))
+            ->exists();
+
+        if (!$abonos) {
+            return;
+        }
+
+        $cop = fn (float $v) => '$' . number_format($v, 0, ',', '.');
+
+        throw ValidationException::withMessages([
+            'payment_received' => "La factura #{$invoice->number} ya tiene abonos registrados en Facturación: "
+                . "en la cartera se pueden registrar como recibido hasta {$cop($disponible)}, no {$cop($recibido)}. "
+                . 'Si el cliente pagó de más, registra el excedente desde Facturación.',
+        ]);
     }
 
     /**
