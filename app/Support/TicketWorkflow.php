@@ -373,13 +373,15 @@ class TicketWorkflow
     /**
      * Campo del diagnóstico => qué regla del § 15 lo exige.
      *
-     * Son las TRES que el modelo de datos actual puede comprobar. Las otras
-     * siete del documento no tienen dónde apoyarse todavía:
+     * Son las TRES que se comprueban sobre campos del diagnóstico. El resto:
      *
      *   4 · «fecha y hora de restablecimiento cuando existió indisponibilidad»
      *       — se cumple por construcción: el estado `servicio_restablecido`
      *       estampa `resolved_at` desde el catálogo, no hace falta comprobarlo.
-     *   5 · «prueba final o justificación de por qué no fue posible»
+     *   5 · «prueba final o justificación de por qué no fue posible» — YA se
+     *       exige (PR F2), pero no aquí: es la única con una «O» (medición
+     *       final, o razón + justificación) y la comprueba el controlador
+     *       aparte, como `prueba_final`.
      *   6 · «infraestructura afectada o clasificación red interna / no aplica»
      *   7 · «validación del cliente separada de la restauración técnica»
      *   8 · «"Otro" siempre debe requerir explicación»
@@ -387,9 +389,9 @@ class TicketWorkflow
      *       generar seguimiento o autorización» — parcial: la solución temporal
      *       obliga a pasar por el cierre excepcional, que ES la autorización.
      *
-     * Las 5, 6, 7 y 8 exigen campos de captura que el ticket todavía no tiene
-     * (pruebas finales, infraestructura afectada con valor «no aplica»,
-     * validación del cliente). Están anotadas en el seguimiento y son la razón
+     * Las 6, 7 y 8 exigen campos de captura que el ticket todavía no tiene
+     * (infraestructura afectada con valor «no aplica», validación del cliente,
+     * explicación de «Otro»). Están anotadas en el seguimiento y son la razón
      * por la que **F1-10 no queda cumplido**, sino parcial.
      */
     public const REQUISITOS_DE_CIERRE = [

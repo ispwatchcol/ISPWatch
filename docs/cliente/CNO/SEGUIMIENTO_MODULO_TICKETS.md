@@ -16,8 +16,13 @@
 | **R2 · lectura/escritura por FK** | `195bbaf` · PR **#233** (merge `0bca163`) |
 | **R2.5 · desacoplar escritura de enums** | `9bb760e` · PR **#235** (merge `d989154`) |
 | **R3 · eliminar enums heredados** | `74f5d8e` (+ `03136bd` fix CI) · PR **#236** (merge `58f9c4b`) |
-| **Fecha de corte de esta evaluación** | 2026-08-21 |
-| **Estado general de la entrega** | 🟡 **Base estructural entregada · expediente técnico pendiente** |
+| **PR #3 · historial · PR A · PR H-6** | PR **#253** · **#254** · **#255** |
+| **PR B · permisos granulares · PR C · archivado** | PR **#270** · **#276** |
+| **PR #4 · workflow y cierre · PR #4b · reapertura** | PR **#278** · **#283** |
+| **PR #5 → F1 intervenciones · F2 mediciones · F3 equipos** | PR **#289** · **#290** · **#288** |
+| **Asunto desde catálogo del ISP** | PR **#327** (merge `4ad8b5f`) |
+| **Fecha de corte de esta evaluación** | **2026-11-03** — todo lo anterior está mergeado en `main` (desplegado) |
+| **Estado general de la entrega** | 🟡 **Expediente técnico operativo · faltan incidentes/duplicados (PR #6), métricas/exportación (PR #7), infraestructura (F1-05/06/07) y la respuesta formal al cliente** |
 
 ## Verificación de integridad documental
 
@@ -78,13 +83,30 @@ infraestructura llega sólo hasta `sectorial_id`.
 
 ### Pendiente
 
-El **expediente técnico** que motiva el requerimiento: ciclo de vida de 9 estados,
-reglas de cierre, historial/auditoría, intervenciones múltiples, pruebas estructuradas,
-incidentes padre, duplicados, reincidencias y exportación.
+> **Actualizado el 2026-11-03.** El expediente técnico ya funciona: ciclo de vida de 9 estados
+> (PR #4), historial inalterable (PR #3), intervenciones múltiples (F1), pruebas estructuradas
+> (F2), equipos y materiales que mueven el inventario (F3) y archivado auditado (PR C).
+
+Lo que falta del requerimiento:
+
+- **Incidentes padre, duplicados y reincidencias** (F1-13/14/15, PR #6) y minutos-cliente (F1-16).
+- **Mediana/P90/P95 y exportación** (F1-18/19, PR #7) y presentación uniforme en America/Bogota (F1-20).
+- **Asociación y snapshot de infraestructura** (F1-05/06/07), de los que dependen las reglas de
+  cierre 6 y 7 (F1-10).
+- **Hash de integridad de adjuntos** (F1-11) y el **modelo de roles del § 18** (F1-17, delegado).
+- **Exposición al integrador** de diagnóstico, historial, catálogos, intervenciones y adjuntos
+  (D-07 · F2-05/07/17/18).
+- **La respuesta formal al cliente**: la matriz del Anexo B y el checklist E1–E34 siguen sin
+  enviarse (ver *Aprobación del cliente*).
 
 ### Lo que NO debe declararse completado todavía
 
-> **Sólo F1-03 está cumplido en su criterio de aceptación** (PR #2). El resto, no.
+> **Al 2026-11-03 cumplen su criterio de aceptación F1-03, F1-04, F1-08 y F1-09** (y F2-01,
+> F2-03, F2-04, F2-12, F2-13; F2-02 y F2-09 como alternativa declarada). El resto, no.
+>
+> - **F1-12** no se declara cumplido aunque el equipo ya se entregue y retire desde el ticket: el
+>   § 14 pide además condición, propiedad empresa/cliente, motivo del retiro y snapshot del
+>   equipo, y nada de eso se captura todavía.
 
 Concretamente, **no** debe reportarse como cumplido:
 
@@ -138,28 +160,28 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-07** | Snapshot histórico de infraestructura | ⚪ Pendiente | `sectorial_id` es FK viva, no snapshot | Diseño posterior | Tras F1-06 |
 | **F1-08** | Varias intervenciones por ticket | 🟢 **Cumplido** | `ticket_intervention`: N visitas por ticket con numero correlativo, tipo remoto/presencial, tecnico y acompanante con nombre congelado, inicio/fin, hallazgo, accion, resultado y proximo paso. Evidencia enlazada a su visita. **Sin borrado**: corregir una finalizada exige reabrirla con motivo | — | **PR F1** |
 | **F1-09** | Pruebas iniciales y finales estructuradas | 🟢 **Cumplido** | `ticket_measurement` con los seis campos del § 12; comparación inicial/seguimiento/final del § 13; la regla 5 del § 15 es exigible en propuesta y cierre | — | **PR F2** · lista de razones: **D-16** |
-| **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido; se exigen **3 de las 10 reglas** del §15 (causa confirmada, acción, resultado). Las otras necesitan campos que el ticket aún no captura | **PR #4** + PR #5 | — |
+| **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido. Del § 15 se **exigen** las reglas 1, 2, 3 (PR #4) y 5 (PR F2); la 4 se cumple por construcción (`servicio_restablecido` estampa `resolved_at`); la 9, en parte (la solución temporal obliga al cierre especial); la 10, por diseño (intervenciones, mediciones e historial no se borran). **Faltan 6, 7 y 8**: infraestructura afectada / «no aplica», validación del cliente separada y «Otro» con explicación | Reglas 6-7 tras F1-06; regla 8 sin dependencia | F1-06 · el cierre especial sigue inalcanzable mientras nadie tenga `ticket_close_override` (**P-52**) |
 | **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
-| **F1-12** | Materiales y equipos retirados/instalados | ⚪ Pendiente | Existe `installation_equipment`, para instalaciones. **No se reutiliza**: su `installation_id` es NOT NULL con CASCADE y un ticket no tiene instalacion | **PR F3** | **D-14** y **P-55** |
-| **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe | **PR #6** | — |
+| **F1-12** | Materiales y equipos retirados/instalados | 🟡 **Parcial** | **PR F3 (#288)**: tabla `ticket_equipment` con `direction` `out`/`in`, cantidad y unidad para materiales, retiro a técnico, bodega o baja (`scrap`), y **movimiento real del kardex**. Deshacer es una reversa auditada con motivo, nunca un borrado. Permiso propio `ticket_equipment`. **Falta lo que pide la tabla del § 14**: condición y propiedad empresa/cliente del instalado, estado y motivo estructurado del retirado, snapshot congelado (hoy marca, modelo, serial y MAC se leen por FK del inventario) y vínculo con la intervención | Ampliar `ticket_equipment` con esos campos | — (D-14 y P-55 cerradas) |
+| **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe aviso al crear. Sí existe el **estado** `duplicado` en el flujo (PR #4), sin vínculo al ticket original | **PR #6** | Servicio = cliente mientras siga **D-01** |
 | **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
-| **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`; `router_outage_events` es base parcial | **PR #6** | — |
+| **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`. Existe el **estado** `asociado_incidente_masivo` (PR #4) sin vínculo; `router_outage_events` es base parcial | **PR #6** | Modalidad STI/STM/…: **D-04** |
 | **F1-16** | Servicios afectados y minutos-cliente (P1) | ⚪ Pendiente | No existe | Tras PR #6 | — |
-| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**. **Permisos separados (PR B)**: 20 capacidades `ticket_*`, una por acción, y ninguna ruta de ticket queda sin permiso. **Sigue faltando el MODELO DE ROLES** de la sección 18: los permisos existen, pero el reparto en Recepción/N1, N2, Técnico de campo, Supervisor y Auditor está sin confirmar | Aplicar la matriz de roles | Depende de **D-09** |
-| **F1-18** | Exportación completa y filtros por infraestructura | ⚪ Pendiente | Sin export de tickets | **PR #7** | Tras F1-06 |
-| **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟡 Parcial | Sólo `avg_resolution_time` (`SupportTicketController.php:411`); 0 percentiles | **PR #7** | — |
-| **F1-20** | Zona horaria America/Bogota | 🟡 Parcial | `config/app.php:70` → `UTC` (almacenamiento correcto); presentación sin fijar | **PR #7** | — |
+| **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**. **Permisos separados (PR B)**: 20 capacidades `ticket_*`, una por acción —hoy **22** con `ticket_intervene` (F1) y `ticket_equipment` (F3)—, y ninguna ruta de ticket queda sin permiso. **Sigue faltando el MODELO DE ROLES** de la sección 18: los permisos existen, pero el reparto en Recepción/N1, N2, Técnico de campo, Supervisor y Auditor está sin confirmar | Aplicar la matriz de roles | Depende de **D-09** |
+| **F1-18** | Exportación completa y filtros por infraestructura | ⚪ Pendiente | Sin export de tickets. El permiso `ticket_export` existe (PR B) pero sólo protege `GET /support/statistics` | **PR #7** | El filtro por infraestructura, tras F1-06 |
+| **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟡 Parcial | Sólo `avg_resolution_time` en `SupportTicketController::statistics()`; 0 percentiles | **PR #7** | — |
+| **F1-20** | Zona horaria America/Bogota | 🟡 Parcial | `config/app.php` → `UTC` (almacenamiento correcto). Historial, intervenciones y mediciones ya pintan en `America/Bogota`; el resto de la pantalla y cualquier corte por día **no** están fijados | **PR #7** | — |
 
 ### Solicitud 2 — Integración API (Anexo B, F2 aplicables)
 
 | ID | Requisito | Estado | Evidencia | Siguiente acción |
 |---|---|---|---|---|
-| **F2-01** | OpenAPI oficial 3.0.x sanitizado y fechado | 🟢 **Cumplido** | `docs/openapi/ispwatch-partner-v1.yaml` (1 085 líneas, 3.0.3); `GET /v1/partner/openapi.yaml` | Entregar al cliente |
+| **F2-01** | OpenAPI oficial 3.0.x sanitizado y fechado | 🟢 **Cumplido** | `docs/openapi/ispwatch-partner-v1.yaml` (3.0.3, **versión 1.2.0** del 2026-10-05); `GET /v1/partner/openapi.yaml` | Entregar al cliente |
 | **F2-02** | OAuth2 o token restringido rotatorio | 🟢 Cumplido (alternativa) | Sanctum + abilities + expiración + allowlist IP | Declarar como alternativa |
-| **F2-03** | IDs estables cliente / servicio / router lógico | 🟡 Parcial | `/customers`, `/services`; router lógico sin id expuesto | Exponer `router_id` |
+| **F2-03** | IDs estables cliente / servicio / router lógico | 🟢 **Cumplido** | PR **#296** (OpenAPI 1.1.0, 2026-09-30): `router_id` estable en `/customers` y `/services` (el nombre del router se declara editable, no llave), filtro `?router_id=` en `/services` y eventos `ROUTER_CHANGED` / `NETWORK_CHANGED` | Hoy servicio = cliente: un `service_id` por cliente hasta **D-01** |
 | **F2-04** | Consulta incremental cursor / `updated_since` | 🟢 Cumplido | `updated_since` en `/tickets`; `/events` con cursor | — |
 | **F2-05** | Lectura de tickets **e historial** | 🟡 Parcial | `GET /v1/partner/tickets` sirve el listado. El historial **ya existe y es consultable** desde el PR #3, pero sólo por el panel: la API de socios no lo expone | **D-07** |
-| **F2-07** | Comentarios, intervenciones y adjuntos por API | ⚪ Pendiente | Tablas existen, no expuestas | Tras PR #5 |
+| **F2-07** | Comentarios, intervenciones y adjuntos por API | ⚪ Pendiente | Las tablas existen y el PR #5 ya está completo (F1/F2/F3), pero `/v1/partner` no expone notas, intervenciones, mediciones, equipos ni adjuntos | **D-07** |
 | **F2-09** | Webhooks firmados o incremental confiable | 🟢 Cumplido (alternativa) | Feed `/events` | Documentar como alternativa |
 | **F2-12** | Errores estructurados, rate limits, reintentos | 🟢 Cumplido | 11 códigos estables; 60/min + 5 000/h | — |
 | **F2-13** | Auditoría de operaciones API | 🟢 Cumplido | `api_key_request_logs` | — |
@@ -273,7 +295,7 @@ local.
 | **Dependencias** | Ninguna técnica |
 | **Pruebas** | `tests/Feature/Support/TicketDiagnosticCatalogSeedTest.php` — 22 pruebas: conteos, códigos exactos, etiquetas literales, idempotencia, no pisar etiquetas editadas, no tocar tickets, versión, endpoint, **forma exacta de la respuesta**, autorización, **rechazo de llave de socio**, retiro y **aislamiento entre tenants** |
 | **Aceptación** | ✅ `GET /api/catalogs/ticket` devuelve 16 síntomas, 7 familias, 20 acciones y 15 resultados con los códigos literales del Anexo A |
-| **Estado** | 🟠 **Implementado en local — sin commit, pendiente de revisión y de CI.** No está desplegado ni cumplido. Aplicado en el esquema de **desarrollo** (`ispwatch_dev`, 58 filas); `public` sigue en 0 filas y sin la migración registrada. Verificado en SQLite (suite completa) y la migración además en PostgreSQL real; la suite sobre PostgreSQL sólo puede correrla el CI (ver más abajo) |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#250** (verificado en `main` el 2026-11-03) |
 | **Riesgo asumido** | Los códigos son **inmutables** al sembrarse. Si el cliente los cambia en la reunión de la sección 40 habría que retirarlos y crear nuevos; mientras ningún ticket los referencie el coste es cero — por eso este PR **no** incluye captura |
 
 **No cierra F2-17/F2-18.** El endpoint ampliado es el del **panel** (`auth:sanctum` +
@@ -306,7 +328,7 @@ las 22 pruebas; eso lo cierra el job «PHPUnit (PostgreSQL, motor real)».**
 | **Dependencias** | PR #1 ✅ (desplegado como PR #250) |
 | **Pruebas** | `tests/Feature/Support/TicketDiagnosisCaptureTest.php` — 28 pruebas: alta con y sin diagnóstico, edición campo a campo, borrado con `null`, lectura, tickets antiguos, código inexistente, catálogo equivocado, subcausa inventada, fila retirada, aislamiento entre ISPs, permisos y no regresión de la R3. Más una prueba nueva en `PartnerTicketContractTest` |
 | **Aceptación** | Un ticket puede registrar los cinco campos por separado, borrarlos, y consultarlos con código y etiqueta legible |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#251** (verificado en `main` el 2026-11-03) |
 | **Migraciones** | **Ninguna.** Las cinco columnas existen desde la R1 |
 
 **No toca la API de socios.** El alcance original decía «exposición en la API de socios»; se
@@ -342,7 +364,7 @@ ya existían antes. Se corrigen en un PR aparte para no mezclarlos con la entreg
 | **Objetivo** | Que guardar una nota funcione y que la evidencia adjunta se vea y se descargue |
 | **Cubre** | Ninguna F nueva. Desbloquea parte de **F1-11** (acceso) sin cumplirlo |
 | **Migraciones** | Ninguna |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#252** (verificado en `main` el 2026-11-03) |
 
 **Fallo 1 — guardar una nota devolvía HTTP 422.**
 
@@ -412,7 +434,7 @@ responde 404 con mensaje claro.
 | **Migraciones** | `2026_08_25_000001_create_support_ticket_history_table` |
 | **Pruebas** | `tests/Feature/Support/TicketHistoryTest.php` — 31 pruebas |
 | **Aceptación** | Consultando un ticket se obtiene su cronología con actor, campo, valor anterior y nuevo, y no existe forma de editarla desde la operación |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#253** (verificado en `main` el 2026-11-03) |
 
 **Criterio literal que cumple** (`Solicitud_Maestra`, sección 18):
 
@@ -479,7 +501,7 @@ del cliente. Nace de la auditoría recogida en
 | **Cubre** | Ningún requisito F nuevo. **Protege** F1-17 (auditoría) y F1-11 (evidencia) ya entregados |
 | **Migraciones** | `2026_08_27_000001_restrict_delete_on_support_ticket_history` |
 | **Pruebas** | `tests/Feature/Support/TicketDeletionBlockedTest.php` — 17 pruebas |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#254** (verificado en `main` el 2026-11-03) |
 
 **El agujero que cierra.** `DELETE /api/support/{id}` estaba tras `permission:view_support` —el
 **mismo permiso que leer**, que tienen los roles `Tecnico` y `Staff` de todos los ISP— y
@@ -515,7 +537,7 @@ Correctivo de integridad detectado al auditar el PR A.
 | **Cubre** | Ningún requisito F nuevo. **Protege** F1-11 (evidencia) y F1-17 (auditoría) |
 | **Migraciones** | `2026_08_29_000001_preserve_ticket_notes_and_attachments_on_user_deletion` |
 | **Pruebas** | `tests/Feature/Support/TicketExpedientSurvivesUserDeletionTest.php` — 16 pruebas |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#255** (verificado en `main` el 2026-11-03) |
 
 **El agujero.** `support_ticket_message.user_id` y `support_ticket_attachment.user_id` se
 declararon en 2025 con `ON DELETE CASCADE` sobre `users`, y `CustomerDeletionService` termina
@@ -548,7 +570,7 @@ del ticket, y merece su propio análisis (**P-43**).
 | **Cubre** | Avanza **F1-17**, que **sigue parcial**: entrega los permisos, no el modelo de roles |
 | **Migraciones** | `2026_09_11_000001_backfill_granular_ticket_permissions` (sólo datos) |
 | **Pruebas** | `tests/Feature/Support/TicketGranularPermissionsTest.php` — 24 pruebas |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#270** (verificado en `main` el 2026-11-03) |
 
 **El problema.** `view_support` era un permiso-paraguas: quien lo tenía podía listar, crear,
 editar, asignar, cambiar prioridad y categoría, diagnosticar, adjuntar, ver evidencia y leer el
@@ -583,7 +605,7 @@ operación del ticket, y no aparecen en la matriz del requerimiento.
 | **Cubre** | Cierra el hueco que el PR A dejó a propósito. Refuerza **F1-17** (auditoría de la retirada) |
 | **Migraciones** | `2026_09_13_000001_add_archiving_to_support_ticket` (esquema) · `2026_09_13_000002_grant_ticket_archiving_to_admin_roles` (datos) |
 | **Pruebas** | `tests/Feature/Support/TicketArchivingTest.php` — 30 pruebas (1 sólo PostgreSQL) |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#276** (verificado en `main` el 2026-11-03) |
 
 **Qué hace.** `POST /api/support/{id}/archive` retira el expediente de la operación y
 `POST /api/support/{id}/restore` lo devuelve. La interfaz dice **Archivar** y **Restaurar**;
@@ -637,7 +659,7 @@ seguridad, no un adorno que pueda esperar a otro despliegue.
 | **Cubre** | **F1-04 cumplido** · **F1-10 parcial** (ver abajo) |
 | **Migraciones** | `2026_09_19_000003_extend_ticket_status_to_master_workflow` (esquema + datos) |
 | **Pruebas** | `tests/Feature/Support/TicketWorkflowTest.php` — 52 pruebas, con matriz de transiciones por proveedor de datos |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#278** (verificado en `main` el 2026-11-03) |
 
 **Los estados salen literales del documento.** Los nueve del flujo del diagrama de la §7 y los
 nueve del bloque «Estados auxiliares requeridos» que va debajo. El documento **no asigna código
@@ -694,7 +716,7 @@ por migración** — asignarlo es configuración del cliente.
 | **Objetivo** | Cerrar el hueco que el humo del PR #4 encontró: la reapertura era inalcanzable |
 | **Migraciones** | `2026_09_21_000002_grant_ticket_reopen_to_admin_roles` (sólo datos) |
 | **Pruebas** | `tests/Feature/Support/TicketReopenTest.php` — 15 pruebas |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#283** (verificado en `main` el 2026-11-03) |
 
 **Qué pasó.** El ticket #39 se cerró bien y el historial mostraba las transiciones y los
 timestamps, pero un Administrador no encontraba el botón «Reabrir».
@@ -751,7 +773,7 @@ si algo fallaba en el inventario.
 | **Migraciones** | 3 · tabla, columnas de evidencia con FK compuesta, backfill de permiso |
 | **Pruebas** | `tests/Feature/Support/TicketInterventionTest.php` — 38 pruebas |
 | **Aceptación** | Se registran dos visitas con técnico, tiempos, hallazgo, acción, resultado y próximo paso; cada una conserva su evidencia; el historial dice quién y cuándo |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#289** (verificado en `main` el 2026-11-03) |
 
 **La regla que gobierna el diseño.** El § 15.10 dice que «el cierre no debe borrar la causa
 sospechada, **las intervenciones** ni los estados anteriores». Por eso `ticket_intervention`
@@ -777,7 +799,7 @@ del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita.
 | **Permiso** | **Ninguno nuevo**: `ticket_intervene`, el mismo de las visitas |
 | **Pruebas** | `tests/Feature/Support/TicketMeasurementTest.php` — 41 pruebas |
 | **Aceptación** | Se registra una medición inicial y una final con los seis datos; la comparación las enfrenta; sin final el cierre exige razón **y** justificación |
-| **Estado** | 🟠 **Implementado — PR abierto, pendiente de revisión** |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#290** (verificado en `main` el 2026-11-03) |
 
 **La regla 5 ya es exigible.** El § 15.5 pide «prueba final **o** justificación de por qué no
 fue posible». Es la única de las diez con una **O**: se cumple con una medición de fase
@@ -803,19 +825,32 @@ historial con el valor anterior y el nuevo.
 decir, lista cerrada— pero no la enumera en ninguna sección. Se compuso con vocabulario que el
 documento ya usa; queda pendiente de que el cliente la confirme.
 
-#### PR F3 · Materiales y equipos — pendiente
+#### PR F3 · Materiales y equipos — **implementado en parte**
 
 | Campo | Detalle |
 |---|---|
 | **Cubre** | F1-12 |
-| **Alcance** | Registro **declarativo** de equipos instalados/retirados y materiales, con snapshot de marca, modelo, serial, MAC, condición y propiedad |
-| **Dependencias** | PR F1 + **D-14** |
-| **Estado** | ⚪ Pendiente |
+| **Alcance entregado** | Tabla `ticket_equipment`: entrega (`out`) y retiro (`in`) de equipos serializados y consumo de materiales con cantidad, desde el ticket. El retiro vuelve al técnico, a una bodega o va de baja. Mueve el inventario y el kardex (`inventory_movements` con `support_ticket_id`). Reversa auditada (`reversed_at`/`reversed_by`/`reversal_reason`), sin borrado. Permiso `ticket_equipment` con backfill a quien ya tenía `ticket_intervene` |
+| **Pruebas** | `tests/Feature/Support/TicketEquipmentTest.php` |
+| **Dependencias** | PR F1 · **D-14** (resuelta: sí mueve el kardex) · **P-55** (cerrada) |
+| **Estado** | ✅ **Mergeado y desplegado** — PR **#288** (`606b063` + `70890d6`). Cubre F1-12 sólo en parte: ver la matriz |
 
-**No moverá el kardex** sin decisión posterior (**D-14**). Y antes de implementarlo hay que
-resolver **P-55**: el `unique(device_id)` de `installation_equipment` —«un equipo físico no
-puede estar instalado en dos casas a la vez»— quedaría con un agujero si se registran equipos
-instalados fuera de esa tabla.
+**El diseño cambió respecto a lo previsto el 2026-09-23.** La propuesta era un registro
+*declarativo* que no tocara el kardex. Al implementarlo (KAN-92) se vio que así el equipo
+nunca salía del inventario: el técnico escribía «router nuevo» como texto en el cargo y el
+aparato seguía «disponible» en bodega. Por eso **D-14 se resolvió en sentido contrario: sí
+mueve el kardex**. **P-55** se cerró así: el `unique(device_id)` de `installation_equipment`
+pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostiene
+`inventory_device.status`, que comprueban las cuatro rutas capaces de instalar un equipo.
+
+**Lo que falta para cumplir F1-12** (tabla del § 14):
+
+| Elemento | Pide el § 14 | Hoy |
+|---|---|---|
+| Equipo retirado | Tipo, marca, modelo, serial, MAC, **estado y motivo** | Los datos del equipo se leen por FK del inventario (no congelados). El destino `scrap` dice «dañado», pero no hay estado ni motivo estructurados: sólo `notes` |
+| Equipo instalado | Tipo, marca, modelo, serial, MAC, **condición y propiedad empresa/cliente** | Igual por FK. **No hay condición (nuevo/usado) ni propiedad** |
+| Material | Tipo, cantidad, unidad y observación | ✅ `stock_id` (tipo y unidad), `quantity` y `notes` |
+| Todo | Ligado a la intervención en la que ocurrió (§ 14, primer párrafo) | **No**: `ticket_equipment` no tiene `intervention_id` |
 
 ### PR #6 · Incidentes, duplicados y tickets relacionados
 
@@ -827,7 +862,7 @@ instalados fuera de esa tabla.
 | **Dependencias** | PR #4 (el incidente tiene ciclo propio) |
 | **Pruebas** | Al crear se avisa de tickets abiertos; N tickets se vinculan a un incidente; la reincidencia se calcula por ventana |
 | **Aceptación** | Se crea un incidente padre y se le vinculan tickets individuales |
-| **Estado** | 🔒 Bloqueado por PR #4 |
+| **Estado** | ⚪ **Pendiente — desbloqueado** (el PR #4 está desplegado) |
 
 ### PR #7 · Métricas y exportación
 
@@ -839,7 +874,7 @@ instalados fuera de esa tabla.
 | **Dependencias** | PR #3 y PR #4 (los tiempos dependen de los timestamps) |
 | **Pruebas** | Los percentiles coinciden con un conjunto conocido; la exportación respeta filtros |
 | **Aceptación** | El tablero muestra mediana, P90 y P95, y se exporta filtrando por infraestructura |
-| **Estado** | 🔒 Bloqueado por PR #3 y #4 |
+| **Estado** | ⚪ **Pendiente — desbloqueado** (PR #3 y #4 desplegados) · **siguiente en la cola** |
 
 ---
 
@@ -865,10 +900,10 @@ instalados fuera de esa tabla.
 | **D-08** | **Nombre de `ticket_solution` frente a «Acción».** El requerimiento dice acción; el esquema dice solución | Renombrar toca el esquema de la R1, ya desplegada. Los códigos oficiales no cambian en ningún caso | Claridad del diccionario de datos |
 | **D-09** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11**: «definirlos según la Solicitud Maestra, buscando simplicidad y permitiendo cambios posteriores». Sigue sin implementarse. *Enunciado original:* **Modelo de roles de la sección 18.** El requerimiento define Recepción/N1, N2, Técnico de campo, Supervisor y Auditor/gerencia con capacidades distintas; ISPWatch sólo tiene `view_support`, que además hoy habilita lectura y escritura por igual | Partir el permiso afecta a todo el módulo y a los roles ya configurados por cada ISP. Es la mitad de F1-17 que el PR #3 no cubre | F1-17 completo |
 | **D-10** | ✅ **RESUELTA el 2026-09-11.** CNO aprobó **archivado reversible y auditado para Administradores y Propietarios**. Advertencia registrada: **en ISPWatch no existe un rol «Propietario»** (los `code` reales son `admin`/`staff`/`technician`/`accounting`/`client`); se implementó como `admin` + superadministrador global — supuesto **S-1** del diseño | — | Desbloqueó el **PR C** |
-| **D-11** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («cierre… según la Solicitud Maestra»). *Enunciado original:* **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor); el cierre ordinario no se asigna a ningún rol | Sin esto no se puede definir el permiso ni la regla de transición | PR #4, permiso `ticket_close` |
-| **D-12** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** («reapertura… según la Solicitud Maestra»). *Enunciado original:* **¿Existe la reapertura?** La palabra no aparece en el documento | La R1 declaró `resolved` y `closed` ambos terminales, así que reabrir sería una transición explícita a diseñar | PR #4, permiso `ticket_reopen` |
-| **D-13** | 🔓 **DELEGADA EN EL EQUIPO el 2026-09-11** (va dentro de «roles y permisos»). *Enunciado original:* **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Hoy cualquiera con `view_support` los lee; nadie los edita por interfaz | Permiso `ticket_manage_catalogs` |
-| **D-14** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿Instalar o retirar un equipo desde un ticket debe mover el kardex de inventario? El documento no lo dice | **Por defecto: NO.** El PR F3 registrara de forma declarativa. Moverlo exige permiso propio y resolver el choque con `unique(device_id)` (**P-55**) | PR F3, F1-12 |
+| **D-11** | ✅ **Implementada por el equipo (PR #4, #278).** Cierre ordinario con `ticket_close`, propuesta de cierre del técnico y cierre especial auditado con `ticket_close_override`. *Enunciado original:* **¿Quién cierra un ticket?** El documento sólo nombra «propuesta de cierre» (técnico de campo) y «cierre especial» (supervisor) | — | Queda abierto **P-52**: `ticket_close_override` no está repartido a ningún rol |
+| **D-12** | ✅ **Implementada por el equipo (PR #4 + #4b, #278 y #283).** Sí existe la reapertura: `cerrado → reabierto` con permiso `ticket_reopen` (repartido a `admin`) y motivo obligatorio. *Enunciado original:* **¿Existe la reapertura?** La palabra no aparece en el documento | — | — |
+| **D-13** | 🟡 **Parcial.** El permiso `ticket_manage_catalogs` existe y desde el PR **#327** se reparte a `admin` y administra el catálogo de **asuntos** por pantalla. Los catálogos de **diagnóstico** (síntoma, causa, acción, resultado) siguen sin pantalla: **KAN-93**. *Enunciado original:* **¿Quién administra los catálogos del ticket?** La sección 18 no lo asigna a ningún rol | Los códigos que el integrador ve son contrato: un código propio del ISP no debe pisar uno global (detalle en KAN-93) | KAN-93 |
+| **D-14** | ✅ **RESUELTA por el equipo, en sentido contrario al previsto (PR #288, 2026-09-24): SÍ mueve el kardex.** ¿Instalar o retirar un equipo desde un ticket debe mover el inventario? El registro declarativo dejaba el equipo «disponible» en bodega mientras estaba en casa del cliente | — | PR F3 entregado; **P-55** cerrada |
 | **D-15** | 🔓 **DELEGADA — decidida por defecto en el diseño del 2026-09-23.** ¿El cierre debe exigir al menos una intervencion? | **Por defecto: NO.** Ninguna de las diez reglas del § 15 las menciona, y un ticket resuelto en remoto puede no tener visita. Exigirlas bloquearia tickets legitimos | PR #4, PR F1 |
 | **D-16** | **Lista de razones para cerrar sin medicion final.** El § 13 pide «seleccionar una razon» —lista cerrada— pero no la enumera en ninguna seccion | El equipo la compuso con vocabulario que el documento YA usa: R14, R15, S09, § 7 y la familia NF del Anexo A.2, mas `otro` (§ 15.8). **Falta que el cliente la confirme o la sustituya.** Cambiarla es barato: es lista cerrada, no codigo inmutable de catalogo | F1-09, regla 5 del § 15 |
 
@@ -908,6 +943,10 @@ instalados fuera de esa tabla.
 | 2026-09-11 | **Roles, permisos, cierre, reapertura, servicio e incidentes se delegan en el equipo**, según la Solicitud Maestra, con simplicidad y reversibilidad | **Confirmación de CNO por chat — 11/09/2026** | D-09, D-11, D-12 y D-13 pasan de bloqueantes a delegadas | 🔓 Delegadas |
 | 2026-09-11 | **No se purga ni se borra evidencia automáticamente**; la retención sigue sin definir | **Confirmación de CNO por chat — 11/09/2026** | Archivar un ticket **no toca ningún archivo del bucket**. D-05 sigue abierta | ✅ Aplicada (PR C) |
 | 2026-09-11 | **«Propietario» se implementa como `admin` + superadministrador global**, porque ese rol no existe en ISPWatch | Decisión del equipo (**S-1**), verificada contra la base | Si CNO designaba otra figura, es un rol nuevo y entra por el PR E | ⚠️ **Supuesto, pendiente de confirmar** |
+| 2026-09-21 | **Reapertura explícita y fuera de la matriz general** (`TicketWorkflow::REAPERTURA`), con permiso y motivo | Correctivo del PR #4 (D-12 delegada) | `PATCH .../status` no puede reabrir; sólo el endpoint propio | ✅ Aplicada (PR #283) |
+| 2026-09-22 | **Visita sin cobro** (`no_charge` + motivo): el endpoint de cargo responde 422 | Pedido del cliente ISP | No retira el cargo desde el ticket: **D-02 sigue abierta** | ✅ Aplicada (PR #280) |
+| 2026-09-24 | **Los equipos del ticket mueven el kardex** (revierte el «por defecto: no» de D-14) y deshacer es una reversa auditada | Implementación de KAN-92: el registro declarativo dejaba el inventario falso | Cierra D-14 y P-55 | ✅ Aplicada (PR #288) |
+| 2026-10-11 | **El asunto se elige de un catálogo propio de cada ISP** (`ticket_subjects`), con «Otro…» en texto libre | Pedido del ISP (filtrar por asunto) | La API de socios no cambia | ✅ Aplicada (PR #327) |
 
 ---
 
@@ -925,7 +964,17 @@ instalados fuera de esa tabla.
 | Endurecimiento notas/adjuntos | #252 | `https://github.com/ispwatchcol/ISPWatch/pull/252` | ✅ Mergeado y desplegado |
 | PR #3 · historial | #253 | `https://github.com/ispwatchcol/ISPWatch/pull/253` | ✅ Mergeado y desplegado |
 | PR A · impedir borrado físico | #254 | `https://github.com/ispwatchcol/ISPWatch/pull/254` | ✅ Mergeado y desplegado |
-| PR H-6 · preservar expediente | *(por asignar)* | *(abierto para revisión)* | — |
+| PR H-6 · preservar expediente | #255 | `https://github.com/ispwatchcol/ISPWatch/pull/255` | ✅ Mergeado y desplegado |
+| PR B · permisos granulares | #270 | `https://github.com/ispwatchcol/ISPWatch/pull/270` | ✅ Mergeado y desplegado |
+| PR C · archivado | #276 | `https://github.com/ispwatchcol/ISPWatch/pull/276` | ✅ Mergeado y desplegado |
+| PR #4 · workflow y cierre | #278 | `https://github.com/ispwatchcol/ISPWatch/pull/278` | ✅ Mergeado y desplegado |
+| PR #4b · reapertura | #283 | `https://github.com/ispwatchcol/ISPWatch/pull/283` | ✅ Mergeado y desplegado |
+| Visita sin cobro (`no_charge`) | #280 | `https://github.com/ispwatchcol/ISPWatch/pull/280` | ✅ Mergeado y desplegado |
+| PR F3 · equipos y materiales | #288 | `https://github.com/ispwatchcol/ISPWatch/pull/288` | ✅ Mergeado y desplegado |
+| PR F1 · intervenciones | #289 | `https://github.com/ispwatchcol/ISPWatch/pull/289` | ✅ Mergeado y desplegado |
+| PR F2 · mediciones | #290 | `https://github.com/ispwatchcol/ISPWatch/pull/290` | ✅ Mergeado y desplegado |
+| API de socios: `router_id` y feed de red | #296 | `https://github.com/ispwatchcol/ISPWatch/pull/296` | ✅ Mergeado y desplegado |
+| Asunto desde catálogo | #327 | `https://github.com/ispwatchcol/ISPWatch/pull/327` | ✅ Mergeado y desplegado |
 
 ### Resultados de CI
 
@@ -989,3 +1038,4 @@ instalados fuera de esa tabla.
 | 2026-09-21 | **Correctivo de reapertura**: el humo del PR #4 encontró que un Administrador no podía reabrir el ticket #39. Causa raíz: `ticket_reopen` nunca se repartió —los roles `admin` tenían 17 de 20 permisos `ticket_*`—. Migración idempotente para `code = 'admin'`; la pareja `cerrado → reabierto` queda explícita en `TicketWorkflow::REAPERTURA` sin abrir la transición genérica; `GET .../transitions` ahora dice **por qué** una acción no está disponible. `ticket_close_override` sigue sin repartir a conciencia (**P-52**) | David Gómez | *(PR abierto)* |
 | 2026-09-23 | **PR F1 implementado**: intervenciones tecnicas del § 14 con numero correlativo, tecnico y acompanante congelados, cerrojo de edicion por `finished_at` y reapertura auditada con motivo. Evidencia enlazada sin duplicar archivos, con FK compuesta que impide el cruce entre tickets. Permiso `ticket_intervene` con backfill compatible. **F1-08 pasa a cumplido.** El PR #5 se dividio en F1/F2/F3; nuevas decisiones D-14 y D-15, nueva deuda P-55 y P-56 | — | *(PR abierto)* |
 | 2026-09-25 | **PR F2 implementado**: mediciones tecnicas estructuradas con los seis campos del § 12, comparacion inicial/seguimiento/final del § 13 y la **regla 5 del § 15 ya exigible** en propuesta y cierre —medicion final O razon de lista cerrada mas justificacion—. **F1-09 pasa a cumplido.** Sin permiso nuevo: reutiliza `ticket_intervene`. Nueva decision **D-16** (la lista de razones la define el equipo y falta confirmacion del cliente). Nueve pruebas del workflow se actualizaron porque el cierre cambio de contrato, sin debilitar la regla | — | *(PR abierto)* |
+| 2026-11-03 | **Puesta al día contra el código y `git log`** (el documento no se tocaba desde el 2026-09-25). Los 13 PR marcados «abiertos» estaban mergeados y desplegados: se registran sus números. **PR F3 (#288)** entregado: los equipos del ticket mueven el kardex, así que **D-14 se resolvió en sentido contrario** y **P-55 quedó cerrada**; **F1-12 pasa a parcial** (faltan condición, propiedad, motivo, snapshot y vínculo con la intervención). **F2-03 pasa a cumplido** (`router_id` en la API de socios, PR #296). **F1-10** reescrita: se exigen las reglas 1, 2, 3 y 5; faltan 6, 7 y 8. D-11 y D-12 implementadas; D-13 parcial (asuntos sí, diagnóstico en KAN-93). PR #6 y #7 desbloqueados | David Gómez (con Claude Code) | rama `docs/cno-seguimiento-al-dia` |
