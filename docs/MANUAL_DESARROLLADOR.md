@@ -338,6 +338,11 @@ php artisan test tests/Feature/Billing    # sólo facturación
 php artisan test --filter=FirstInvoice    # por nombre
 ```
 
+> **Memoria.** La suite completa usa ~300 MB (1.988 tests, 2026-11-03). Con el `memory_limit`
+> de 128 MB que trae el PHP de Herd revienta con `Allowed memory size ... exhausted`, y
+> `php -d ... artisan test` no sirve porque el `-d` no llega al proceso hijo. Usa
+> `php -d memory_limit=1G vendor/bin/phpunit` o sube el límite en el `php.ini`.
+
 **Entorno de pruebas:** SQLite `:memory:`, `BCRYPT_ROUNDS=4`, cache/sesión en array,
 cola `sync`, correo `array`. Definido en `phpunit.xml` y reforzado en `.env.testing`
 (que no se versiona: parte de `.env.testing.example`).
@@ -1065,6 +1070,46 @@ avisar.
 > issue en el commit no hace daño y deja el historial listo, pero hasta que
 > alguien instale *GitHub for Jira* (admin de Jira + propietario de la
 > organización en GitHub) el tablero **no se actualiza solo**.
+
+### Trabajar con un agente de IA (CLAUDE.md y Laravel Boost)
+
+Desde el 2026-11-03 (bitácora § 119), el contexto que un agente lee al abrir el proyecto tiene
+dos capas, en este orden de prioridad:
+
+| Capa | Dónde | Qué aporta |
+|---|---|---|
+| **Nuestra** | `CLAUDE.md`, arriba del bloque de Boost | Mapa del proyecto, reglas que no se ven en el código (tenant, `migrate:both`, ecuación del libro, SQLite), índice de `/docs`, protocolo de Jira. **Se escribe a mano** |
+| **Boost** | `CLAUDE.md`, bloque `<laravel-boost-guidelines>`; `.claude/skills/`; `.mcp.json` | Guías genéricas de Laravel 12 / PHPUnit y un servidor MCP (`php artisan boost:mcp`) con esquema de BD, logs, último error y búsqueda en la documentación oficial según versión. **Lo genera Boost** |
+
+Si las dos chocan, manda la nuestra (lo dice la nota de precedencia al inicio de `CLAUDE.md`).
+
+**No edites a mano el bloque de Boost**: `php artisan boost:update` lo regenera. Córrelo
+después de actualizar paquetes de Laravel. Lo que no queremos de Boost se excluye en
+`config/boost.php`, no borrándolo del archivo:
+
+| Excluido | Por qué |
+|---|---|
+| Herramienta `database-query` | Es de solo lectura, pero el `.env` local ve `public`: un `SELECT ... FROM public.x` mete datos reales de clientes en el contexto del agente |
+| Herramienta `tinker` | Ejecuta PHP arbitrario contra la base configurada (ya viene apagada; se fija explícito) |
+| Guía `pint/core` | Obliga a pasar Pint por cada archivo tocado, y el código **no** está formateado con Pint: cada PR reformatearía archivos enteros (ver MEJORAS P-109) |
+| Guías `livewire/core`, `volt/core` y sus skills | Livewire/Volt son restos de Breeze; el frontend es Vue |
+| Guía `deployments` y skill `deploying-to-cloud` | Desplegamos en DigitalOcean App Platform, no en Laravel Cloud |
+| Guía `herd` | No todo el equipo usa Herd; en local se sirve con `php artisan serve` (§ 4) |
+
+Boost solo arranca con `APP_ENV=local` o `APP_DEBUG=true`, nunca dentro de los tests, y es
+dependencia de desarrollo: App Platform no la instala.
+
+**Si en Windows el servidor MCP no conecta** (`/mcp` en Claude Code lo muestra caído), el
+`php` de Herd es un `.bat` y algunos clientes no lo lanzan sin shell. Regístralo solo para tu
+máquina, sin tocar `.mcp.json`:
+
+```bash
+claude mcp add -s local laravel-boost -- cmd /c php artisan boost:mcp
+```
+
+**Al cerrar un cambio, actualizar `CLAUDE.md` es parte de la regla de documentación** cuando
+cambie algo de su sección: una regla nueva que no se ve en el código, un archivo de `/docs`
+nuevo o un cambio en el flujo de Jira.
 
 ---
 

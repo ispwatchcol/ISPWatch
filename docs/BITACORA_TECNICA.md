@@ -4,9 +4,15 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-10-11 · Rama: `feat/hoja-instalacion-solo-inventario`
+**Última actualización:** 2026-11-03 · Rama: `chore/contexto-agente-boost`
 
 Últimos bloques de trabajo, unificados en esta rama:
+
+- **Contexto para agentes de IA (2026-11-03, § 119):** `CLAUDE.md` pasa de dos reglas a un mapa
+  del proyecto con las reglas que no se ven en el código, un índice de `/docs` y el protocolo de
+  Jira. Se instala Laravel Boost (guías de Laravel 12 y servidor MCP) recortado en
+  `config/boost.php`: sin `database-query` ni `tinker`, porque el `.env` local ve producción, y
+  sin la guía de Pint, porque el código no está formateado con Pint.
 
 - **La hoja de instalación ya no tiene campos de equipo a mano (2026-10-11, § 114):** marca,
   modelo y MAC del módem, serial ONU, antena y «otros insumos» repetían lo que ya registra la
@@ -10888,3 +10894,49 @@ queda guardada. Contra el código de § 116, los dos casos nuevos del servicio f
 **Efecto en datos viejos.** Una factura de instalación que hoy ya está sobreasignada (por el
 defecto anterior) da 422 al volver a guardar su cartera con un valor recibido mayor que el
 disponible. Es intencional: obliga a corregir el valor en vez de perpetuar el descuadre.
+
+## 119. Contexto para agentes de IA: `CLAUDE.md` con mapa del proyecto + Laravel Boost — 2026-11-03
+
+**Por qué.** `CLAUDE.md` —lo único que un agente lee solo al abrir el repositorio— tenía dos
+reglas (ramas y documentación). Todo lo demás vivía en `/docs`, que pesa ~1,8 MB y no se puede
+leer entero en cada sesión. Resultado: cada sesión gastaba miles de líneas de lectura en
+reorientarse, y un agente que no las leía partía sin saber que el `.env` local ve producción, que
+`migrate` a secas desincroniza esquemas o que SQLite esconde la mitad de las trampas.
+
+**Qué se hizo.**
+
+- **`CLAUDE.md`** ganó, encima de las dos reglas que ya tenía: nota de precedencia, contexto rápido
+  (stack, mapa «dónde va cada cosa»), las nueve reglas que no se ven leyendo el código, un índice
+  de `/docs` por pregunta, el principio «verificar en código y `git log` antes de afirmar» y el
+  protocolo de Jira (KAN; *In Review* al abrir PR, *Done* lo marca una persona; qué no se hace
+  sin preguntar).
+- **Laravel Boost 2.10** (`laravel/boost`, dev). Aporta guías de Laravel 12 / PHPUnit, cuatro
+  skills (`laravel-best-practices`, `testing-best-practices`, `tailwindcss-development`,
+  `infer-conventions`) y un servidor MCP (`.mcp.json` → `php artisan boost:mcp`) con esquema de
+  BD, logs, último error y búsqueda en la documentación oficial según la versión instalada.
+- **`config/boost.php`** publicado para recortarlo. Fuera: las herramientas `database-query` y
+  `tinker` (el `.env` local apunta a Supabase, donde `public` es producción), y las guías de
+  Pint, Livewire/Volt, Laravel Cloud y Herd, que no aplican. `boost.json` registra el agente
+  `claude_code` para que `boost:update` funcione.
+
+**Decisiones.**
+
+- **Excluir `database-query` aunque sea de solo lectura.** Corre dentro de una transacción
+  `READ ONLY`, así que no puede escribir; pero sí leer `public.customer_profile`, y eso mete
+  datos personales de clientes reales en el contexto de un modelo. La estructura —que es lo
+  útil para escribir migraciones— la da `database-schema`.
+- **Excluir la guía de Pint.** `vendor/bin/pint --test` falla en casi todo `app/`: el código
+  nunca se formateó con Pint. La guía obliga a pasarlo por cada archivo tocado, lo que haría que
+  un fix de una línea traiga cientos de líneas de formato. Adoptar Pint es una decisión aparte
+  (MEJORAS P-109).
+- **Precedencia explícita.** La guía `foundation` de Boost dice «solo crea documentación si el
+  usuario lo pide», lo contrario de nuestra regla. No se puede excluir esa guía, así que la nota
+  de precedencia al inicio de `CLAUDE.md` deja claro cuál manda.
+
+**Verificado.** El servidor MCP responde a `initialize` y `tools/list`; la lista no incluye
+`database-query` ni `tinker`. Boost no arranca en tests (`runningUnitTests()`) ni fuera de
+`local`/debug.
+
+**Lo que esto no da.** Boost no escribe ni mantiene `/docs` ni sabe nada del negocio: eso sigue
+siendo la sección propia de `CLAUDE.md`, que hay que mantener a mano. Ningún archivo evita del
+todo que un agente alucine; lo que lo reduce es que sepa dónde verificar.

@@ -2967,6 +2967,21 @@ escrito: GitHub acepta un push directo a cualquiera de las dos, y un merge con e
 y el force-push. En `main`, además, permitir solo *merge commit*. Lo configura un administrador
 del repositorio.
 
+### 📋 P-109 · El código no tiene formateador: Pint está instalado pero nadie lo corre
+
+Visto al instalar Laravel Boost (bitácora § 119). `laravel/pint` está en `require-dev`, pero no
+hay `pint.json` ni paso en el CI, y `vendor/bin/pint --test` falla en casi todo `app/`
+(espaciado de operadores, `! $x`, imports desordenados, líneas en blanco). Cada quien formatea
+a su manera, y un agente que «arregla el estilo» de un archivo mezcla cientos de líneas de
+formato con el cambio real. Por eso la guía `pint/core` de Boost está excluida en
+`config/boost.php`.
+
+**Recomendación.** Decidir en equipo si se adopta. Si sí: un `pint.json` con el preset
+elegido, **un solo PR** que formatee todo el repositorio sin otros cambios (y su hash en
+`.git-blame-ignore-revs`, para que `git blame` lo salte), un paso `pint --test` en el CI y
+quitar `pint/core` de las exclusiones de Boost. Mientras no se decida: no formatear archivos
+enteros en un PR de trabajo.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3126,6 +3141,7 @@ del repositorio.
 | **P-106** | Un fallo de un router **entero** no deja fila en `billing_action_logs` (`customer_id` es obligatorio) | Sólo queda en el log y en el no-show de `billing:verify-monthly` | 🟡 Baja | 📋 Pendiente · la corrida horaria lo reintenta sola; una tabla de corridas por router lo haría consultable |
 | **P-107** | Una fila `generate_additional_only_invoice` en `failed` no se cierra si después el cliente ya no tiene nada que cobrar (adicional desactivado) | Queda `failed` para siempre, como falsa alarma | 🟡 Baja | 📋 Pendiente |
 | **P-108** | Los avisos de factura (correo y WhatsApp) se envían **sincrónicamente dentro de la corrida**, uno por factura | Cada factura espera a Meta o al SMTP: el día de facturación la corrida dura ~12 minutos (§ 89), lo que la deja más expuesta a morir a mitad (P-87, P-105) | 🟠 Media | 📋 Pendiente · encolar el aviso tras el commit |
+| **P-109** | El código no sigue ningún formateador: Pint está en `require-dev` pero sin `pint.json` ni paso en el CI | Diffs de formato mezclados con cambios reales; la guía de Pint de Boost se tuvo que excluir | 🟢 Baja | 📋 Pendiente · decisión de equipo; si se adopta, un PR solo de formato + `pint --test` en CI |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
