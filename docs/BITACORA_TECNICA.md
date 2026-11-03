@@ -10981,3 +10981,28 @@ invertidas, permiso, contenido del archivo, filtros de infraestructura, corte po
 aislamiento entre ISP y archivados, fórmula neutralizada, tablero y archivo cuentan lo mismo).
 
 **Deuda anotada.** Los CSV de Finanzas no neutralizan fórmulas (MEJORAS P-110).
+## 120. El seguimiento de CNO, puesto al día contra el código — 2026-11-03
+
+**Por qué.** `docs/cliente/CNO/SEGUIMIENTO_MODULO_TICKETS.md` no se tocaba desde el 2026-09-25.
+Trece PR figuraban «abiertos» cuando llevaban semanas en producción, y el PR F3 (equipos del
+ticket) figuraba como pendiente y con un diseño que no fue el que se implementó. Reportarle al
+cliente desde ese documento habría sido reportarle algo falso.
+
+**Qué se hizo.** Se verificó cada fila contra `git log` de `origin/develop` y `origin/main`, y
+cada requisito contra el código y contra el texto de la Solicitud Maestra (§ 14, § 15, § 16).
+Cambios de fondo:
+
+- **F1-12 pasa de pendiente a parcial.** El PR #288 entrega y retira equipos y consume
+  materiales desde el ticket, moviendo el kardex. Falta lo que pide la tabla del § 14:
+  condición y propiedad del instalado, estado y motivo del retirado, snapshot congelado y
+  vínculo con la intervención.
+- **D-14 se resolvió al revés de lo previsto** (sí mueve el kardex) y **P-55 está cerrada**.
+- **F2-03 pasa a cumplido**: `router_id` estable en la API de socios desde el PR #296.
+- **F1-10**: se exigen las reglas 1, 2, 3 y 5 del § 15; la 4 por construcción, la 9 en parte,
+  la 10 por diseño. Faltan 6, 7 y 8.
+- PR #6 y PR #7 dejan de figurar bloqueados.
+
+De paso se corrigió el docblock de `TicketWorkflow::REQUISITOS_DE_CIERRE`, que seguía diciendo
+que la regla 5 no se podía exigir. Solo comentario: sin cambio de comportamiento.
+
+**Sigue sin enviarse al cliente** la matriz del Anexo B ni el checklist E1–E34.
