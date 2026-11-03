@@ -21,6 +21,7 @@ use App\Http\Controllers\TicketInterventionController;
 use App\Http\Controllers\TicketMeasurementController;
 use App\Http\Controllers\TicketSubjectController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\SupportReportController;
 use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
@@ -435,7 +436,13 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
     // sigue siendo un requisito distinto —tener ficha de personal— y quitarlo
     // ampliaría el acceso, no lo reduciría.
     Route::middleware(['staff_profile'])->group(function () {
-        Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
+        // PR #7 · Tablero (mediana/P90/P95) y exportación CSV. Mismo permiso y
+        // mismos filtros (`TicketReportFilters`): lo que se ve y lo que se
+        // descarga salen del mismo conjunto. Antes del apiResource, o
+        // `support/export` casaría con `support/{support}`.
+        Route::get('/support/statistics', [SupportReportController::class, 'statistics'])
+            ->middleware('permission:ticket_export');
+        Route::get('/support/export', [SupportReportController::class, 'export'])
             ->middleware('permission:ticket_export');
 
         Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage'])

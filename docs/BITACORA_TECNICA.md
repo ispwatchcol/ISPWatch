@@ -10940,3 +10940,44 @@ reorientarse, y un agente que no las leía partía sin saber que el `.env` local
 **Lo que esto no da.** Boost no escribe ni mantiene `/docs` ni sabe nada del negocio: eso sigue
 siendo la sección propia de `CLAUDE.md`, que hay que mantener a mano. Ningún archivo evita del
 todo que un agente alucine; lo que lo reduce es que sepa dónde verificar.
+
+## 121. Tablero con mediana, P90 y P95, y exportación de tickets (PR #7 de CNO) — 2026-11-03
+
+**Por qué.** Era el siguiente PR del seguimiento de CNO (F1-18, F1-19, F1-20). El tablero de soporte
+solo mostraba el promedio de resolución en días, y un promedio solo esconde la cola: nueve tickets
+de 2 horas y uno de 20 días promedian casi dos días. Además no había forma de exportar tickets, y los cortes
+de «este mes» y de la tendencia se hacían en UTC, así que desde las 19:00 del último día el tablero
+ya contaba el mes siguiente.
+
+**Qué se hizo.**
+
+- `GET /api/support/statistics` pasa a `SupportReportController`. Conserva todas sus claves y añade
+  `resolution_time` y `closure_time` (count, promedio, mediana, P90, P95 en horas y `excluded`),
+  `timezone`, `filters` y `filter_options` (routers y sectoriales del ISP).
+- `GET /api/support/export` es nuevo: CSV de todos los tickets del filtro, con el diagnóstico en
+  código y etiqueta por separado, fechas en America/Bogota y horas hasta resolución y cierre.
+- Los dos aceptan los mismos filtros (`TicketReportFilters`), incluido el de infraestructura:
+  router de la ficha del cliente y sectorial del ticket.
+- `ExportsCsv` gana `csvText()`, que neutraliza la inyección de fórmulas, y `csvDateTime()`.
+- La pantalla *Soporte → Estadísticas* tiene filtros, la tabla de tiempos y el botón «Exportar CSV».
+
+**Decisiones.**
+
+- **`PERCENTILE.INC`** (interpolación lineal) y no «rango más cercano», porque es lo que obtiene el
+  cliente si recalcula en Excel con la exportación.
+- **Solo dos tiempos.** El § 17 pide también primera atención, diagnóstico, asignación y llegada.
+  No tienen timestamp propio, y sacarlos del historial sería fijar una definición que nadie dio.
+  F1-19 queda cumplido para los tiempos que el modelo registra; el resto del § 17 sigue abierto.
+- **Duraciones negativas fuera**, contadas en `excluded`: vienen de datos importados y moverían la
+  mediana sin aviso.
+- **Permiso `ticket_export` para las dos rutas** (Auditor / gerencia, § 18). Las opciones de
+  router y sectorial vienen en la respuesta para no exigirle `manage_routers` ni `view_sectorials`.
+- **Archivados fuera**, igual que ya hacía el tablero.
+
+**Pruebas.** `tests/Unit/Support/TicketMetricsTest.php` (7, contra un conjunto conocido y los valores
+de Excel) y `tests/Feature/Support/TicketReportsTest.php` (15: percentiles, cierre aparte,
+duraciones negativas, mes de Bogotá, filtro por router, opciones solo del ISP, 422 por fechas
+invertidas, permiso, contenido del archivo, filtros de infraestructura, corte por día de Bogotá,
+aislamiento entre ISP y archivados, fórmula neutralizada, tablero y archivo cuentan lo mismo).
+
+**Deuda anotada.** Los CSV de Finanzas no neutralizan fórmulas (MEJORAS P-110).
