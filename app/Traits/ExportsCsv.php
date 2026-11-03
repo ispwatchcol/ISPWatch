@@ -71,6 +71,46 @@ trait ExportsCsv
         return number_format((float) $value, 2, ',', '');
     }
 
+    /**
+     * Texto libre escrito por personas (asunto, descripción, nombres).
+     *
+     * Neutraliza la **inyección de fórmulas** (CSV injection): Excel ejecuta
+     * como fórmula una celda que empieza por `=`, `+`, `-`, `@`, tabulador o
+     * retorno, y un asunto de ticket lo puede escribir cualquiera con acceso al
+     * alta. Se antepone un apóstrofo, que Excel muestra como texto literal.
+     *
+     * NO se aplica a importes ni a fechas: un `-5000,00` legítimo dejaría de
+     * ser número. Por eso es un helper aparte y no parte de `putCsvRow()`.
+     */
+    protected function csvText($value): string
+    {
+        $texto = (string) ($value ?? '');
+
+        return $texto !== '' && in_array($texto[0], ['=', '+', '-', '@', "\t", "\r"], true)
+            ? "'" . $texto
+            : $texto;
+    }
+
+    /**
+     * Fecha y hora (YYYY-MM-DD HH:MM) en la zona indicada.
+     *
+     * La base guarda en UTC; quien lee el archivo vive en otra zona. Sin la
+     * conversión, un ticket de las 21:00 de Bogotá sale con fecha del día
+     * siguiente. La zona va en la cabecera de la columna, no en cada celda.
+     */
+    protected function csvDateTime($value, string $zona): string
+    {
+        if (!$value) {
+            return '';
+        }
+
+        $fecha = $value instanceof \DateTimeInterface
+            ? \Illuminate\Support\Carbon::instance($value)
+            : \Illuminate\Support\Carbon::parse((string) $value, 'UTC');
+
+        return $fecha->copy()->setTimezone($zona)->format('Y-m-d H:i');
+    }
+
     /** Fecha en ISO corto (YYYY-MM-DD), estable y ordenable en cualquier locale. */
     protected function csvDate($value): string
     {

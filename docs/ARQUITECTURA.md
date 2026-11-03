@@ -2203,6 +2203,28 @@ Tres decisiones:
   acción, porque los requisitos de cierre se evalúan sobre lo guardado. Los permisos son los
   de siempre, campo por campo; lo que el rol no puede cambiar se muestra bloqueado.
 
+### 15.8 Tablero y exportación de tickets (PR #7 · 2026-11-03)
+
+Tres piezas, separadas del controlador del ticket (que ya pasa de 2.000 líneas):
+
+| Pieza | Qué hace |
+|---|---|
+| `App\Support\TicketMetrics` | Pura. Percentil por interpolación lineal (`PERCENTILE.INC` de Excel) y resumen de una distribución en horas. Declara la zona de presentación `America/Bogota` |
+| `App\Support\TicketReportFilters` | Valida y aplica los filtros (catálogo, asunto, técnico, router del cliente, sectorial del ticket, rango de radicado en días de Bogotá, búsqueda) |
+| `SupportReportController` | `statistics()` y `export()`. Los dos parten de la misma consulta filtrada |
+
+Decisiones:
+
+- **Un solo juego de filtros.** Si el tablero y el CSV filtraran distinto, el P90 en pantalla no
+  coincidiría con el recalculado sobre el archivo. Lo fija una prueba que compara los dos.
+- **La zona solo cambia los cortes y la presentación.** La base sigue en UTC. Lo que se convierte es
+  dónde empiezan «este mes» y «el 30 de septiembre», y las fechas del archivo.
+- **Solo los tiempos que el modelo registra.** Radicado → resuelto y radicado → cerrado. El § 17
+  pide además primera atención, diagnóstico, asignación y llegada, que no tienen timestamp propio;
+  derivarlos del historial sería inventar una definición que el cliente no ha dado.
+- **Los percentiles se calculan en PHP**, no en SQL: `percentile_cont` existe en PostgreSQL pero no
+  en SQLite, donde corren las pruebas. Se cargan solo tres columnas por ticket.
+
 ---
 
 ## 16. Observabilidad y dominios de fallo

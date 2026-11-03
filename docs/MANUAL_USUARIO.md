@@ -2193,6 +2193,31 @@ Los tickets archivados **no** cuentan en estas cifras.
 Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificación* cuentan como
 **abiertos**; *Asignado*, *En intervención* y las esperas, como **en progreso**.
 
+**Filtros.** Arriba de las cifras puedes acotar por fecha de radicado (desde / hasta), **router**,
+**sectorial o nodo**, estado, prioridad y categoría. Pulsa **Aplicar** para recalcular y
+**Limpiar** para volver a ver todo. Las fechas son días de **Bogotá**: «hasta el 30 de
+septiembre» incluye un ticket radicado ese día a las 10 de la noche.
+
+**Tiempos de atención.** La tabla muestra, en horas y desde el radicado, cuánto se tardó en
+**resolver** y en **cerrar** los tickets:
+
+| Columna | Qué te dice |
+|---|---|
+| **Promedio** | La media. Un solo ticket de varias semanas la sube mucho |
+| **Mediana** | La mitad de los tickets tardó menos que esto |
+| **P90** | El 90 % tardó menos que esto. Es el número para comprometer un tiempo de respuesta |
+| **P95** | El 95 % tardó menos que esto |
+
+Si ves el aviso «… con fecha de resolución o cierre anterior al radicado no se cuentan», hay
+tickets con fechas inconsistentes (suele pasar con datos importados). No entran en el cálculo.
+
+**Exportar CSV.** El botón descarga **todos** los tickets que cumplen los filtros activos, no
+solo los que ves. Se abre en Excel con columnas separadas e incluye el cliente, su cédula, el
+router, el sectorial, el técnico, el diagnóstico (con nombre y código), las fechas en hora de
+Bogotá y las horas hasta resolución y cierre.
+
+> Esta pantalla y la exportación necesitan el permiso **«Tickets · métricas y exportación»** (`ticket_export`).
+
 ---
 
 ## 15. Inventario

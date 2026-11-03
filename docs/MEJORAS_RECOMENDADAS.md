@@ -2982,6 +2982,18 @@ elegido, **un solo PR** que formatee todo el repositorio sin otros cambios (y su
 quitar `pint/core` de las exclusiones de Boost. Mientras no se decida: no formatear archivos
 enteros en un PR de trabajo.
 
+### 📋 P-110 · Los CSV de Finanzas no se protegen contra inyección de fórmulas
+
+Visto al construir la exportación de tickets (bitácora § 121). `ExportsCsv::putCsvRow()` escribe
+cada celda tal cual, y los exports de facturas, recaudos y gastos llevan texto que escribe una
+persona: el nombre del cliente, la referencia de un pago, la descripción de un gasto. Una celda
+que empiece por `=`, `+`, `-` o `@` se ejecuta como fórmula al abrir el archivo en Excel.
+
+**Recomendación.** Pasar por `csvText()` —el helper que ya usa la exportación de tickets— los
+campos de texto libre de `BillingController::exportInvoices()`, `exportPayments()` y
+`ExpenseController::exportExpenses()`. **No** los importes: `-5000,00` tiene que seguir siendo un
+número. Una prueba por export con un nombre que empiece por `=`.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3142,6 +3154,7 @@ enteros en un PR de trabajo.
 | **P-107** | Una fila `generate_additional_only_invoice` en `failed` no se cierra si después el cliente ya no tiene nada que cobrar (adicional desactivado) | Queda `failed` para siempre, como falsa alarma | 🟡 Baja | 📋 Pendiente |
 | **P-108** | Los avisos de factura (correo y WhatsApp) se envían **sincrónicamente dentro de la corrida**, uno por factura | Cada factura espera a Meta o al SMTP: el día de facturación la corrida dura ~12 minutos (§ 89), lo que la deja más expuesta a morir a mitad (P-87, P-105) | 🟠 Media | 📋 Pendiente · encolar el aviso tras el commit |
 | **P-109** | El código no sigue ningún formateador: Pint está en `require-dev` pero sin `pint.json` ni paso en el CI | Diffs de formato mezclados con cambios reales; la guía de Pint de Boost se tuvo que excluir | 🟢 Baja | 📋 Pendiente · decisión de equipo; si se adopta, un PR solo de formato + `pint --test` en CI |
+| **P-110** | Los CSV de facturas, recaudos y gastos escriben el texto libre sin neutralizar fórmulas (`=`, `+`, `-`, `@`) | Un nombre o referencia malicioso se ejecuta como fórmula al abrir el archivo en Excel | 🟡 Media | 📋 Pendiente · aplicar `ExportsCsv::csvText()` a los campos de texto (no a importes) |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

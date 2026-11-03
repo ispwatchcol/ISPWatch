@@ -2253,7 +2253,8 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
 | `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado** |
 | `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
-| `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Estadísticas |
+| `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Tablero: conteos, **mediana/P90/P95** y opciones de filtro (ver §16.2) |
+| `GET` | `/api/support/export` | `staff_profile` + `ticket_export` | **CSV** de todos los tickets del filtro (ver §16.2) |
 | `POST` | `/api/support/{id}/message` | `staff_profile` + `ticket_note` | Añade mensaje |
 | `PUT` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Edita mensaje |
 | `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
@@ -2836,6 +2837,58 @@ catálogo para que la interfaz lo precargue en el formulario de cargo, pero fact
 `POST /api/support/{id}/charge`, con su propia decisión y su propio bloqueo por `no_charge`. Las
 líneas `in` llegan con `unit_price: null`: un retiro no se cobra.
 
+### 16.2 Tablero y exportación (PR #7 · 2026-11-03)
+
+`GET /api/support/statistics` y `GET /api/support/export` exigen `ticket_export` —la capacidad
+del Auditor / gerencia en el § 18— y aceptan **los mismos filtros** por query string, validados
+en `App\Support\TicketReportFilters`. Lo que se ve en el tablero y lo que se descarga salen del
+mismo conjunto.
+
+| Parámetro | Valor | Efecto |
+|---|---|---|
+| `status`, `priority`, `category` | código del catálogo (o `all`) | Un código inexistente no devuelve nada; no se ignora |
+| `subject_id` | id, `other` o `all` | `other` = asunto escrito a mano |
+| `staff_id` | id, `unassigned` o `all` | Técnico asignado |
+| `router_id` | id | Router de la **ficha del cliente** (infraestructura) |
+| `sectorial_id` | id | Sectorial del **ticket** (infraestructura) |
+| `created_from`, `created_to` | `YYYY-MM-DD` | Día calendario **de Bogotá**: se convierte a un rango UTC. `created_to` < `created_from` → 422 |
+| `search` | texto (≤ 200) | Asunto o descripción (`whereLike`) |
+
+Los tickets **archivados** no entran en ninguno de los dos.
+
+**Tablero.** Conserva todas las claves anteriores y añade:
+
+```json
+{
+  "resolution_time": { "count": 10, "avg_hours": 5.5, "median_hours": 5.5, "p90_hours": 9.1, "p95_hours": 9.55, "excluded": 0 },
+  "closure_time":    { "count": 8,  "avg_hours": 30.2, "median_hours": 24.0, "p90_hours": 60.4, "p95_hours": 71.0, "excluded": 0 },
+  "timezone": "America/Bogota",
+  "filters": { "router_id": "3" },
+  "filter_options": { "routers": [{ "id": 3, "name": "Torre Norte" }], "sectorials": [{ "id": 7, "name": "Nodo Centro" }] }
+}
+```
+
+- Tiempos desde `created_at` hasta `resolved_at` (resolución) y hasta `closed_at` (cierre), en
+  **horas** con dos decimales. Percentiles por interpolación lineal, el método `PERCENTILE.INC`
+  de Excel, para que el cliente obtenga la misma cifra al recalcular sobre la exportación.
+- Sin tickets en la distribución, los valores son `null`, no `0`.
+- `excluded`: duraciones negativas (resolución anterior al radicado, por datos importados) que se
+  descartan para no mover la mediana en silencio.
+- `avg_resolution_time` (días, un decimal) se mantiene por compatibilidad y ahora sale de la misma
+  distribución.
+- `resolved_this_month` y `monthly_trend` cortan por el mes **de Bogotá**.
+- `filter_options` trae id y nombre de routers y sectoriales del ISP, para que el Auditor filtre sin
+  necesitar `manage_routers` ni `view_sectorials`.
+
+**Exportación.** `text/csv; charset=UTF-8`, separador `;`, BOM y coma decimal (el formato de los
+exports de Finanzas, `ExportsCsv`). Nombre `tickets-YYYY-MM-DD.csv`. Columnas: ticket, creado,
+estado (etiqueta y código), prioridad, categoría, asunto, descripción, cliente, cédula, router,
+sectorial, técnico, los cinco campos del diagnóstico **con etiqueta y código por separado** (la
+etiqueta es editable; el código no), resuelto, cerrado, horas hasta resolución y hasta cierre,
+número de intervenciones, sin cobro y su motivo. Las fechas van en **America/Bogota** y la zona va
+en la cabecera de la columna. El texto libre se neutraliza contra inyección de fórmulas: una
+celda que empieza por `=`, `+`, `-`, `@` sale con un apóstrofo delante.
+
 ---
 
 ## 17. Personal, roles y permisos
@@ -3199,7 +3252,8 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_audit_log` | `/api/audit-logs*`; extracto de saldo por OR con `view_billing` / `register_payments` |
 | `view_settings` | `/api/settings/cache/clear`, escritura del centro de ayuda (+ `is_superadmin`) |
 | `view_expenses` / `add_expense` / `edit_expense` | Lectura / alta / edición de gastos y categorías |
-| *(sólo `staff_profile`)* | `/api/support/statistics`, mensajes, cambio de estado y cargos de ticket |
+| `ticket_export` (+ `staff_profile`) | `GET /api/support/statistics`, `GET /api/support/export` |
+| *(sólo `staff_profile`)* | cargos de ticket (`/api/support/{id}/charge(s)`) |
 | *(sólo autenticación)* | `GET /api/roles`, `/api/auth/me`, `/api/dashboard/stats`, `/api/catalogs/*`, `GET /api/help-center`, `/api/tenant/maps-config` |
 
 > **Cobertura completa desde 2026-07-30.** Todos los `apiResource` y sub-recursos llevan ya

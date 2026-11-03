@@ -38,8 +38,15 @@ export default {
     getArchived(params = {}) {
         return apiClient.get('/support/archived', { params })
     },
-    getStatistics() {
-        return apiClient.get('/support/statistics')
+    // PR #7 · Tablero y exportación comparten filtros (`TicketReportFilters`):
+    // status, priority, category, subject_id, staff_id, sectorial_id,
+    // router_id, created_from / created_to (día de Bogotá, YYYY-MM-DD), search.
+    getStatistics(params = {}) {
+        return apiClient.get('/support/statistics', { params })
+    },
+    // CSV de TODOS los tickets del filtro, no de una página.
+    exportTickets(params = {}) {
+        return apiClient.get('/support/export', { params, responseType: 'blob' })
     },
     // Asuntos frecuentes del ISP. Leer: `ticket_view`; crear, renombrar,
     // ordenar, desactivar y borrar: `ticket_manage_catalogs`. Un asunto que ya
