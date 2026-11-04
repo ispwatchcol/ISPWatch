@@ -77,7 +77,7 @@ class TicketLinkController extends Controller
         ]);
 
         $hijos = $ticket->esMasivo()
-            ? $ticket->incidentChildren()->with('user.customerProfile:id,user_id,name,last_name')->orderBy('created_at')->get()
+            ? $ticket->incidentChildren()->with('user.customerProfile:user_id,name,last_name')->orderBy('created_at')->get()
             : collect();
 
         $duplicados = $ticket->duplicates()->orderBy('created_at')->get();
