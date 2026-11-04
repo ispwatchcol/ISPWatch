@@ -11,12 +11,14 @@ use App\Models\SupportTicketHistory;
 use App\Models\TicketSubject;
 use App\Models\User;
 use App\Services\BillingService;
+use App\Services\TicketIncidentService;
 use App\Support\TicketCatalogs;
 use App\Models\TicketMeasurement;
 use App\Support\TicketMeasurements;
 use App\Support\TicketWorkflow;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\Rules\In;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
@@ -39,8 +41,10 @@ class SupportTicketController extends Controller
         'category' => ['category_id', TicketCatalogs::CATEGORY],
     ];
 
-    public function __construct(private readonly TicketCatalogs $catalogs)
-    {
+    public function __construct(
+        private readonly TicketCatalogs $catalogs,
+        private readonly TicketIncidentService $incidentes,
+    ) {
     }
 
     /**
@@ -296,9 +300,20 @@ class SupportTicketController extends Controller
             'subject_id' => $this->reglaDeAsunto($tenantId),
             'description' => 'nullable|string',
             'category' => ['nullable', $this->reglaDe(TicketCatalogs::CATEGORY)],
-            'user_id' => 'required|exists:users,id',
-            'staff_id' => 'nullable|exists:users,id',
-            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
+            // PR #6 · § 6: el operador sólo elige «Individual» o «Masivo». Un
+            // masivo es el INCIDENTE PADRE: no tiene cliente —los clientes
+            // llegan como tickets asociados— y sí tiene el elemento de red
+            // afectado, que es justo lo que lo hace masivo.
+            'modality' => ['nullable', Rule::in(SupportTicket::MODALITIES)],
+            // Cliente, técnico y elemento, del MISMO ISP (regla 1 de
+            // CLAUDE.md). Antes bastaba con que el id existiera en cualquier
+            // tenant.
+            'user_id' => ['required_unless:modality,' . SupportTicket::MODALITY_MASIVO,
+                'prohibited_if:modality,' . SupportTicket::MODALITY_MASIVO,
+                'nullable', 'integer', $this->existeEnElIsp('users', $tenantId)],
+            'staff_id' => ['nullable', 'integer', $this->existeEnElIsp('users', $tenantId)],
+            'sectorial_id' => ['required_if:modality,' . SupportTicket::MODALITY_MASIVO,
+                'nullable', 'integer', $this->existeEnElIsp('sectorial', $tenantId)],
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
             // PR #2: el diagnóstico se puede capturar ya desde el alta, aunque lo
             // habitual sea rellenarlo después de la visita.
@@ -329,7 +344,8 @@ class SupportTicketController extends Controller
                 // el código en el ámbito del tenant, y `fill()` recorre el array
                 // en orden. Ver `SupportTicket::tenantParaResolver()`.
                 'tenant_id' => $request->user()?->tenant_id ?? 1,
-                'user_id' => $data['user_id'],
+                'user_id' => $data['user_id'] ?? null,
+                'modality' => $data['modality'] ?? SupportTicket::MODALITY_INDIVIDUAL,
                 'staff_id' => $data['staff_id'] ?? null,
                 'sectorial_id' => $data['sectorial_id'] ?? null,
                 'subject' => $data['subject'],
@@ -949,9 +965,19 @@ class SupportTicketController extends Controller
                 continue;
             }
 
+            // Un masivo no puede ser duplicado ni asociarse a otro incidente:
+            // ofrecerlo terminaría siempre en 422.
+            if ($ticket->esMasivo() && isset(TicketWorkflow::VINCULO_REQUERIDO[$code])) {
+                continue;
+            }
+
             $destinos[] = [
                 'code'  => $code,
                 'label' => $this->catalogs->label(TicketCatalogs::STATUS, $this->catalogs->id(TicketCatalogs::STATUS, $code)),
+                // PR #6 · Qué vínculo exige este destino (`duplicate_of_id`,
+                // `parent_ticket_id`) o `null`. La pantalla pide el ticket
+                // objetivo sólo cuando el servidor dice que hace falta.
+                'requires_link' => TicketWorkflow::VINCULO_REQUERIDO[$code] ?? null,
             ];
         }
 
@@ -1035,6 +1061,11 @@ class SupportTicketController extends Controller
             // «asignado» a «en intervención» no necesita justificarse. Si llega,
             // se guarda.
             'reason' => 'nullable|string|max:500',
+            // PR #6 · El vínculo viaja CON la transición: «duplicado» exige de
+            // cuál, y «asociado a incidente masivo» exige a cuál. Ver
+            // `TicketWorkflow::VINCULO_REQUERIDO`.
+            'duplicate_of_id'  => 'nullable|integer',
+            'parent_ticket_id' => 'nullable|integer',
         ]);
 
         $destino = $data['status'];
@@ -1073,13 +1104,113 @@ class SupportTicketController extends Controller
             return $respuesta;
         }
 
-        $anterior = $this->transicionar($ticket, $destino, $data['reason'] ?? null);
+        // PR #6 · Sin vínculo no hay transición. Se valida ANTES de escribir
+        // nada: un duplicado que no dice de cuál es exactamente el hueco que
+        // dejó el PR #4.
+        $vinculo = TicketWorkflow::VINCULO_REQUERIDO[$destino] ?? null;
+        $objetivo = null;
+
+        if ($vinculo !== null) {
+            $idObjetivo = $data[$vinculo] ?? null;
+
+            if (! $idObjetivo) {
+                throw ValidationException::withMessages([
+                    $vinculo => $vinculo === 'duplicate_of_id'
+                        ? 'Indica de qué ticket es duplicado.'
+                        : 'Indica a qué incidente masivo se asocia.',
+                ]);
+            }
+
+            // `find` con el scope de tenant: un ticket de otro ISP «no existe».
+            $objetivo = SupportTicket::find($idObjetivo);
+            $error = $vinculo === 'duplicate_of_id'
+                ? $this->incidentes->motivoParaNoDuplicar($ticket, $objetivo)
+                : $this->incidentes->motivoParaNoAsociar($ticket, $objetivo);
+
+            if ($error !== null) {
+                throw ValidationException::withMessages([$vinculo => $error]);
+            }
+        }
+
+        $arrastrados = 0;
+
+        $anterior = DB::transaction(function () use ($ticket, $destino, $data, $vinculo, $objetivo, &$arrastrados) {
+            if ($vinculo !== null) {
+                // Se escribe antes que el estado para que el `save()` de la
+                // transición los guarde juntos.
+                $ticket->{$vinculo} = $objetivo->id;
+            }
+
+            // El correo, fuera de la transacción: si la base revierte, el
+            // cliente no debe haber recibido el aviso de un cambio que no fue.
+            $anterior = $this->transicionar($ticket, $destino, $data['reason'] ?? null, notificar: false);
+
+            if ($vinculo !== null) {
+                SupportTicketHistory::registrar(
+                    $ticket,
+                    $vinculo === 'duplicate_of_id'
+                        ? SupportTicketHistory::DUPLICATE_LINKED
+                        : SupportTicketHistory::INCIDENT_LINKED,
+                    field: $vinculo,
+                    newValue: (string) $objetivo->id,
+                    metadata: ['ticket_id' => $objetivo->id, 'subject' => $objetivo->subject],
+                );
+            }
+
+            if ($ticket->esMasivo() && $destino === TicketWorkflow::SERVICIO_RESTABLECIDO) {
+                $arrastrados = $this->restablecerAsociados($ticket);
+            }
+
+            return $anterior;
+        });
+
+        $this->notificarCambioDeEstado($ticket);
 
         return response()->json([
-            'message'         => 'Estado actualizado correctamente. ✅',
+            'message'         => 'Estado actualizado correctamente. ✅'
+                . ($arrastrados ? " También se restablecieron {$arrastrados} ticket(s) asociados." : ''),
             'previous_status' => $anterior,
+            'restored_children' => $arrastrados,
             'ticket'          => $ticket->fresh(['user', 'staff']),
         ]);
+    }
+
+    /**
+     * El incidente masivo volvió: sus tickets asociados vuelven con él.
+     *
+     * Es lo que el PR #4 dejó escrito en la matriz («se resuelve cuando se
+     * resuelve el padre»). Sólo arrastra a los que SIGUEN en
+     * `asociado_incidente_masivo`: uno que ya se sacó del incidente —porque
+     * resultó ser otra falla— sigue su propio camino.
+     *
+     * Restablece, NO cierra. Cerrar cada ticket sigue exigiendo su propio
+     * expediente (§ 15): que el nodo volviera no confirma la causa de cada
+     * cliente ni sustituye su prueba final.
+     *
+     * Sin correo al cliente, a propósito: el envío es síncrono y un incidente
+     * con cientos de asociados dejaría colgada la petición. Ver MEJORAS P-111.
+     */
+    private function restablecerAsociados(SupportTicket $incidente): int
+    {
+        $idAsociado = $this->catalogs->id(TicketCatalogs::STATUS, TicketWorkflow::ASOCIADO_INCIDENTE_MASIVO);
+
+        if (! $idAsociado) {
+            return 0;
+        }
+
+        $hijos = $incidente->incidentChildren()->where('status_id', $idAsociado)->get();
+
+        foreach ($hijos as $hijo) {
+            $this->transicionar($hijo, TicketWorkflow::SERVICIO_RESTABLECIDO, notificar: false);
+
+            SupportTicketHistory::registrar(
+                $hijo,
+                SupportTicketHistory::RESTORED_BY_INCIDENT,
+                metadata: ['incident_id' => $incidente->id, 'subject' => $incidente->subject],
+            );
+        }
+
+        return $hijos->count();
     }
 
     /**
@@ -1328,7 +1459,15 @@ class SupportTicketController extends Controller
         $anterior  = $ticket->status;
         $cerradoEl = $ticket->closed_at?->toJSON();
 
-        DB::transaction(function () use ($ticket, $data, $anterior, $cerradoEl, $destino) {
+        // PR #6 · Reabrir un duplicado es decir que NO lo era: el vínculo se
+        // suelta, y de cuál se creía duplicado queda en el evento.
+        $eraDuplicadoDe = $anterior === TicketWorkflow::DUPLICADO ? $ticket->duplicate_of_id : null;
+
+        DB::transaction(function () use ($ticket, $data, $anterior, $cerradoEl, $destino, $eraDuplicadoDe) {
+            if ($eraDuplicadoDe !== null) {
+                $ticket->duplicate_of_id = null;
+            }
+
             // `closed_at` NO se limpia: el §19.5 pide que «los estados y
             // timestamps se conserven sin sobrescritura», y la fecha de aquel
             // cierre sigue siendo un hecho. `transicionar()` tampoco la toca
@@ -1343,6 +1482,7 @@ class SupportTicketController extends Controller
                     'from'      => $anterior,
                     'to'        => $destino,
                     'closed_at' => $cerradoEl,
+                    'duplicate_of' => $eraDuplicadoDe,
                 ], fn ($v) => $v !== null),
             );
         });
@@ -1797,6 +1937,17 @@ class SupportTicketController extends Controller
      *
      * @param  array<int, string>  $con
      */
+    /**
+     * `exists` acotado al ISP de quien pide. Sin tenant (superadmin global) no
+     * hay ISP contra el que acotar y se comprueba sólo que exista.
+     */
+    private function existeEnElIsp(string $tabla, ?int $tenantId): Exists
+    {
+        $regla = Rule::exists($tabla, 'id');
+
+        return $tenantId ? $regla->where('tenant_id', $tenantId) : $regla;
+    }
+
     private function buscarTicket(Request $request, $id, array $con = []): SupportTicket
     {
         return SupportTicket::with($con)

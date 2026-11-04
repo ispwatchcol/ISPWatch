@@ -140,6 +140,16 @@ class SupportTicketHistory extends Model
     public const MEASUREMENT_UPDATED  = 'measurement_updated';
     public const FINAL_TEST_WAIVED    = 'final_test_waived';
 
+    /**
+     * PR #6 de CNO · Vinculos entre tickets (§ 16). Eventos propios y no una
+     * nota: el vinculo es un dato del expediente —«duplicado DE CUAL»,
+     * «asociado A CUAL»— y tiene que poder rastrearse por tipo.
+     */
+    public const DUPLICATE_LINKED     = 'duplicate_linked';
+    public const INCIDENT_LINKED      = 'incident_linked';
+    /** El incidente padre se restablecio y arrastro a este ticket asociado. */
+    public const RESTORED_BY_INCIDENT = 'restored_by_incident';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

@@ -10941,6 +10941,32 @@ reorientarse, y un agente que no las leía partía sin saber que el `.env` local
 siendo la sección propia de `CLAUDE.md`, que hay que mantener a mano. Ningún archivo evita del
 todo que un agente alucine; lo que lo reduce es que sepa dónde verificar.
 
+## 120. El seguimiento de CNO, puesto al día contra el código — 2026-11-03
+
+**Por qué.** `docs/cliente/CNO/SEGUIMIENTO_MODULO_TICKETS.md` no se tocaba desde el 2026-09-25.
+Trece PR figuraban «abiertos» cuando llevaban semanas en producción, y el PR F3 (equipos del
+ticket) figuraba como pendiente y con un diseño que no fue el que se implementó. Reportarle al
+cliente desde ese documento habría sido reportarle algo falso.
+
+**Qué se hizo.** Se verificó cada fila contra `git log` de `origin/develop` y `origin/main`, y
+cada requisito contra el código y contra el texto de la Solicitud Maestra (§ 14, § 15, § 16).
+Cambios de fondo:
+
+- **F1-12 pasa de pendiente a parcial.** El PR #288 entrega y retira equipos y consume
+  materiales desde el ticket, moviendo el kardex. Falta lo que pide la tabla del § 14:
+  condición y propiedad del instalado, estado y motivo del retirado, snapshot congelado y
+  vínculo con la intervención.
+- **D-14 se resolvió al revés de lo previsto** (sí mueve el kardex) y **P-55 está cerrada**.
+- **F2-03 pasa a cumplido**: `router_id` estable en la API de socios desde el PR #296.
+- **F1-10**: se exigen las reglas 1, 2, 3 y 5 del § 15; la 4 por construcción, la 9 en parte,
+  la 10 por diseño. Faltan 6, 7 y 8.
+- PR #6 y PR #7 dejan de figurar bloqueados.
+
+De paso se corrigió el docblock de `TicketWorkflow::REQUISITOS_DE_CIERRE`, que seguía diciendo
+que la regla 5 no se podía exigir. Solo comentario: sin cambio de comportamiento.
+
+**Sigue sin enviarse al cliente** la matriz del Anexo B ni el checklist E1–E34.
+
 ## 121. Tablero con mediana, P90 y P95, y exportación de tickets (PR #7 de CNO) — 2026-11-03
 
 **Por qué.** Era el siguiente PR del seguimiento de CNO (F1-18, F1-19, F1-20). El tablero de soporte
@@ -10981,28 +11007,63 @@ invertidas, permiso, contenido del archivo, filtros de infraestructura, corte po
 aislamiento entre ISP y archivados, fórmula neutralizada, tablero y archivo cuentan lo mismo).
 
 **Deuda anotada.** Los CSV de Finanzas no neutralizan fórmulas (MEJORAS P-110).
-## 120. El seguimiento de CNO, puesto al día contra el código — 2026-11-03
 
-**Por qué.** `docs/cliente/CNO/SEGUIMIENTO_MODULO_TICKETS.md` no se tocaba desde el 2026-09-25.
-Trece PR figuraban «abiertos» cuando llevaban semanas en producción, y el PR F3 (equipos del
-ticket) figuraba como pendiente y con un diseño que no fue el que se implementó. Reportarle al
-cliente desde ese documento habría sido reportarle algo falso.
+## 122. Duplicados, incidentes masivos y reincidencia (PR #6 de CNO) — 2026-11-04
 
-**Qué se hizo.** Se verificó cada fila contra `git log` de `origin/develop` y `origin/main`, y
-cada requisito contra el código y contra el texto de la Solicitud Maestra (§ 14, § 15, § 16).
-Cambios de fondo:
+**Por qué.** Era el último PR funcional del backlog de CNO (F1-13, F1-14, F1-15). Los estados
+`duplicado` y `asociado_incidente_masivo` existían desde el PR #4, pero no apuntaban a ningún
+ticket: se sabía que algo era un duplicado, no de cuál. Tampoco había forma de crear un incidente
+padre, ni aviso al radicar, ni cálculo de reincidencia. Los criterios § 19.7 y § 19.8 seguían
+abiertos.
 
-- **F1-12 pasa de pendiente a parcial.** El PR #288 entrega y retira equipos y consume
-  materiales desde el ticket, moviendo el kardex. Falta lo que pide la tabla del § 14:
-  condición y propiedad del instalado, estado y motivo del retirado, snapshot congelado y
-  vínculo con la intervención.
-- **D-14 se resolvió al revés de lo previsto** (sí mueve el kardex) y **P-55 está cerrada**.
-- **F2-03 pasa a cumplido**: `router_id` estable en la API de socios desde el PR #296.
-- **F1-10**: se exigen las reglas 1, 2, 3 y 5 del § 15; la 4 por construcción, la 9 en parte,
-  la 10 por diseño. Faltan 6, 7 y 8.
-- PR #6 y PR #7 dejan de figurar bloqueados.
+**Qué se hizo.**
 
-De paso se corrigió el docblock de `TicketWorkflow::REQUISITOS_DE_CIERRE`, que seguía diciendo
-que la regla 5 no se podía exigir. Solo comentario: sin cambio de comportamiento.
+- Migración: `support_ticket.modality` (`individual`/`masivo`), `parent_ticket_id` y
+  `duplicate_of_id`, con FK a la misma tabla y CHECK en PostgreSQL.
+- **Alta.** `POST /support` acepta `modality`. Un masivo exige el elemento de red y no lleva
+  cliente. De paso, `user_id`, `staff_id` y `sectorial_id` se validan contra el ISP de quien pide:
+  antes `exists:users,id` aceptaba un id de cualquier tenant (regla 1 de `CLAUDE.md`).
+- **Vincular es transicionar.** `PATCH .../status` a `duplicado` exige `duplicate_of_id`; a
+  `asociado_incidente_masivo` exige `parent_ticket_id`. Reglas en `TicketIncidentService`:
+  duplicado sólo del mismo cliente y nunca de otro duplicado; padre sólo masivo y no terminal; sin
+  incidentes anidados. Eventos `duplicate_linked` e `incident_linked`.
+- **Cascada.** Un masivo que pasa a `servicio_restablecido` arrastra a sus asociados que siguen en
+  `asociado_incidente_masivo` (evento `restored_by_incident`). No los cierra.
+- **Reabrir un duplicado** suelta el vínculo y lo deja en el evento.
+- `GET /support/open-for`: abiertos del cliente e incidentes activos en su AP/OLT o en cualquier
+  elemento del que cuelguen. `GET /support/{id}/links`: padre, original, asociados, duplicados y
+  reincidencia 7/30/90 por servicio, síntoma, causa e infraestructura.
+- Tablero: `incidents` (masivos, asociados, duplicados) y `recurrence` (tasa por ventana). El CSV
+  gana Modalidad, Incidente padre y Duplicado de.
+- Pantallas: modalidad y aviso de duplicados en *Nuevo ticket*; selector de vínculo en el modal de
+  transición; tarjeta *Relaciones* con la reincidencia en el detalle; etiqueta *Masivo* en el
+  listado; dos tarjetas nuevas en *Estadísticas*.
 
-**Sigue sin enviarse al cliente** la matriz del Anexo B ni el checklist E1–E34.
+**Decisiones.**
+
+- **Un masivo es un ticket con `modality = masivo`, no una tabla aparte**: hereda estados,
+  historial, intervenciones y cierre sin duplicarlos.
+- **Servicio = cliente** (D-01 sigue abierta) e **infraestructura = `sectorial` con sus ancestros**.
+- **El vínculo se valida antes de escribir y se escribe en la misma transacción que el estado.** El
+  correo de cambio de estado salió de la transacción: si la base revierte, el cliente no recibe el
+  aviso de un cambio que no ocurrió.
+- **La cascada restablece pero no cierra**, ni envía correo (síncrono; P-111).
+- **No se añadió permiso nuevo.** Vincular va con `ticket_transition` y crear el masivo con
+  `ticket_create`. El § 18 da «incidentes masivos» al Supervisor; repartirlo es parte de D-09.
+- **STR y STN no se derivan** (D-04 sigue abierta; P-112).
+- **Reincidencia:** cuenta tickets radicados **antes**, sin duplicados ni archivados. Servicio,
+  síntoma y causa son del mismo cliente; infraestructura, del mismo elemento y de cualquier
+  cliente. En el tablero el ticket anterior se busca fuera del filtro de fechas.
+
+**Pruebas.** `tests/Feature/Support/TicketIncidentsTest.php` (17): modalidad por defecto; masivo
+exige elemento y prohíbe cliente; alta rechaza cliente y elemento de otro ISP; `open-for` con el
+árbol nodo → AP y sin incidentes cerrados ni ajenos; `open-for` rechaza un cliente ajeno; duplicado
+sin vínculo, con vínculo y evento, contra otro cliente, sí mismo, otro ISP o un id inexistente,
+contra otro duplicado; reabrir suelta el vínculo; asociar exige masivo activo; varios asociados a
+un padre con `links`; un masivo no ofrece esos destinos y `requires_link` en `transitions`;
+cascada que restablece sin cerrar y respeta al que salió del incidente; reincidencia por ventana y
+dimensión; tasa del tablero con el anterior fuera del filtro; columnas nuevas del CSV. Dos casos
+nuevos en `ApiAuthorizationTest` para las rutas de lectura.
+
+**Sin aplicar en ninguna base desde local.** La migración la aplica el despliegue: `migrate:both`
+desde esta máquina tocaría `public`, que es producción.

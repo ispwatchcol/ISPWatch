@@ -2994,6 +2994,26 @@ campos de texto libre de `BillingController::exportInvoices()`, `exportPayments(
 `ExpenseController::exportExpenses()`. **No** los importes: `-5000,00` tiene que seguir siendo un
 número. Una prueba por export con un nombre que empiece por `=`.
 
+### 📋 P-111 · El restablecimiento de un incidente masivo no avisa a los clientes asociados
+
+Visto en el PR #6 de CNO (bitácora § 122). Cuando un incidente masivo pasa a «Servicio
+restablecido», `SupportTicketController::restablecerAsociados()` mueve a sus tickets asociados
+con `notificar: false`. Es a propósito: `notificarCambioDeEstado()` envía el correo
+**sincrónicamente**, y un incidente con cientos de asociados dejaría la petición colgada (el mismo
+problema que P-108 en la facturación).
+
+**Recomendación.** Encolar el aviso por ticket tras el commit (un job por cliente, o uno que
+recorra los asociados) y activarlo en la cascada. Si se hace, evaluar también WhatsApp: es el
+canal por el que Converza ya anuncia las caídas (`router_outage_events`).
+
+### 📋 P-112 · «Reabierto» y «sin falla confirmada» (STR / STN) no se derivan todavía
+
+El § 6 de la Solicitud Maestra nombra cinco modalidades y pide que el operador elija sólo
+Individual o Masivo; «asociado», «reabierto» y «sin falla confirmada» se calculan. El PR #6 guarda
+`modality` y deduce «asociado» de `parent_ticket_id`. Las otras dos quedan pendientes de **D-04**
+(si son campo, cálculo o etiqueta). «Reabierto» se podría deducir del evento `ticket_reopened`;
+«sin falla confirmada» necesita que el cliente diga qué código de causa o resultado la define.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3155,6 +3175,8 @@ número. Una prueba por export con un nombre que empiece por `=`.
 | **P-108** | Los avisos de factura (correo y WhatsApp) se envían **sincrónicamente dentro de la corrida**, uno por factura | Cada factura espera a Meta o al SMTP: el día de facturación la corrida dura ~12 minutos (§ 89), lo que la deja más expuesta a morir a mitad (P-87, P-105) | 🟠 Media | 📋 Pendiente · encolar el aviso tras el commit |
 | **P-109** | El código no sigue ningún formateador: Pint está en `require-dev` pero sin `pint.json` ni paso en el CI | Diffs de formato mezclados con cambios reales; la guía de Pint de Boost se tuvo que excluir | 🟢 Baja | 📋 Pendiente · decisión de equipo; si se adopta, un PR solo de formato + `pint --test` en CI |
 | **P-110** | Los CSV de facturas, recaudos y gastos escriben el texto libre sin neutralizar fórmulas (`=`, `+`, `-`, `@`) | Un nombre o referencia malicioso se ejecuta como fórmula al abrir el archivo en Excel | 🟡 Media | 📋 Pendiente · aplicar `ExportsCsv::csvText()` a los campos de texto (no a importes) |
+| **P-111** | Al restablecerse un incidente masivo, sus tickets asociados se restablecen **sin correo** al cliente | El cliente no se entera por el sistema de que su servicio volvió | 🟡 Media | 📋 Pendiente · encolar el aviso (mismo patrón que P-108) |
+| **P-112** | Las modalidades «reabierto» (STR) y «sin falla confirmada» (STN) del § 6 no se derivan | El tablero no puede contar esas dos categorías | 🟢 Baja | 📋 Pendiente · depende de D-04 |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

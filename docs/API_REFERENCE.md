@@ -2260,6 +2260,8 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
 | `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | **Transición**: valida estado origen contra la matriz |
 | `GET` | `/api/support/{ticket}/transitions` | `ticket_view` | Qué puede hacer AHORA quien pide |
+| `GET` | `/api/support/open-for` | `ticket_view` | Abiertos del cliente e incidentes masivos activos en su infraestructura (ver §16.3) |
+| `GET` | `/api/support/{ticket}/links` | `ticket_view` | Incidente padre, duplicados, asociados y **reincidencia** (ver §16.3) |
 | `POST` | `/api/support/{id}/propose-closure` | `staff_profile` + `ticket_transition` | **Propone** el cierre. NO cierra |
 | `POST` | `/api/support/{id}/close` | `staff_profile` + `ticket_close` | **Cierra**, con los requisitos del §15 |
 | `POST` | `/api/support/{id}/close-exception` | `staff_profile` + `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
@@ -2614,6 +2616,8 @@ una transición, y valida de dónde viene el ticket.
 |---|---|
 | `status` | **obligatorio**, código vigente del catálogo |
 | `reason` | opcional, máx. 500. Si llega, queda como evento `transition_note` |
+| `duplicate_of_id` | **obligatorio si `status = duplicado`** (PR #6). Ver §16.3 |
+| `parent_ticket_id` | **obligatorio si `status = asociado_incidente_masivo`** (PR #6). Ver §16.3 |
 
 | Error | Cuándo |
 |---|---|
@@ -2888,6 +2892,82 @@ etiqueta es editable; el código no), resuelto, cerrado, horas hasta resolución
 número de intervenciones, sin cobro y su motivo. Las fechas van en **America/Bogota** y la zona va
 en la cabecera de la columna. El texto libre se neutraliza contra inyección de fórmulas: una
 celda que empieza por `=`, `+`, `-`, `@` sale con un apóstrofo delante.
+
+Desde el PR #6 el archivo termina con **Modalidad** (`Individual`/`Masivo`), **Incidente padre** y
+**Duplicado de** (número de ticket, vacío si no aplica), y el tablero trae dos claves más:
+
+```json
+{
+  "incidents":  { "mass_incidents": 2, "associated_tickets": 31, "duplicates": 4 },
+  "recurrence": { "base": 120, "windows": { "7": { "count": 6, "rate": 5.0 }, "30": { "count": 15, "rate": 12.5 }, "90": { "count": 27, "rate": 22.5 } } }
+}
+```
+
+`recurrence`: de los tickets del filtro **con cliente y que no son duplicados** (`base`), cuántos
+tuvieron otro ticket del mismo cliente en los N días anteriores. El ticket anterior se busca
+**fuera** del filtro de fechas. `rate` es porcentaje con un decimal, `null` si `base = 0`.
+
+### 16.3 Duplicados, incidentes masivos y reincidencia (PR #6 · 2026-11-04)
+
+Fuente: Solicitud Maestra § 6 (modalidad), § 16 y § 19.7–19.8. El «servicio» es el **cliente**
+mientras siga abierta D-01 (1 cliente = 1 servicio); la «infraestructura» es el elemento de red
+(`sectorial`: AP, nodo, OLT, NAP…), con sus **ancestros** por `parent_id`.
+
+**Modalidad al radicar.** `POST /api/support` acepta `modality`: `individual` (por defecto) o
+`masivo`. Un masivo es el **incidente padre**: exige `sectorial_id` (el elemento afectado) y
+**prohíbe** `user_id` (422): los clientes llegan como tickets asociados. Desde este PR `user_id`,
+`staff_id` y `sectorial_id` se validan **contra el ISP de quien pide**: antes bastaba con que el
+id existiera en cualquier tenant.
+
+**Vincular es una transición.** `PATCH /api/support/{id}/status`:
+
+| Destino | Exige | Se rechaza (422 en el campo) si el objetivo… |
+|---|---|---|
+| `duplicado` | `duplicate_of_id` | no existe o es de otro ISP; es el mismo ticket; ya es un duplicado (hay que vincular el original); es masivo o lo es el propio ticket; es de **otro cliente** |
+| `asociado_incidente_masivo` | `parent_ticket_id` | no existe o es de otro ISP; es el mismo ticket; **no es masivo**; está en estado terminal; o el propio ticket es masivo (no hay incidentes anidados) |
+
+El vínculo y el estado se escriben en la misma transacción, con evento `duplicate_linked` o
+`incident_linked` (`new_value` = id del objetivo). `GET .../transitions` marca cada destino con
+`requires_link` (`duplicate_of_id`, `parent_ticket_id` o `null`) y a un masivo no le ofrece esos
+dos destinos.
+
+**El incidente arrastra a sus asociados.** Cuando un masivo pasa a `servicio_restablecido`, todos
+sus asociados que **siguen** en `asociado_incidente_masivo` pasan también a
+`servicio_restablecido` (estampa `resolved_at`) con evento `restored_by_incident`. La respuesta
+trae `restored_children`. **No los cierra**: cada uno cierra con su propio expediente (§ 15). No
+se envía correo a esos clientes (P-111).
+
+**Reabrir un duplicado** suelta `duplicate_of_id`; el id anterior queda en `metadata.duplicate_of`
+del evento `ticket_reopened`.
+
+**`GET /api/support/open-for?user_id=&sectorial_id=&exclude=`** — prevención de duplicados.
+`user_id` y `sectorial_id` del mismo ISP (422 si no). Devuelve hasta 20 de cada:
+
+```json
+{ "open_tickets":     [ { "id": 41, "subject": "Sin internet", "status": "asignado", "status_label": "Asignado", "is_terminal": false, "modality": "individual", "created_at": "…", "is_archived": false } ],
+  "active_incidents": [ { "id": 39, "subject": "Caída Nodo Centro", "…": "…", "sectorial": { "id": 7, "name": "Nodo Centro", "element_type": "nodo" }, "children_count": 12 } ] }
+```
+
+`open_tickets`: no terminales del cliente. `active_incidents`: masivos no terminales cuyo
+`sectorial_id` es el `sectorial_id` u `olt_id` de la ficha del cliente, el `sectorial_id` pedido,
+o un **ancestro** de cualquiera de ellos. Sin `user_id` ni `sectorial_id`, todos los masivos
+activos del ISP.
+
+**`GET /api/support/{ticket}/links`** — `parent`, `duplicate_of`, `incident_children` (con
+`customer`), `duplicates` y `recurrence`:
+
+```json
+{ "recurrence": {
+    "windows": { "7":  { "service": 1, "symptom": 1, "cause": 0, "infrastructure": 1 },
+                 "30": { "service": 2, "symptom": 1, "cause": 0, "infrastructure": 1 },
+                 "90": { "service": 3, "symptom": 2, "cause": 0, "infrastructure": 1 } },
+    "previous": [ { "id": 30, "subject": "…", "status": "cerrado", "status_label": "Cerrado", "created_at": "…" } ] } }
+```
+
+Cuenta tickets radicados **antes** de éste y dentro de la ventana, sin duplicados ni archivados.
+`service`, `symptom` (mismo `symptom_id`) y `cause` (mismo `confirmed_cause_id`) son del **mismo
+cliente**; `infrastructure` es del **mismo elemento** (`sectorial_id` del ticket), de cualquier
+cliente. `previous`: los del mismo cliente en 90 días.
 
 ---
 
@@ -3253,6 +3333,7 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_settings` | `/api/settings/cache/clear`, escritura del centro de ayuda (+ `is_superadmin`) |
 | `view_expenses` / `add_expense` / `edit_expense` | Lectura / alta / edición de gastos y categorías |
 | `ticket_export` (+ `staff_profile`) | `GET /api/support/statistics`, `GET /api/support/export` |
+| `ticket_view` | `GET /api/support/open-for`, `GET /api/support/{ticket}/links` (PR #6). Vincular duplicados e incidentes va con `ticket_transition`, por `PATCH /api/support/{id}/status` |
 | *(sólo `staff_profile`)* | cargos de ticket (`/api/support/{id}/charge(s)`) |
 | *(sólo autenticación)* | `GET /api/roles`, `/api/auth/me`, `/api/dashboard/stats`, `/api/catalogs/*`, `GET /api/help-center`, `/api/tenant/maps-config` |
 

@@ -92,6 +92,26 @@ class SupportTicket extends Model
         // es de lista cerrada y la justificacion es obligatoria junto a ella.
         'final_test_waiver_reason',
         'final_test_waiver_note',
+        // PR #6 de CNO - incidentes y duplicados. `modality` se elige al
+        // radicar; los dos vinculos los escribe la transicion a
+        // `asociado_incidente_masivo` / `duplicado`, nunca el `PUT`.
+        'modality',
+        'parent_ticket_id',
+        'duplicate_of_id',
+    ];
+
+    /** § 6: lo unico que el operador elige. Un masivo es un incidente padre. */
+    public const MODALITY_INDIVIDUAL = 'individual';
+    public const MODALITY_MASIVO     = 'masivo';
+
+    public const MODALITIES = [self::MODALITY_INDIVIDUAL, self::MODALITY_MASIVO];
+
+    /**
+     * El mismo default que la columna, tambien en memoria: sin esto un ticket
+     * recien creado sin `modality` serializaria `null` hasta el `fresh()`.
+     */
+    protected $attributes = [
+        'modality' => self::MODALITY_INDIVIDUAL,
     ];
 
     protected $casts = [
@@ -507,6 +527,37 @@ class SupportTicket extends Model
     public function sectorial()
     {
         return $this->belongsTo(Sectorial::class, 'sectorial_id');
+    }
+
+    // ── PR #6 · Incidentes y duplicados ──────────────────────────────────
+
+    /** El incidente masivo al que se asocio este ticket. */
+    public function parent()
+    {
+        return $this->belongsTo(self::class, 'parent_ticket_id');
+    }
+
+    /** Los tickets asociados a este incidente masivo. */
+    public function incidentChildren()
+    {
+        return $this->hasMany(self::class, 'parent_ticket_id');
+    }
+
+    /** El ticket original del que este es duplicado. */
+    public function duplicateOf()
+    {
+        return $this->belongsTo(self::class, 'duplicate_of_id');
+    }
+
+    /** Los tickets marcados como duplicados de este. */
+    public function duplicates()
+    {
+        return $this->hasMany(self::class, 'duplicate_of_id');
+    }
+
+    public function esMasivo(): bool
+    {
+        return $this->modality === self::MODALITY_MASIVO;
     }
 
     // ── Scopes ───────────────────────────────────────────────────────────

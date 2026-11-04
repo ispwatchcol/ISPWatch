@@ -308,6 +308,18 @@ class TicketWorkflow
         self::REABIERTO => 'reopen',
     ];
 
+    /**
+     * PR #6 · Destinos que exigen un VÍNCULO con otro ticket, y en qué campo.
+     *
+     * Antes estos dos estados existían sin apuntar a nada: se sabía que el
+     * ticket era un duplicado, no de cuál (§ 19.7), ni a qué incidente padre
+     * pertenecía (§ 19.8). La transición sin vínculo se rechaza.
+     */
+    public const VINCULO_REQUERIDO = [
+        self::DUPLICADO                 => 'duplicate_of_id',
+        self::ASOCIADO_INCIDENTE_MASIVO => 'parent_ticket_id',
+    ];
+
     public static function sePuedeReabrir(?string $code): bool
     {
         return $code !== null && array_key_exists($code, self::REAPERTURA);

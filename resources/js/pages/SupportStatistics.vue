@@ -141,6 +141,39 @@
                 </p>
             </div>
 
+            <!-- PR #6 · § 17: reincidencia a 7, 30 y 90 días, e incidentes
+                 reales frente a contactos asociados. -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 border border-gray-100 dark:border-gray-700">
+                    <h3 class="text-lg font-bold text-gray-800 dark:text-white">Reincidencia</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        De {{ stats.recurrence?.base ?? 0 }} ticket(s) con cliente, cuántos tuvieron otro ticket del mismo
+                        cliente en los días anteriores. Los duplicados y los incidentes masivos no cuentan.
+                    </p>
+                    <div class="mt-4 grid grid-cols-3 gap-3">
+                        <div v-for="v in [7, 30, 90]" :key="v" class="rounded-lg bg-gray-50 dark:bg-gray-700/50 p-3 text-center">
+                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ v }} días</p>
+                            <p class="text-2xl font-bold text-gray-800 dark:text-white tabular-nums">
+                                {{ porcentaje(stats.recurrence?.windows?.[v]?.rate) }}
+                            </p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ stats.recurrence?.windows?.[v]?.count ?? 0 }} ticket(s)</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 border border-gray-100 dark:border-gray-700">
+                    <h3 class="text-lg font-bold text-gray-800 dark:text-white">Incidentes y duplicados</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Un incidente masivo es una falla real; sus tickets asociados son los contactos de clientes que generó.
+                    </p>
+                    <div class="mt-4 grid grid-cols-3 gap-3">
+                        <div v-for="c in tarjetasDeIncidentes" :key="c.nombre" class="rounded-lg bg-gray-50 dark:bg-gray-700/50 p-3 text-center">
+                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ c.nombre }}</p>
+                            <p class="text-2xl font-bold text-gray-800 dark:text-white tabular-nums">{{ c.valor }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Distribuciones -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 border border-gray-100 dark:border-gray-700">
@@ -239,6 +272,8 @@ const stats = ref({
     avg_resolution_time: 0,
     resolution_time: null,
     closure_time: null,
+    incidents: { mass_incidents: 0, associated_tickets: 0, duplicates: 0 },
+    recurrence: { base: 0, windows: {} },
     by_status: [],
     by_priority: [],
     by_category: [],
@@ -258,6 +293,16 @@ const filasDeTiempo = computed(() => [
     { nombre: 'Hasta la resolución', datos: stats.value.resolution_time },
     { nombre: 'Hasta el cierre', datos: stats.value.closure_time },
 ])
+
+const tarjetasDeIncidentes = computed(() => [
+    { nombre: 'Incidentes masivos', valor: stats.value.incidents?.mass_incidents ?? 0 },
+    { nombre: 'Tickets asociados', valor: stats.value.incidents?.associated_tickets ?? 0 },
+    { nombre: 'Duplicados', valor: stats.value.incidents?.duplicates ?? 0 },
+])
+
+const porcentaje = (v) => (v === null || v === undefined)
+    ? '—'
+    : `${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 1 })} %`
 
 const descartados = computed(() =>
     (stats.value.resolution_time?.excluded || 0) + (stats.value.closure_time?.excluded || 0)

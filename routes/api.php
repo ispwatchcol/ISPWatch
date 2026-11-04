@@ -18,6 +18,7 @@ use App\Http\Controllers\SectorialHistoryController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\SupportTicketAttachmentController;
 use App\Http\Controllers\TicketInterventionController;
+use App\Http\Controllers\TicketLinkController;
 use App\Http\Controllers\TicketMeasurementController;
 use App\Http\Controllers\TicketSubjectController;
 use App\Http\Controllers\SupportTicketController;
@@ -673,6 +674,12 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
             Route::put('/support/subjects/{subject}', [TicketSubjectController::class, 'update']);
             Route::delete('/support/subjects/{subject}', [TicketSubjectController::class, 'destroy']);
         });
+
+        // PR #6 de CNO · Duplicados, incidentes masivos y reincidencia (§ 16).
+        // Sólo LECTURA: vincular es una transición (`PATCH .../status`). Antes
+        // del apiResource: `support/{support}` casaría con `support/open-for`.
+        Route::get('/support/open-for', [TicketLinkController::class, 'openFor']);
+        Route::get('/support/{ticket}/links', [TicketLinkController::class, 'links']);
 
         Route::post('/support/{ticket}/archive', [SupportTicketController::class, 'archive'])
             ->middleware('permission:ticket_archive');

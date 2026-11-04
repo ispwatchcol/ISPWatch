@@ -883,12 +883,107 @@
 
                 <!-- Columna Lateral -->
                 <div class="space-y-6">
+                    <!-- PR #6 · Incidente padre, duplicados y reincidencia (§ 16).
+                         Sólo lectura: vincular se hace moviendo el estado. -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="mb-4 flex items-center justify-between gap-2">
+                            <h3 class="text-lg font-bold text-gray-800 dark:text-white">Relaciones</h3>
+                            <span
+                                v-if="ticket.modality === 'masivo'"
+                                class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                            >Incidente masivo</span>
+                        </div>
+
+                        <p v-if="vinculosError" class="text-sm text-red-600 dark:text-red-400">No se pudieron cargar las relaciones.</p>
+                        <p v-else-if="!vinculos" class="text-sm text-gray-500 dark:text-gray-400">Cargando…</p>
+
+                        <div v-else class="space-y-4 text-sm">
+                            <p v-if="vinculos.parent" class="text-gray-700 dark:text-gray-300">
+                                Asociado al incidente
+                                <router-link :to="`/support/${vinculos.parent.id}`" class="font-semibold text-blue-600 hover:underline dark:text-blue-400">#{{ vinculos.parent.id }}</router-link>
+                                · {{ vinculos.parent.subject }}
+                                <span class="block text-xs text-gray-500 dark:text-gray-400">
+                                    {{ vinculos.parent.sectorial?.name || 'sin elemento' }} · {{ vinculos.parent.status_label }}
+                                </span>
+                            </p>
+
+                            <p v-if="vinculos.duplicate_of" class="text-gray-700 dark:text-gray-300">
+                                Duplicado de
+                                <router-link :to="`/support/${vinculos.duplicate_of.id}`" class="font-semibold text-blue-600 hover:underline dark:text-blue-400">#{{ vinculos.duplicate_of.id }}</router-link>
+                                · {{ vinculos.duplicate_of.subject }}
+                            </p>
+
+                            <div v-if="ticket.modality === 'masivo'">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                    Tickets asociados ({{ vinculos.incident_children.length }})
+                                </p>
+                                <p v-if="!vinculos.incident_children.length" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Todavía no hay reportes de clientes asociados a este incidente.
+                                </p>
+                                <ul v-else class="mt-1 max-h-60 space-y-1 overflow-y-auto">
+                                    <li v-for="h in vinculos.incident_children" :key="h.id" class="text-xs text-gray-700 dark:text-gray-300">
+                                        <router-link :to="`/support/${h.id}`" class="font-semibold text-blue-600 hover:underline dark:text-blue-400">#{{ h.id }}</router-link>
+                                        {{ h.customer || 'Sin cliente' }} · {{ h.status_label }}
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div v-if="vinculos.duplicates.length">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                    Duplicados de este ticket ({{ vinculos.duplicates.length }})
+                                </p>
+                                <ul class="mt-1 space-y-1">
+                                    <li v-for="d in vinculos.duplicates" :key="d.id" class="text-xs text-gray-700 dark:text-gray-300">
+                                        <router-link :to="`/support/${d.id}`" class="font-semibold text-blue-600 hover:underline dark:text-blue-400">#{{ d.id }}</router-link>
+                                        {{ d.subject }}
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <!-- Reincidencia: tickets ANTERIORES a éste, contados
+                                 hacia atrás desde su radicación. Servicio, síntoma y
+                                 causa son del mismo cliente; infraestructura, del
+                                 mismo elemento de red, sea cual sea el cliente. -->
+                            <div>
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Reincidencia</p>
+                                <table class="mt-1 w-full text-xs">
+                                    <thead>
+                                        <tr class="text-gray-500 dark:text-gray-400">
+                                            <th class="py-1 text-left font-medium"></th>
+                                            <th v-for="v in VENTANAS" :key="v" class="py-1 text-right font-medium">{{ v }} d</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="text-gray-700 dark:text-gray-300">
+                                        <tr v-for="d in DIMENSIONES_REINCIDENCIA" :key="d.clave" class="border-t border-gray-100 dark:border-gray-700">
+                                            <td class="py-1">{{ d.label }}</td>
+                                            <td
+                                                v-for="v in VENTANAS"
+                                                :key="v"
+                                                class="py-1 text-right tabular-nums"
+                                                :class="(vinculos.recurrence.windows[v]?.[d.clave] ?? 0) > 0 ? 'font-semibold text-amber-700 dark:text-amber-400' : ''"
+                                            >{{ vinculos.recurrence.windows[v]?.[d.clave] ?? 0 }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <ul v-if="vinculos.recurrence.previous.length" class="mt-2 space-y-1">
+                                    <li v-for="t in vinculos.recurrence.previous" :key="t.id" class="text-xs text-gray-600 dark:text-gray-400">
+                                        <router-link :to="`/support/${t.id}`" class="font-semibold text-blue-600 hover:underline dark:text-blue-400">#{{ t.id }}</router-link>
+                                        {{ t.subject }} · {{ fechaCortaBogota(t.created_at) }}
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Info del Cliente -->
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Cliente</h3>
                         <div class="space-y-2">
                             <p class="text-sm text-gray-600 dark:text-gray-300">
                                 <span class="font-semibold">Nombre:</span> {{ nombreDelCliente }}
+                            </p>
+                            <p v-if="ticket.modality === 'masivo'" class="text-xs text-gray-500 dark:text-gray-400">
+                                Un incidente masivo no tiene cliente propio: los clientes afectados se le asocian con su propio ticket.
                             </p>
                             <!-- Correo y teléfono sólo si el cliente sigue existiendo. Un
                                  ticket cuyo cliente se dio de baja conserva el expediente,
@@ -1195,6 +1290,47 @@
                             </div>
                         </div>
 
+                        <!-- PR #6 · «Duplicado» exige DE CUÁL y «Asociado a
+                             incidente masivo» exige A CUÁL. Lo dice el servidor en
+                             `requires_link`; aquí sólo se pide el número. -->
+                        <div
+                            v-if="vinculoRequerido"
+                            class="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20"
+                        >
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
+                                {{ vinculoRequerido === 'duplicate_of_id' ? 'Ticket original' : 'Incidente masivo' }}
+                                <span class="text-red-500">*</span>
+                            </label>
+                            <p v-if="vinculoAccion.cargando" class="text-xs text-gray-500 dark:text-gray-400">Buscando candidatos…</p>
+                            <div v-else-if="vinculoAccion.candidatos.length" class="max-h-48 space-y-1 overflow-y-auto">
+                                <label
+                                    v-for="c in vinculoAccion.candidatos"
+                                    :key="c.id"
+                                    class="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1 text-sm hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                                >
+                                    <input v-model="vinculoAccion.id" type="radio" :value="String(c.id)" class="mt-1" />
+                                    <span class="text-gray-800 dark:text-gray-200">
+                                        #{{ c.id }} · {{ c.subject }}
+                                        <span class="block text-xs text-gray-500 dark:text-gray-400">
+                                            {{ c.status_label }}<template v-if="c.sectorial"> · {{ c.sectorial.name }} · {{ c.children_count }} asociado(s)</template>
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                            <p v-else class="text-xs text-gray-500 dark:text-gray-400">
+                                {{ vinculoRequerido === 'duplicate_of_id'
+                                    ? 'Este cliente no tiene otros tickets abiertos. Escribe el número del original.'
+                                    : 'No hay incidentes masivos activos. Créalo primero con modalidad «Masivo».' }}
+                            </p>
+                            <input
+                                v-model.trim="vinculoAccion.id"
+                                type="text"
+                                inputmode="numeric"
+                                placeholder="o escribe el número del ticket"
+                                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            />
+                        </div>
+
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200">
                                 {{ accion.etiquetaMotivo }}
@@ -1358,6 +1494,7 @@ const camposDeDiagnostico = computed(() => {
  */
 const nombreDelCliente = computed(() => {
     const u = ticket.value.user
+    if (!u && ticket.value.modality === 'masivo') return 'Incidente masivo'
     if (!u) return 'Cliente eliminado'
 
     const nombre = `${u.user_name || ''} ${u.user_lastname || ''}`.trim()
@@ -1984,9 +2121,12 @@ const getCategoryBadgeClass = (category) => {
 
 const getCategoryLabel = (category) => categoryLabel(category)
 
+// F1-20 · Siempre en hora de Bogotá, no en la del navegador: el servidor guarda
+// en UTC y un técnico con el equipo en otra zona leía otra fecha.
 const formatDate = (date) => {
     if (!date) return '-'
     return new Date(date).toLocaleDateString('es-ES', {
+        timeZone: 'America/Bogota',
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     })
 }
@@ -2006,8 +2146,8 @@ const historialError = ref(false)
 /**
  * Fecha en hora de Colombia, no en la del navegador.
  *
- * El servidor guarda en UTC y `formatDate` deja que cada equipo la interprete a
- * su antojo. Para una bitácora de auditoría eso es un problema: dos personas
+ * El servidor guarda en UTC. (Desde F1-20 `formatDate` también fija Bogotá; ésta
+ * se conserva por el formato de la bitácora.) Sin zona fija, dos personas
  * mirando el mismo evento leerían horas distintas y no habría forma de
  * referirse a «las 3 de la tarde» sin ambigüedad.
  */
@@ -2081,6 +2221,13 @@ const etiquetaDeEvento = (evento) => {
         // que no dice nada: el cambio en sí ya tiene su propio evento.
         case 'transition_note':
             return meta.reason ? `Motivo del cambio de estado: «${meta.reason}»` : 'Nota del cambio de estado'
+        // PR #6 · vínculos entre tickets.
+        case 'duplicate_linked':
+            return `Se marcó como duplicado del ticket #${meta.ticket_id ?? evento.new_value}`
+        case 'incident_linked':
+            return `Se asoció al incidente masivo #${meta.ticket_id ?? evento.new_value}`
+        case 'restored_by_incident':
+            return `Servicio restablecido junto con el incidente masivo #${meta.incident_id}`
         case 'no_charge_changed': {
             const sinCobro = evento.new_value === 'sin cobro al cliente'
             const motivo = meta.reason ? ` (${meta.reason})` : ''
@@ -2432,6 +2579,8 @@ const accionLista = computed(() => {
         if (!a.subject_id && !(a.subject || '').trim()) return false
     }
 
+    if (vinculoRequerido.value && !/^\d+$/.test(vinculoAccion.value.id || '')) return false
+
     return !accion.value.motivoObligatorio || motivoAccion.value.trim().length >= 10
 })
 
@@ -2449,7 +2598,70 @@ const abrirAccion = (clave, destino = null) => {
     if (ACCIONES_DE_CIERRE.includes(clave)) {
         prepararRevision()
     }
+
+    if (clave === 'transition' && destino?.requires_link) {
+        cargarCandidatosDeVinculo(destino.requires_link)
+    }
 }
+
+// ── PR #6 · Vínculo de la transición (duplicado / incidente) ─────────────
+
+const vinculoRequerido = computed(() =>
+    accion.value?.clave === 'transition' ? (accionDestino.value?.requires_link ?? null) : null,
+)
+const vinculoAccion = ref({ id: '', candidatos: [], cargando: false })
+
+/**
+ * Candidatos para el vínculo. Duplicado: los abiertos del MISMO cliente.
+ * Incidente: los masivos activos sobre su infraestructura y, si no hay
+ * ninguno —la ficha del cliente muchas veces no tiene el AP cargado—, todos los
+ * activos del ISP. El servidor valida igual lo que se elija.
+ */
+const cargarCandidatosDeVinculo = async (campo) => {
+    vinculoAccion.value = { id: '', candidatos: [], cargando: true }
+    try {
+        const params = { exclude: ticketId }
+        if (ticket.value.user_id) params.user_id = ticket.value.user_id
+
+        let { data } = await api.support.openFor(params)
+        let candidatos = campo === 'duplicate_of_id' ? data.open_tickets : data.active_incidents
+
+        if (campo === 'parent_ticket_id' && !candidatos.length && params.user_id) {
+            ({ data } = await api.support.openFor({ exclude: ticketId }))
+            candidatos = data.active_incidents
+        }
+
+        vinculoAccion.value = { id: '', candidatos: candidatos ?? [], cargando: false }
+    } catch (err) {
+        console.error('Error al buscar candidatos del vínculo:', err)
+        vinculoAccion.value = { id: '', candidatos: [], cargando: false }
+    }
+}
+
+const vinculos = ref(null)
+const vinculosError = ref(false)
+const VENTANAS = [7, 30, 90]
+const DIMENSIONES_REINCIDENCIA = [
+    { clave: 'service', label: 'Mismo servicio' },
+    { clave: 'symptom', label: 'Mismo síntoma' },
+    { clave: 'cause', label: 'Misma causa' },
+    { clave: 'infrastructure', label: 'Mismo elemento' },
+]
+
+const cargarVinculos = async () => {
+    try {
+        vinculosError.value = false
+        const { data } = await api.support.getLinks(ticketId)
+        vinculos.value = data
+    } catch (err) {
+        console.error('Error al cargar las relaciones del ticket:', err)
+        vinculosError.value = true
+    }
+}
+
+const fechaCortaBogota = (iso) => iso
+    ? new Date(iso).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'medium' })
+    : ''
 
 const cerrarAccion = () => {
     accion.value = null
@@ -2517,7 +2729,12 @@ const ejecutarAccion = async () => {
 
         const { data } = await (() => {
             switch (accion.value.clave) {
-                case 'transition': return api.support.updateStatus(ticketId, accionDestino.value.code, motivo)
+                case 'transition': return api.support.updateStatus(
+                    ticketId,
+                    accionDestino.value.code,
+                    motivo,
+                    vinculoRequerido.value ? { [vinculoRequerido.value]: Number(vinculoAccion.value.id) } : {},
+                )
                 case 'propose':    return api.support.proposeClosure(ticketId, motivo, exencion())
                 case 'close':      return api.support.closeTicket(ticketId, motivo, exencion())
                 case 'exception':  return api.support.closeException(ticketId, motivo)
@@ -2531,6 +2748,7 @@ const ejecutarAccion = async () => {
         await loadTicket()
         await cargarWorkflow()
         await cargarHistorial(1)
+        await cargarVinculos()
         // Cerrar o reabrir cambia si la hoja de equipos admite movimientos.
         await loadAvailableEquipment()
     } catch (err) {
@@ -2553,6 +2771,7 @@ onMounted(() => {
     loadCharges()
     cargarHistorial(1)
     cargarWorkflow()
+    cargarVinculos()
     // PR F1: solo hace falta para poblar los desplegables de la intervencion.
     if (canIntervene.value) loadStaff()
     loadEquipment()

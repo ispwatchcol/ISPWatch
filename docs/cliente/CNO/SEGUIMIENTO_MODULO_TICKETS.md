@@ -21,8 +21,10 @@
 | **PR #4 · workflow y cierre · PR #4b · reapertura** | PR **#278** · **#283** |
 | **PR #5 → F1 intervenciones · F2 mediciones · F3 equipos** | PR **#289** · **#290** · **#288** |
 | **Asunto desde catálogo del ISP** | PR **#327** (merge `4ad8b5f`) |
-| **Fecha de corte de esta evaluación** | **2026-11-03** — todo lo anterior está mergeado en `main` (desplegado) |
-| **Estado general de la entrega** | 🟡 **Expediente técnico operativo · faltan incidentes/duplicados (PR #6), métricas/exportación (PR #7), infraestructura (F1-05/06/07) y la respuesta formal al cliente** |
+| **PR #7 · métricas y exportación** | PR **#335** — mergeado en `develop`, **sin desplegar** |
+| **PR #6 · duplicados, incidentes y reincidencia** | rama `feat/cno-pr6-incidentes` — **PR abierto** |
+| **Fecha de corte de esta evaluación** | **2026-11-04** — hasta el PR #327 está mergeado en `main` (desplegado); el PR #7 y el PR #6, no |
+| **Estado general de la entrega** | 🟡 **Backlog funcional completo en código (PR #1–#7) · falta desplegar PR #6 y #7, infraestructura (F1-05/06/07), minutos-cliente (F1-16), roles del § 18 y la respuesta formal al cliente** |
 
 ## Verificación de integridad documental
 
@@ -78,8 +80,8 @@ Lo que sigue parcial es su exposición a **socios** (**D-07**).
 
 Queda con estructura pero sin funcionalidad completa: los adjuntos ya tienen control de
 acceso y almacenamiento persistente, pero **sin hash de integridad ni política de
-retención**; las estadísticas calculan promedio pero no percentiles; la asociación con
-infraestructura llega sólo hasta `sectorial_id`.
+retención**; la asociación con infraestructura llega sólo hasta `sectorial_id` (y el incidente
+masivo del PR #6 se apoya en ella). Las estadísticas ya tienen mediana, P90 y P95 (PR #7).
 
 ### Pendiente
 
@@ -89,8 +91,10 @@ infraestructura llega sólo hasta `sectorial_id`.
 
 Lo que falta del requerimiento:
 
-- **Incidentes padre, duplicados y reincidencias** (F1-13/14/15, PR #6) y minutos-cliente (F1-16).
-- **Mediana/P90/P95 y exportación** (F1-18/19, PR #7) y presentación uniforme en America/Bogota (F1-20).
+- ~~**Incidentes padre, duplicados y reincidencias** (F1-13/14/15, PR #6)~~ **Implementado el
+  2026-11-04 (PR abierto).** Siguen pendientes los **minutos-cliente** (F1-16).
+- ~~**Mediana/P90/P95 y exportación** (F1-18/19, PR #7) y presentación uniforme en America/Bogota
+  (F1-20)~~ **Implementado: PR #335 (en `develop`) y, para F1-20, el PR #6.**
 - **Asociación y snapshot de infraestructura** (F1-05/06/07), de los que dependen las reglas de
   cierre 6 y 7 (F1-10).
 - **Hash de integridad de adjuntos** (F1-11) y el **modelo de roles del § 18** (F1-17, delegado).
@@ -131,7 +135,12 @@ Concretamente, **no** debe reportarse como cumplido:
   inalterable con actor, campo, valor anterior y valor nuevo—, pero el criterio exige además
   el **modelo de roles** de la sección 18 (Recepción/N1, N2, Técnico de campo, Supervisor,
   Auditor/gerencia), y hoy sólo existe `view_support`.
-- **F1-19** por existir un tablero. El criterio exige mediana, P90 y P95.
+- ~~**F1-19** por existir un tablero. El criterio exige mediana, P90 y P95.~~ **Resuelto por el
+  PR #7** para los dos tiempos que el modelo registra (resolución y cierre). Los demás tiempos del
+  § 17 —primera atención, diagnóstico, asignación, llegada— **no** se reportan: no tienen
+  timestamp propio.
+- **F1-15** como «modalidades STI/STM/STS/STR/STN completas»: el PR #6 entrega Individual/Masivo
+  y el atributo «asociado»; «reabierto» y «sin falla confirmada» esperan **D-04**.
 
 La distinción que se aplica en toda la matriz:
 
@@ -163,14 +172,14 @@ Estados: **Cumplido** · **Parcial** · **Pendiente** · **Contradicción** · *
 | **F1-10** | Reglas de cierre y excepciones auditadas | 🟡 **Parcial** | Excepciones **auditadas** con permiso propio, motivo y requisito incumplido. Del § 15 se **exigen** las reglas 1, 2, 3 (PR #4) y 5 (PR F2); la 4 se cumple por construcción (`servicio_restablecido` estampa `resolved_at`); la 9, en parte (la solución temporal obliga al cierre especial); la 10, por diseño (intervenciones, mediciones e historial no se borran). **Faltan 6, 7 y 8**: infraestructura afectada / «no aplica», validación del cliente separada y «Otro» con explicación | Reglas 6-7 tras F1-06; regla 8 sin dependencia | F1-06 · el cierre especial sigue inalcanzable mientras nadie tenga `ticket_close_override` (**P-52**) |
 | **F1-11** | Adjuntos y evidencia con metadatos | 🟡 **Parcial** | `support_ticket_attachment` con nombre, tamaño y MIME. **Acceso resuelto** (PR de endurecimiento): disco `s3`, endpoint autenticado con verificación de tenant y ticket, y lista blanca de tipos servibles en línea. **Falta hash de integridad y política de retención** | Definir hash y retención | **Decisión D-05** |
 | **F1-12** | Materiales y equipos retirados/instalados | 🟡 **Parcial** | **PR F3 (#288)**: tabla `ticket_equipment` con `direction` `out`/`in`, cantidad y unidad para materiales, retiro a técnico, bodega o baja (`scrap`), y **movimiento real del kardex**. Deshacer es una reversa auditada con motivo, nunca un borrado. Permiso propio `ticket_equipment`. **Falta lo que pide la tabla del § 14**: condición y propiedad empresa/cliente del instalado, estado y motivo estructurado del retirado, snapshot congelado (hoy marca, modelo, serial y MAC se leen por FK del inventario) y vínculo con la intervención | Ampliar `ticket_equipment` con esos campos | — (D-14 y P-55 cerradas) |
-| **F1-13** | Detección de duplicados y tickets abiertos | ⚪ Pendiente | No existe aviso al crear. Sí existe el **estado** `duplicado` en el flujo (PR #4), sin vínculo al ticket original | **PR #6** | Servicio = cliente mientras siga **D-01** |
-| **F1-14** | Reincidencias 7/30/90 días (P1) | ⚪ Pendiente | No existe | **PR #6** | — |
-| **F1-15** | Incidente padre y tickets relacionados | ⚪ Pendiente | Sin `parent_ticket_id`. Existe el **estado** `asociado_incidente_masivo` (PR #4) sin vínculo; `router_outage_events` es base parcial | **PR #6** | Modalidad STI/STM/…: **D-04** |
-| **F1-16** | Servicios afectados y minutos-cliente (P1) | ⚪ Pendiente | No existe | Tras PR #6 | — |
+| **F1-13** | Detección de duplicados y tickets abiertos | 🟢 **Cumplido** · PR abierto | **PR #6**: al radicar, aviso con los tickets abiertos del cliente y los incidentes masivos activos en su AP/OLT o en el elemento del que cuelgan (`GET /support/open-for`). Pasar a `duplicado` **exige** el ticket original (`duplicate_of_id`), del mismo cliente y que no sea a su vez un duplicado; evento `duplicate_linked`. Reabrir el duplicado suelta el vínculo | — | Servicio = cliente mientras siga **D-01** |
+| **F1-14** | Reincidencias 7/30/90 días (P1) | 🟢 **Cumplido** · PR abierto | **PR #6**: por ticket, conteo en 7/30/90 días de tickets anteriores del mismo servicio, con el mismo síntoma, con la misma causa confirmada y en el mismo elemento de red (`GET /support/{id}/links`); en el tablero, tasa de reincidencia por ventana. Sin duplicados ni archivados | — | Servicio = cliente (**D-01**) |
+| **F1-15** | Incidente padre y tickets relacionados | 🟢 **Cumplido** · PR abierto | **PR #6**: modalidad **Individual / Masivo** al radicar (§ 6). El masivo es el incidente padre: sin cliente, con el elemento afectado. Pasar a `asociado_incidente_masivo` **exige** `parent_ticket_id` (masivo y no terminal); cuando el masivo se restablece, sus asociados se restablecen con él (no se cierran) | STR/STN derivados (**P-112**) | Modalidades derivadas: **D-04** |
+| **F1-16** | Servicios afectados y minutos-cliente (P1) | ⚪ Pendiente · **desbloqueado** | El incidente padre ya existe y cuenta sus asociados (**contactos**), pero no registra la **cantidad confirmada o estimada** de servicios afectados ni calcula servicios × duración | Campo de afectados en el masivo + cálculo con `created_at`/`resolved_at` | — |
 | **F1-17** | Roles, permisos y auditoría | 🟡 **Parcial** | **Auditoría resuelta (PR #3)**. **Permisos separados (PR B)**: 20 capacidades `ticket_*`, una por acción —hoy **22** con `ticket_intervene` (F1) y `ticket_equipment` (F3)—, y ninguna ruta de ticket queda sin permiso. **Sigue faltando el MODELO DE ROLES** de la sección 18: los permisos existen, pero el reparto en Recepción/N1, N2, Técnico de campo, Supervisor y Auditor está sin confirmar | Aplicar la matriz de roles | Depende de **D-09** |
-| **F1-18** | Exportación completa y filtros por infraestructura | ⚪ Pendiente | Sin export de tickets. El permiso `ticket_export` existe (PR B) pero sólo protege `GET /support/statistics` | **PR #7** | El filtro por infraestructura, tras F1-06 |
-| **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟡 Parcial | Sólo `avg_resolution_time` en `SupportTicketController::statistics()`; 0 percentiles | **PR #7** | — |
-| **F1-20** | Zona horaria America/Bogota | 🟡 Parcial | `config/app.php` → `UTC` (almacenamiento correcto). Historial, intervenciones y mediciones ya pintan en `America/Bogota`; el resto de la pantalla y cualquier corte por día **no** están fijados | **PR #7** | — |
+| **F1-18** | Exportación completa y filtros por infraestructura | 🟢 **Cumplido** · en `develop` | **PR #7 (#335)**: `GET /support/export`, CSV de todos los tickets del filtro con cliente, router, sectorial, técnico, diagnóstico (código y etiqueta), fechas y tiempos; filtra por **router** del cliente y **sectorial** del ticket. El PR #6 añade modalidad, incidente padre y original | — | AP/PON/ONU como filtro llegan con **F1-06** |
+| **F1-19** | Tableros con mediana, P90 y P95 (P1) | 🟢 **Cumplido** · en `develop` | **PR #7 (#335)**: mediana, P90 y P95 (método `PERCENTILE.INC` de Excel) de radicado → resuelto y radicado → cerrado, con los mismos filtros que la exportación | Los otros tiempos del § 17 no tienen timestamp | — |
+| **F1-20** | Zona horaria America/Bogota | 🟢 **Cumplido** · PR abierto | Almacenamiento en UTC. **PR #7**: cortes de día y de mes del tablero y fechas del CSV en Bogotá. **PR #6**: el listado y el detalle del ticket (fecha de creación, notas, cargos, archivado) también fijan `America/Bogota`; historial, intervenciones y mediciones ya lo hacían | — | — |
 
 ### Solicitud 2 — Integración API (Anexo B, F2 aplicables)
 
@@ -862,7 +871,10 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | **Dependencias** | PR #4 (el incidente tiene ciclo propio) |
 | **Pruebas** | Al crear se avisa de tickets abiertos; N tickets se vinculan a un incidente; la reincidencia se calcula por ventana |
 | **Aceptación** | Se crea un incidente padre y se le vinculan tickets individuales |
-| **Estado** | ⚪ **Pendiente — desbloqueado** (el PR #4 está desplegado) |
+| **Estado** | 🟢 **Implementado el 2026-11-04 — PR abierto** (rama `feat/cno-pr6-incidentes`) |
+| **Entregado** | Columnas `modality`, `parent_ticket_id`, `duplicate_of_id`. Alta Individual/Masivo; aviso de abiertos e incidentes activos al radicar; vínculo **obligatorio** al pasar a `duplicado` o `asociado_incidente_masivo`; el masivo restablecido arrastra a sus asociados (sin cerrarlos); reincidencia 7/30/90 por servicio, síntoma, causa e infraestructura en el detalle y tasa en el tablero; columnas nuevas en el CSV. 17 pruebas (`TicketIncidentsTest`) |
+| **Decisiones del equipo** | Un masivo es un ticket (no una tabla aparte). Servicio = cliente (D-01). Infraestructura = elemento de red con sus ancestros. Sin permiso nuevo: `ticket_transition` para vincular, `ticket_create` para el masivo (repartirlo al Supervisor es parte de D-09). STR/STN sin derivar (D-04, P-112). Sin correo en la cascada (P-111) |
+| **De paso** | El alta valida `user_id`, `staff_id` y `sectorial_id` contra el ISP de quien pide (antes aceptaba ids de otro tenant). Listado y detalle del ticket en hora de Bogotá (F1-20) |
 
 ### PR #7 · Métricas y exportación
 
@@ -874,7 +886,7 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | **Dependencias** | PR #3 y PR #4 (los tiempos dependen de los timestamps) |
 | **Pruebas** | Los percentiles coinciden con un conjunto conocido; la exportación respeta filtros |
 | **Aceptación** | El tablero muestra mediana, P90 y P95, y se exporta filtrando por infraestructura |
-| **Estado** | ⚪ **Pendiente — desbloqueado** (PR #3 y #4 desplegados) · **siguiente en la cola** |
+| **Estado** | 🟢 **Implementado — PR #335, mergeado en `develop` el 2026-11-03** (sin desplegar) |
 
 ---
 
@@ -893,7 +905,7 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | **D-01** | **Servicio específico cuando un cliente tenga varios.** El requerimiento asume `service_id` propio (F2 criterio 3); el esquema actual impone 1 cliente = 1 servicio | Es un cambio de modelo de datos con impacto en facturación, aprovisionamiento e integración | F1-01, F2-03 |
 | **D-02** | **Separación soporte / facturación.** El módulo excluye facturación pero hoy el ticket genera facturas | Funcionalidad viva que otros tenants podrían usar; retirarla es decisión de producto | F1-02 |
 | **D-03** | **Autoridad para excepciones de cierre.** Quién puede cerrar sin causa confirmada y bajo qué registro | Es una regla operativa y de responsabilidad, no técnica | F1-10, PR #4 |
-| **D-04** | **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | F1-15, PR #6 |
+| **D-04** | 🟡 **Parcial.** El PR #6 aplicó la recomendación del propio § 6 —el operador elige **Individual o Masivo** (`modality`) y «asociado» se deduce de `parent_ticket_id`—. **Sigue abierto** cómo se derivan «reabierto» (STR) y «sin falla confirmada» (STN), y si los códigos STI/STM/… se muestran como etiqueta. *Enunciado original:* **Significado de STI / STM / STS / STR / STN.** Si son campo, cálculo o etiqueta derivada | El cliente los describe como modalidad con atributos calculados, sin definir el mecanismo | STR/STN (P-112) |
 | **D-05** | 🟡 **Parcial · Retención y hash de adjuntos.** El **acceso** quedó resuelto en el endurecimiento posterior al PR #2 y **CNO lo confirmó el 2026-09-11** («evidencias accesibles para quienes manejan tickets»). **La retención sigue sin definir**, con instrucción expresa de **no purgar ni borrar automáticamente** | Implica política de datos personales y valor probatorio de la evidencia | F1-11 |
 | **D-06** | ✅ **CERRADA el 2026-09-11.** CNO confirmó **mantener las subcausas sólo como texto de referencia y no crear códigos individuales** — exactamente lo que el PR #1 hizo. *Enunciado original:* **Códigos de subcausa.** El Anexo A.2 enumera las subcausas en prosa («Señal baja; interferencia; saturación…») y **no les asigna código** | Los códigos son inmutables al sembrarse; improvisarlos fabricaría contrato. Se sembraron sólo las 7 familias, con las subcausas como texto de referencia en `description` | F1-03 completo, PR #2 |
 | **D-07** | **¿Se expone al integrador?** Abarca ya tres cosas: los catálogos (PR #1), los cinco campos de diagnóstico (PR #2) y el historial del ticket (PR #3). Los tres viven sólo en la API del panel | Añadir ruta y campos bajo `/v1/partner` amplía el contrato público y obliga a actualizar el OpenAPI. El PR #2 deja un test que impide filtrarlos por descuido | F2-17, F2-18 |
@@ -947,6 +959,10 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | 2026-09-22 | **Visita sin cobro** (`no_charge` + motivo): el endpoint de cargo responde 422 | Pedido del cliente ISP | No retira el cargo desde el ticket: **D-02 sigue abierta** | ✅ Aplicada (PR #280) |
 | 2026-09-24 | **Los equipos del ticket mueven el kardex** (revierte el «por defecto: no» de D-14) y deshacer es una reversa auditada | Implementación de KAN-92: el registro declarativo dejaba el inventario falso | Cierra D-14 y P-55 | ✅ Aplicada (PR #288) |
 | 2026-10-11 | **El asunto se elige de un catálogo propio de cada ISP** (`ticket_subjects`), con «Otro…» en texto libre | Pedido del ISP (filtrar por asunto) | La API de socios no cambia | ✅ Aplicada (PR #327) |
+| 2026-11-03 | **Percentiles con `PERCENTILE.INC`** y sólo los dos tiempos que el modelo registra | Diseño del PR #7 | El cliente obtiene las mismas cifras al recalcular en Excel; no se inventan definiciones de primera atención o llegada | ✅ Aplicada (PR #335) |
+| 2026-11-04 | **El incidente masivo es un ticket con `modality = masivo`**, sin cliente y con el elemento afectado | § 6 de la Solicitud Maestra (Individual / Masivo) · D-11 delegada | Hereda ciclo de vida, historial e intervenciones; D-04 queda parcial | ✅ Aplicada (PR #6) |
+| 2026-11-04 | **Vincular es transicionar**: `duplicado` y `asociado_incidente_masivo` exigen su ticket objetivo en el mismo `PATCH` | Diseño del PR #6 | No puede quedar un duplicado sin original | ✅ Aplicada (PR #6) |
+| 2026-11-04 | **El masivo restablecido arrastra a sus asociados, pero no los cierra** | § 15: cada cierre necesita su causa y su prueba final | Cascada sin correo (P-111) | ✅ Aplicada (PR #6) |
 
 ---
 
@@ -975,6 +991,9 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | PR F2 · mediciones | #290 | `https://github.com/ispwatchcol/ISPWatch/pull/290` | ✅ Mergeado y desplegado |
 | API de socios: `router_id` y feed de red | #296 | `https://github.com/ispwatchcol/ISPWatch/pull/296` | ✅ Mergeado y desplegado |
 | Asunto desde catálogo | #327 | `https://github.com/ispwatchcol/ISPWatch/pull/327` | ✅ Mergeado y desplegado |
+| Seguimiento puesto al día | #334 | `https://github.com/ispwatchcol/ISPWatch/pull/334` | ✅ Mergeado en `develop` |
+| PR #7 · métricas y exportación | #335 | `https://github.com/ispwatchcol/ISPWatch/pull/335` | ✅ Mergeado en `develop` · sin desplegar |
+| PR #6 · duplicados, incidentes y reincidencia | *(abierto)* | — | *(pendiente)* |
 
 ### Resultados de CI
 
@@ -1039,3 +1058,4 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | 2026-09-23 | **PR F1 implementado**: intervenciones tecnicas del § 14 con numero correlativo, tecnico y acompanante congelados, cerrojo de edicion por `finished_at` y reapertura auditada con motivo. Evidencia enlazada sin duplicar archivos, con FK compuesta que impide el cruce entre tickets. Permiso `ticket_intervene` con backfill compatible. **F1-08 pasa a cumplido.** El PR #5 se dividio en F1/F2/F3; nuevas decisiones D-14 y D-15, nueva deuda P-55 y P-56 | — | *(PR abierto)* |
 | 2026-09-25 | **PR F2 implementado**: mediciones tecnicas estructuradas con los seis campos del § 12, comparacion inicial/seguimiento/final del § 13 y la **regla 5 del § 15 ya exigible** en propuesta y cierre —medicion final O razon de lista cerrada mas justificacion—. **F1-09 pasa a cumplido.** Sin permiso nuevo: reutiliza `ticket_intervene`. Nueva decision **D-16** (la lista de razones la define el equipo y falta confirmacion del cliente). Nueve pruebas del workflow se actualizaron porque el cierre cambio de contrato, sin debilitar la regla | — | *(PR abierto)* |
 | 2026-11-03 | **Puesta al día contra el código y `git log`** (el documento no se tocaba desde el 2026-09-25). Los 13 PR marcados «abiertos» estaban mergeados y desplegados: se registran sus números. **PR F3 (#288)** entregado: los equipos del ticket mueven el kardex, así que **D-14 se resolvió en sentido contrario** y **P-55 quedó cerrada**; **F1-12 pasa a parcial** (faltan condición, propiedad, motivo, snapshot y vínculo con la intervención). **F2-03 pasa a cumplido** (`router_id` en la API de socios, PR #296). **F1-10** reescrita: se exigen las reglas 1, 2, 3 y 5; faltan 6, 7 y 8. D-11 y D-12 implementadas; D-13 parcial (asuntos sí, diagnóstico en KAN-93). PR #6 y #7 desbloqueados | David Gómez (con Claude Code) | rama `docs/cno-seguimiento-al-dia` |
+| 2026-11-04 | **PR #7 mergeado en `develop` (#335)**: F1-18 y F1-19 pasan a cumplido. **PR #6 implementado**: modalidad Individual/Masivo, aviso de abiertos e incidentes al radicar, vínculo obligatorio para `duplicado` y `asociado_incidente_masivo`, cascada de restablecimiento, reincidencia 7/30/90 y tasa en el tablero. **F1-13, F1-14 y F1-15 pasan a cumplido; F1-20 también** (listado y detalle en hora de Bogotá). **F1-16 queda desbloqueado. D-04 pasa a parcial** (STR/STN pendientes, P-112). Nueva deuda **P-111** (la cascada no avisa al cliente) | David Gómez (con Claude Code) | rama `feat/cno-pr6-incidentes` |

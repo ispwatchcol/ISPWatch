@@ -90,8 +90,21 @@ export default {
         return apiClient.get(`/support/${ticketId}/transitions`)
     },
 
-    updateStatus(ticketId, status, reason = null) {
-        return apiClient.patch(`/support/${ticketId}/status`, reason ? { status, reason } : { status })
+    // `vinculo` lleva `duplicate_of_id` o `parent_ticket_id` cuando el destino
+    // lo exige (PR #6): el servidor lo dice en `requires_link` de cada destino.
+    updateStatus(ticketId, status, reason = null, vinculo = {}) {
+        return apiClient.patch(`/support/${ticketId}/status`, { status, ...(reason ? { reason } : {}), ...vinculo })
+    },
+
+    // PR #6 · Prevención de duplicados (§ 16): abiertos del cliente e
+    // incidentes masivos activos sobre su infraestructura.
+    openFor(params = {}) {
+        return apiClient.get('/support/open-for', { params })
+    },
+
+    // PR #6 · Incidente padre, duplicados, asociados y reincidencia.
+    getLinks(ticketId) {
+        return apiClient.get(`/support/${ticketId}/links`)
     },
 
     /** Propuesta de cierre: NO cierra. Deja el ticket en observación. */

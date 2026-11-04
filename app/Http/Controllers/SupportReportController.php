@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Router;
 use App\Models\Sectorial;
 use App\Models\SupportTicket;
+use App\Services\TicketIncidentService;
 use App\Support\TicketCatalogs;
 use App\Support\TicketMetrics;
 use App\Support\TicketReportFilters;
+use App\Support\TicketWorkflow;
 use App\Traits\ExportsCsv;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -34,8 +36,10 @@ class SupportReportController extends Controller
 {
     use ExportsCsv;
 
-    public function __construct(private readonly TicketCatalogs $catalogs)
-    {
+    public function __construct(
+        private readonly TicketCatalogs $catalogs,
+        private readonly TicketIncidentService $incidentes,
+    ) {
     }
 
     /**
@@ -97,6 +101,15 @@ class SupportReportController extends Controller
             ];
         }
 
+        // PR #6 · § 17: «incidentes reales, contactos asociados» y
+        // «reincidencia a 7, 30 y 90 días».
+        $idDe = fn (string $code) => $this->catalogs->id(TicketCatalogs::STATUS, $code);
+        $incidentes = [
+            'mass_incidents'     => (clone $baseQuery)->where('modality', SupportTicket::MODALITY_MASIVO)->count(),
+            'associated_tickets' => (clone $baseQuery)->whereNotNull('parent_ticket_id')->count(),
+            'duplicates'         => (clone $baseQuery)->where('status_id', $idDe(TicketWorkflow::DUPLICADO))->count(),
+        ];
+
         $recentTickets = (clone $baseQuery)->with(['user', 'staff'])
             ->orderBy('created_at', 'desc')
             ->limit(10)
@@ -110,6 +123,8 @@ class SupportReportController extends Controller
             'avg_resolution_time' => $avgResolutionTime,
             'resolution_time'     => $resolucion,
             'closure_time'        => $cierre,
+            'incidents'           => $incidentes,
+            'recurrence'          => $this->incidentes->tasaDeReincidencia($baseQuery),
             'by_priority'         => $distribucion('priority_id', TicketCatalogs::PRIORITY, 'priority'),
             'by_status'           => $distribucion('status_id', TicketCatalogs::STATUS, 'status'),
             'by_category'         => $distribucion('category_id', TicketCatalogs::CATEGORY, 'category'),
@@ -163,6 +178,8 @@ class SupportReportController extends Controller
             $columnas,
             "Resuelto ({$zona})", "Cerrado ({$zona})", 'Horas hasta resolución', 'Horas hasta cierre',
             'Intervenciones', 'Sin cobro', 'Motivo sin cobro',
+            // PR #6 · el vínculo con otro ticket, por número.
+            'Modalidad', 'Incidente padre', 'Duplicado de',
         );
 
         $nombreArchivo = 'tickets-' . Carbon::now($zona)->format('Y-m-d') . '.csv';
@@ -205,6 +222,9 @@ class SupportReportController extends Controller
                 $t->interventions_count,
                 $t->no_charge ? 'Sí' : 'No',
                 $this->csvText($t->no_charge_reason),
+                $t->esMasivo() ? 'Masivo' : 'Individual',
+                $t->parent_ticket_id ?? '',
+                $t->duplicate_of_id ?? '',
             );
 
             return $fila;
