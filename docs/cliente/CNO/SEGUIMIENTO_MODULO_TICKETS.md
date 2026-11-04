@@ -22,7 +22,7 @@
 | **PR #5 → F1 intervenciones · F2 mediciones · F3 equipos** | PR **#289** · **#290** · **#288** |
 | **Asunto desde catálogo del ISP** | PR **#327** (merge `4ad8b5f`) |
 | **PR #7 · métricas y exportación** | PR **#335** — mergeado en `develop`, **sin desplegar** |
-| **PR #6 · duplicados, incidentes y reincidencia** | rama `feat/cno-pr6-incidentes` — **PR abierto** |
+| **PR #6 · duplicados, incidentes y reincidencia** | PR **#336** (rama `feat/cno-pr6-incidentes`) — **abierto** |
 | **Fecha de corte de esta evaluación** | **2026-11-04** — hasta el PR #327 está mergeado en `main` (desplegado); el PR #7 y el PR #6, no |
 | **Estado general de la entrega** | 🟡 **Backlog funcional completo en código (PR #1–#7) · falta desplegar PR #6 y #7, infraestructura (F1-05/06/07), minutos-cliente (F1-16), roles del § 18 y la respuesta formal al cliente** |
 
@@ -993,7 +993,7 @@ pasó a índice normal, y el invariante «un equipo en una sola casa» lo sostie
 | Asunto desde catálogo | #327 | `https://github.com/ispwatchcol/ISPWatch/pull/327` | ✅ Mergeado y desplegado |
 | Seguimiento puesto al día | #334 | `https://github.com/ispwatchcol/ISPWatch/pull/334` | ✅ Mergeado en `develop` |
 | PR #7 · métricas y exportación | #335 | `https://github.com/ispwatchcol/ISPWatch/pull/335` | ✅ Mergeado en `develop` · sin desplegar |
-| PR #6 · duplicados, incidentes y reincidencia | *(abierto)* | — | *(pendiente)* |
+| PR #6 · duplicados, incidentes y reincidencia | #336 | `https://github.com/ispwatchcol/ISPWatch/pull/336` | *(abierto)* |
 
 ### Resultados de CI
 
