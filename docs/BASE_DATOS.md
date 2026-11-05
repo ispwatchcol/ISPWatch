@@ -1225,6 +1225,24 @@ Anexo A—, así que los códigos se derivan del nombre en snake_case sin tildes
 > catálogos— sigue delegada sin resolver. Una tabla que nadie puede editar aparenta ser
 > configurable sin serlo. Se expone por `GET /support/{id}/transitions`.
 
+#### Incidentes masivos y duplicados (PR #6 de CNO · 2026-11-04)
+
+Migración `2026_11_04_000001_add_incident_links_to_support_ticket`.
+
+| Columna | Tipo | Regla | Para qué |
+|---|---|---|---|
+| `modality` | `varchar(20) NOT NULL` default `'individual'` | CHECK (pgsql) `individual`, `masivo` | Lo único que el operador **elige** (§ 6). Un `masivo` es el **incidente padre**: no tiene `user_id` y sí `sectorial_id` (el elemento afectado) |
+| `parent_ticket_id` | `bigint NULL` | **FK** → `support_ticket.id` **ON DELETE SET NULL**, índice | El incidente masivo al que se asoció el ticket. Lo escribe la transición a `asociado_incidente_masivo` |
+| `duplicate_of_id` | `bigint NULL` | **FK** → `support_ticket.id` **ON DELETE SET NULL**, índice | El ticket original. Lo escribe la transición a `duplicado`; reabrir el duplicado lo vuelve a `NULL` |
+
+CHECK `support_ticket_links_not_self_check` (pgsql): ninguno de los dos vínculos apunta al propio
+ticket. Las reglas de negocio (mismo cliente para un duplicado, padre masivo y no terminal, sin
+incidentes anidados) viven en `App\Services\TicketIncidentService`, no en la base.
+
+`parent_ticket_id` **no se borra** cuando el ticket sale de `asociado_incidente_masivo`: deja
+constancia de que estuvo asociado. `duplicate_of_id` sí, al reabrir: un duplicado reabierto es uno
+que resultó no serlo, y el id anterior queda en el evento `ticket_reopened` del historial.
+
 ### 4.15a `support_ticket_history` — auditoría inalterable
 
 Añadida por el PR #3 para el requisito **F1-17**, cuyo criterio es literal: «cada cambio debe

@@ -2225,6 +2225,39 @@ Decisiones:
 - **Los percentiles se calculan en PHP**, no en SQL: `percentile_cont` existe en PostgreSQL pero no
   en SQLite, donde corren las pruebas. Se cargan solo tres columnas por ticket.
 
+### 15.9 Incidentes masivos, duplicados y reincidencia (PR #6 · 2026-11-04)
+
+Solicitud Maestra § 6, § 16 y § 19.7–19.8. Antes los estados `duplicado` y
+`asociado_incidente_masivo` existían (PR #4) sin apuntar a ningún ticket.
+
+| Pieza | Qué hace |
+|---|---|
+| `support_ticket.modality` / `parent_ticket_id` / `duplicate_of_id` | El modelo: individual o masivo, y los dos vínculos (BASE_DATOS § 4.15) |
+| `TicketWorkflow::VINCULO_REQUERIDO` | Qué destino exige qué vínculo. `duplicado` → `duplicate_of_id`; `asociado_incidente_masivo` → `parent_ticket_id` |
+| `App\Services\TicketIncidentService` | Las reglas: cuándo un ticket puede ser duplicado de otro o asociarse a un incidente; abiertos del cliente; incidentes activos en su infraestructura; reincidencia del ticket y tasa del tablero |
+| `TicketLinkController` | Sólo lectura: `open-for` (prevención de duplicados) y `links` (relaciones y reincidencia) |
+| `SupportTicketController::updateStatus()` | Escribe el vínculo **en la misma transición** que el estado, y arrastra a los asociados cuando el masivo se restablece |
+
+Decisiones:
+
+- **Vincular es transicionar.** No hay endpoint «marcar duplicado»: el vínculo viaja en
+  `PATCH .../status`. Así un ticket no puede quedar en `duplicado` sin original ni tener un
+  original sin estar en `duplicado`, y el permiso es el de siempre (`ticket_transition`). Cuando se
+  apliquen los roles del § 18 (D-09), separar «incidentes masivos» al Supervisor es un permiso más
+  en esta ruta.
+- **Un masivo es un ticket, no una tabla nueva.** Tiene estados, historial, intervenciones y cierre
+  como cualquier ticket; lo que lo distingue es `modality` y que no tiene cliente. Una tabla de
+  incidentes aparte habría duplicado el ciclo de vida entero.
+- **Servicio = cliente** mientras siga D-01, e **infraestructura = elemento de red** (`sectorial`)
+  con sus ancestros por `parent_id`: la caída de un nodo afecta a los clientes de los AP que
+  cuelgan de él. La ficha del cliente aporta `sectorial_id` y `olt_id`.
+- **El padre arrastra el restablecimiento, no el cierre.** Que el nodo vuelva no confirma la causa
+  de cada cliente ni sustituye su prueba final (§ 15).
+- **Sólo `individual` y `masivo`.** El § 6 nombra cinco modalidades (STI/STM/STS/STR/STN) y pide que
+  el operador elija sólo entre las dos primeras; las otras tres son atributos derivados. «Asociado»
+  ya se deduce de `parent_ticket_id`; «reabierto» y «sin falla confirmada» quedan para cuando se
+  cierre **D-04**, que es justamente si son campo, cálculo o etiqueta.
+
 ---
 
 ## 16. Observabilidad y dominios de fallo

@@ -164,6 +164,11 @@
                             <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">#{{ ticket.id }}</td>
                             <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">
                                 {{ ticket.subject }}
+                                <span v-if="ticket.modality === 'masivo'"
+                                    title="Incidente masivo: los clientes afectados se le asocian"
+                                    class="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                                    Masivo
+                                </span>
                                 <span v-if="ticket.no_charge"
                                     :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
                                     class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
@@ -229,6 +234,11 @@
                                 <span class="text-xs text-gray-400 dark:text-gray-500">#{{ ticket.id }}</span>
                                 <h3 class="font-semibold text-gray-800 dark:text-white text-sm leading-snug">
                                 {{ ticket.subject }}
+                                <span v-if="ticket.modality === 'masivo'"
+                                    title="Incidente masivo: los clientes afectados se le asocian"
+                                    class="ml-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                                    Masivo
+                                </span>
                                 <span v-if="ticket.no_charge"
                                     class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                                     Sin cobro
@@ -614,9 +624,12 @@ const getCategoryBadgeClass = (category) => {
 
 const getCategoryLabel = (category) => categoryLabel(category)
 
+// F1-20 · Siempre en hora de Bogotá, no en la del navegador: el servidor guarda
+// en UTC y un técnico con el equipo en otra zona leía otra fecha.
 const formatDate = (date) => {
     if (!date) return '-'
     return new Date(date).toLocaleDateString('es-ES', {
+        timeZone: 'America/Bogota',
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     })
 }

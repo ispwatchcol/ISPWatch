@@ -2218,6 +2218,47 @@ Bogotá y las horas hasta resolución y cierre.
 
 > Esta pantalla y la exportación necesitan el permiso **«Tickets · métricas y exportación»** (`ticket_export`).
 
+**Reincidencia.** Porcentaje de tickets cuyo cliente ya había tenido otro ticket en los 7, 30 o 90
+días anteriores. Cuenta aunque el ticket anterior quede fuera de las fechas del filtro. Los
+duplicados y los incidentes masivos no entran.
+
+**Incidentes y duplicados.** Cuántos incidentes masivos hay en el filtro, cuántos tickets de
+clientes están asociados a ellos y cuántos se marcaron como duplicados. El archivo exportado trae
+también la modalidad y los números de incidente padre y de ticket original.
+
+### 14.6 Incidentes masivos y duplicados
+
+**Al radicar te avisa.** Cuando eliges el cliente en **Nuevo ticket**, aparece un aviso si ya tiene
+tickets abiertos o si hay un **incidente masivo activo** en su AP, nodo u OLT (o en el elemento del
+que cuelga). El aviso no impide crear el ticket: puede ser otra falla.
+
+**Crear un incidente masivo.** En **Nuevo ticket**, elige la modalidad **Masivo** y el **elemento de
+red afectado** (AP, nodo, OLT…). Un incidente masivo no lleva cliente: los clientes que llamen se le
+asocian con su propio ticket. En el listado se ve con la etiqueta **Masivo**.
+
+**Asociar un ticket al incidente.** En el detalle del ticket del cliente, en **Cambiar el estado**,
+elige **Asociado a incidente masivo**. Te muestra los incidentes activos de su infraestructura (o
+todos, si no hay ninguno) y eliges uno, o escribes su número.
+
+**Cuando vuelve el servicio.** Al pasar el incidente masivo a **Servicio restablecido**, todos los
+tickets que siguen asociados pasan también a **Servicio restablecido**. **No se cierran solos**:
+cada uno se cierra con su propia causa, acción y prueba final. A esos clientes no se les envía
+correo automático.
+
+**Marcar un duplicado.** Si el cliente reportó dos veces lo mismo, en el ticket repetido elige
+**Duplicado** y el ticket original, que tiene que ser del **mismo cliente**. Si son clientes
+distintos con la misma falla no es un duplicado: crea un incidente masivo y asócialos. Si después
+resulta que no era un duplicado, **reábrelo**: el vínculo se suelta y queda en el historial.
+
+**Relaciones y reincidencia.** La tarjeta **Relaciones** del detalle dice a qué incidente está
+asociado el ticket o de cuál es duplicado. En un incidente masivo, lista los tickets asociados.
+Debajo, la **reincidencia**: cuántos tickets anteriores tuvo el mismo cliente (en total, con el
+mismo síntoma y con la misma causa) y cuántos tuvo el mismo elemento de red, en los últimos 7, 30
+y 90 días.
+
+> Para asociar y marcar duplicados hace falta el permiso **«Tickets · cambiar estado»**
+> (`ticket_transition`); para crear el incidente, el de crear tickets.
+
 ---
 
 ## 15. Inventario

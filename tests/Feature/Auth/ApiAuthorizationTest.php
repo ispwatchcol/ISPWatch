@@ -147,6 +147,10 @@ class ApiAuthorizationTest extends TestCase
             // Workflow formal · qué puede hacerse con un ticket. Sólo pide
             // `ticket_view`: saber qué acciones existen no es poder ejecutarlas.
             'acciones del ticket'  => ['get',    '/api/support/1/transitions', 'ticket_view'],
+            // PR #6 · Duplicados e incidentes: sólo lectura, con `ticket_view`.
+            // Vincular es una transición y vive en el grupo `staff_profile`.
+            'tickets abiertos del cliente' => ['get', '/api/support/open-for', 'ticket_view'],
+            'vínculos del ticket'  => ['get',    '/api/support/1/links', 'ticket_view'],
             //
             // Las CINCO operaciones del ciclo de vida —transicionar, proponer
             // cierre, cerrar, cierre especial y reabrir— no caben en este

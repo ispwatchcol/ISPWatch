@@ -28,7 +28,50 @@
                         </div>
 
                         <div class="space-y-4">
+                            <!-- PR #6 · § 6: el operador sólo elige Individual o
+                                 Masivo. Un masivo es el incidente padre: no tiene
+                                 cliente, tiene el elemento de red afectado, y los
+                                 clientes que llamen se le ASOCIAN. -->
                             <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Modalidad</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button
+                                        v-for="m in MODALIDADES"
+                                        :key="m.value"
+                                        type="button"
+                                        @click="form.modality = m.value"
+                                        class="rounded-lg border px-3 py-2 text-left text-sm transition"
+                                        :class="form.modality === m.value
+                                            ? 'border-blue-500 bg-blue-50 text-blue-800 dark:border-blue-400 dark:bg-blue-900/30 dark:text-blue-200'
+                                            : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'"
+                                    >
+                                        <span class="block font-semibold">{{ m.label }}</span>
+                                        <span class="block text-xs opacity-80">{{ m.ayuda }}</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div v-if="esMasivo">
+                                <SearchableSelect
+                                    v-if="!loadingElementos && !errorElementos"
+                                    v-model="form.sectorial_id"
+                                    :items="elementos"
+                                    item-key="id"
+                                    :item-label="elementoLabel"
+                                    item-icon="bi-diagram-3"
+                                    label="Elemento de red afectado"
+                                    placeholder="-- AP, nodo, OLT, NAP… --"
+                                    search-placeholder="Buscar elemento..."
+                                    :required="true"
+                                    :error="errors.sectorial_id"
+                                />
+                                <p v-else-if="errorElementos" class="text-sm text-red-600 dark:text-red-400">
+                                    No se pudo cargar la lista de elementos de red. Hace falta acceso a Sectoriales.
+                                </p>
+                                <p v-else class="text-sm text-gray-500 dark:text-gray-400">Cargando elementos de red...</p>
+                            </div>
+
+                            <div v-if="!esMasivo">
                                 <SearchableSelect
                                     v-if="!loadingCustomers"
                                     v-model="form.user_id"
@@ -43,6 +86,43 @@
                                     :error="errors.user_id"
                                 />
                                 <p v-else class="text-sm text-gray-500 dark:text-gray-400">Cargando clientes...</p>
+
+                                <!-- PR #6 · Prevención de duplicados (§ 16): antes de
+                                     radicar, lo que el cliente ya tiene abierto y las
+                                     caídas activas sobre su infraestructura. Avisa,
+                                     no bloquea: puede ser otra falla. -->
+                                <div
+                                    v-if="relacionados.open_tickets.length || relacionados.active_incidents.length"
+                                    class="mt-3 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20"
+                                >
+                                    <p v-if="relacionados.open_tickets.length" class="font-semibold text-amber-900 dark:text-amber-200">
+                                        Este cliente ya tiene {{ relacionados.open_tickets.length }} ticket(s) abierto(s):
+                                    </p>
+                                    <ul v-if="relacionados.open_tickets.length" class="space-y-1">
+                                        <li v-for="t in relacionados.open_tickets" :key="t.id">
+                                            <router-link :to="`/support/${t.id}`" target="_blank" class="text-amber-800 underline hover:text-amber-950 dark:text-amber-300">
+                                                #{{ t.id }} · {{ t.subject }}
+                                            </router-link>
+                                            <span class="text-xs text-amber-700 dark:text-amber-400"> — {{ t.status_label }} · {{ fechaBogota(t.created_at) }}</span>
+                                        </li>
+                                    </ul>
+                                    <p v-if="relacionados.active_incidents.length" class="font-semibold text-amber-900 dark:text-amber-200">
+                                        Hay {{ relacionados.active_incidents.length }} incidente(s) masivo(s) activo(s) en su infraestructura:
+                                    </p>
+                                    <ul v-if="relacionados.active_incidents.length" class="space-y-1">
+                                        <li v-for="i in relacionados.active_incidents" :key="i.id">
+                                            <router-link :to="`/support/${i.id}`" target="_blank" class="text-amber-800 underline hover:text-amber-950 dark:text-amber-300">
+                                                #{{ i.id }} · {{ i.subject }}
+                                            </router-link>
+                                            <span class="text-xs text-amber-700 dark:text-amber-400">
+                                                — {{ i.sectorial?.name || 'sin elemento' }} · {{ i.children_count }} asociado(s)
+                                            </span>
+                                        </li>
+                                    </ul>
+                                    <p class="text-xs text-amber-700 dark:text-amber-400">
+                                        Si es la misma falla, crea el ticket y desde su detalle márcalo como duplicado o asócialo al incidente.
+                                    </p>
+                                </div>
                             </div>
 
                             <div>
@@ -303,7 +383,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
@@ -323,10 +403,77 @@ const {
 } = useTicketCatalogs()
 
 const form = ref({
+    modality: 'individual',
     user_id: '',
+    sectorial_id: '',
     staff_id: '',
     description: ''
 })
+
+// PR #6 · § 6 de la Solicitud Maestra.
+const MODALIDADES = [
+    { value: 'individual', label: 'Individual', ayuda: 'Un servicio, un cliente' },
+    { value: 'masivo', label: 'Masivo', ayuda: 'Caída de AP, nodo, OLT…' },
+]
+const esMasivo = computed(() => form.value.modality === 'masivo')
+
+// Elementos de red: sólo se cargan si se elige «Masivo».
+const elementos = ref([])
+const loadingElementos = ref(false)
+const errorElementos = ref(false)
+const elementoLabel = (e) => e.element_type ? `${e.name} (${e.element_type})` : e.name
+
+const loadElementos = async () => {
+    if (elementos.value.length || loadingElementos.value) return
+    try {
+        loadingElementos.value = true
+        errorElementos.value = false
+        const { data } = await api.sectorials.getAll()
+        elementos.value = data.data || data
+    } catch (err) {
+        console.error('Error al cargar elementos de red:', err)
+        errorElementos.value = true
+    } finally {
+        loadingElementos.value = false
+    }
+}
+
+watch(esMasivo, (masivo) => {
+    if (masivo) {
+        form.value.user_id = ''
+        loadElementos()
+    } else {
+        form.value.sectorial_id = ''
+    }
+})
+
+// PR #6 · Tickets abiertos e incidentes activos del cliente elegido.
+const relacionados = ref({ open_tickets: [], active_incidents: [] })
+let consultaRelacionados = 0
+
+watch(() => form.value.user_id, async (userId) => {
+    const turno = ++consultaRelacionados
+    relacionados.value = { open_tickets: [], active_incidents: [] }
+    if (!userId) return
+    try {
+        const { data } = await api.support.openFor({ user_id: userId })
+        // Si el operador cambió de cliente mientras llegaba la respuesta, se
+        // descarta: el aviso tiene que ser del cliente que está en pantalla.
+        if (turno === consultaRelacionados) {
+            relacionados.value = {
+                open_tickets: data.open_tickets ?? [],
+                active_incidents: data.active_incidents ?? [],
+            }
+        }
+    } catch (err) {
+        // El aviso es una ayuda: si falla, se puede radicar igual.
+        console.error('Error al buscar tickets abiertos del cliente:', err)
+    }
+})
+
+const fechaBogota = (iso) => iso
+    ? new Date(iso).toLocaleString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'short', timeStyle: 'short' })
+    : ''
 
 // Asunto: `{ subject_id, subject }`. Ver TicketSubjectField.
 const asunto = ref({ subject_id: null, subject: '' })
@@ -402,7 +549,8 @@ const formatCurrency = (val) => {
 
 const validate = () => {
     errors.value = {}
-    if (!form.value.user_id) errors.value.user_id = 'El cliente es requerido'
+    if (!esMasivo.value && !form.value.user_id) errors.value.user_id = 'El cliente es requerido'
+    if (esMasivo.value && !form.value.sectorial_id) errors.value.sectorial_id = 'Elige el elemento de red afectado'
     if (!asunto.value.subject_id && !asuntoTexto.value) errors.value.subject = 'Elige un asunto o escribe uno'
     return Object.keys(errors.value).length === 0
 }
@@ -425,7 +573,11 @@ const handleSubmit = async () => {
         )
 
         const ticketRes = await api.support.create({
-            user_id: form.value.user_id,
+            modality: form.value.modality,
+            // Un masivo no lleva cliente (el servidor lo rechaza) y sí elemento.
+            ...(esMasivo.value
+                ? { sectorial_id: form.value.sectorial_id }
+                : { user_id: form.value.user_id }),
             staff_id: form.value.staff_id || null,
             // Con asunto del catálogo el servidor copia su nombre; con «Otro…»
             // manda el texto. Se envían los dos y el servidor decide.
