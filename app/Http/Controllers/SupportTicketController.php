@@ -314,6 +314,14 @@ class SupportTicketController extends Controller
             'staff_id' => ['nullable', 'integer', $this->existeEnElIsp('users', $tenantId)],
             'sectorial_id' => ['required_if:modality,' . SupportTicket::MODALITY_MASIVO,
                 'nullable', 'integer', $this->existeEnElIsp('sectorial', $tenantId)],
+            // F1-16 · § 16: cuántos servicios dejó sin servicio la falla y si la
+            // cifra es estimada o confirmada. Sólo existe en el masivo: en un
+            // ticket individual el afectado es su propio cliente.
+            'affected_services' => ['nullable', 'integer', 'min:0', 'max:1000000',
+                'prohibited_unless:modality,' . SupportTicket::MODALITY_MASIVO],
+            'affected_services_basis' => ['nullable', 'required_with:affected_services',
+                'prohibited_unless:modality,' . SupportTicket::MODALITY_MASIVO,
+                Rule::in(SupportTicket::AFFECTED_BASES)],
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
             // PR #2: el diagnóstico se puede capturar ya desde el alta, aunque lo
             // habitual sea rellenarlo después de la visita.
@@ -348,6 +356,10 @@ class SupportTicketController extends Controller
                 'modality' => $data['modality'] ?? SupportTicket::MODALITY_INDIVIDUAL,
                 'staff_id' => $data['staff_id'] ?? null,
                 'sectorial_id' => $data['sectorial_id'] ?? null,
+                'affected_services' => $data['affected_services'] ?? null,
+                // Sin cifra no hay naturaleza: el CHECK de PostgreSQL las exige juntas.
+                'affected_services_basis' => isset($data['affected_services'])
+                    ? $data['affected_services_basis'] : null,
                 'subject' => $data['subject'],
                 'subject_id' => $data['subject_id'] ?? null,
                 'description' => $data['description'] ?? null,
@@ -460,6 +472,11 @@ class SupportTicketController extends Controller
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
             'no_charge' => 'sometimes|boolean',
             'no_charge_reason' => 'sometimes|nullable|string|max:255',
+            // F1-16: la cifra de servicios afectados de un masivo se corrige
+            // durante el incidente (de estimada a confirmada). Que el ticket sea
+            // masivo y que cifra y naturaleza vayan juntas se comprueba abajo.
+            'affected_services' => 'sometimes|nullable|integer|min:0|max:1000000',
+            'affected_services_basis' => ['sometimes', 'nullable', Rule::in(SupportTicket::AFFECTED_BASES)],
             // PR #2. El tenant sale del ticket y no del usuario: `findOrFail` ya
             // pasó por el scope global de BelongsToTenant, así que el ticket es
             // forzosamente del ISP de quien pide, y usar su tenant deja el
@@ -487,6 +504,14 @@ class SupportTicketController extends Controller
                 'errors'  => ['subject' => ['El asunto es requerido.']],
             ], 422);
         }
+
+        if ($error = $this->errorDeAfectacion($ticket, $data)) {
+            return response()->json([
+                'message' => 'Error de validación.',
+                'errors'  => $error,
+            ], 422);
+        }
+        $data = $this->normalizarAfectacion($ticket, $data);
 
         // Elegir asunto del catálogo cuenta como editar el asunto (`ticket_edit`):
         // `permisoQueFalta()` compara `subject_id` contra el ticket más abajo.
@@ -653,7 +678,74 @@ class SupportTicketController extends Controller
         // y lo que lo hace revisable es que el cambio queda en el historial.
         'no_charge'        => Permissions::TICKET_EDIT,
         'no_charge_reason' => Permissions::TICKET_EDIT,
+        // F1-16: la cifra del masivo es contenido del incidente, como el
+        // elemento afectado; el cambio queda en el historial.
+        'affected_services'       => Permissions::TICKET_EDIT,
+        'affected_services_basis' => Permissions::TICKET_EDIT,
     ];
+
+    /**
+     * F1-16 · Errores de la cifra de servicios afectados en un `PUT`, o `null`.
+     *
+     * Sólo un masivo la lleva, y cifra y naturaleza («estimado» /
+     * «confirmado») van juntas: se mira el resultado de aplicar la petición
+     * sobre el ticket, porque la pantalla puede mandar sólo uno de los dos.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, array<int, string>>|null
+     */
+    private function errorDeAfectacion(SupportTicket $ticket, array $data): ?array
+    {
+        $tocaCifra = array_key_exists('affected_services', $data);
+        $tocaBase  = array_key_exists('affected_services_basis', $data);
+
+        if (! $tocaCifra && ! $tocaBase) {
+            return null;
+        }
+
+        if (! $ticket->esMasivo()) {
+            $hayValor = ($data['affected_services'] ?? null) !== null
+                || ($data['affected_services_basis'] ?? null) !== null;
+
+            // Reenviar el formulario con los dos campos vacíos no es un error.
+            return $hayValor
+                ? ['affected_services' => ['Sólo un incidente masivo registra servicios afectados.']]
+                : null;
+        }
+
+        $cifra = $tocaCifra ? $data['affected_services'] : $ticket->affected_services;
+        $base  = $tocaBase ? $data['affected_services_basis'] : $ticket->affected_services_basis;
+
+        if ($cifra !== null && $base === null) {
+            return ['affected_services_basis' => ['Indica si la cifra es estimada o confirmada.']];
+        }
+
+        return null;
+    }
+
+    /**
+     * Sin cifra no hay naturaleza: borrar la cantidad borra también si era
+     * estimada o confirmada (el CHECK de PostgreSQL las exige juntas). Y en un
+     * ticket individual los dos campos se descartan, para que un formulario
+     * reenviado con ellos vacíos no cuente como cambio.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizarAfectacion(SupportTicket $ticket, array $data): array
+    {
+        if (! $ticket->esMasivo()) {
+            unset($data['affected_services'], $data['affected_services_basis']);
+
+            return $data;
+        }
+
+        if (array_key_exists('affected_services', $data) && $data['affected_services'] === null) {
+            $data['affected_services_basis'] = null;
+        }
+
+        return $data;
+    }
 
     /**
      * Primer permiso que le falta a quien hace la petición, o `null` si los

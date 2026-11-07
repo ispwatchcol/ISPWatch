@@ -2229,8 +2229,11 @@ días anteriores. Cuenta aunque el ticket anterior quede fuera de las fechas del
 duplicados y los incidentes masivos no entran.
 
 **Incidentes y duplicados.** Cuántos incidentes masivos hay en el filtro, cuántos tickets de
-clientes están asociados a ellos y cuántos se marcaron como duplicados. El archivo exportado trae
-también la modalidad y los números de incidente padre y de ticket original.
+clientes están asociados a ellos y cuántos se marcaron como duplicados. Debajo, los **servicios
+afectados** de esos incidentes (cuántos confirmados y cuántos estimados) y los **minutos-cliente**,
+que sólo suman los incidentes ya restablecidos. Si hay incidentes en curso o sin cifra, un aviso lo
+dice. El archivo exportado trae también la modalidad, los números de incidente padre y de ticket
+original y, en los masivos, servicios afectados, cifra, contactos y minutos-cliente.
 
 ### 14.6 Incidentes masivos y duplicados
 
@@ -2255,6 +2258,21 @@ correo automático.
 **Duplicado** y el ticket original, que tiene que ser del **mismo cliente**. Si son clientes
 distintos con la misma falla no es un duplicado: crea un incidente masivo y asócialos. Si después
 resulta que no era un duplicado, **reábrelo**: el vínculo se suelta y queda en el historial.
+
+**Servicios afectados y minutos-cliente.** Un incidente masivo registra **a cuántos servicios dejó
+sin servicio** la falla, llamaran o no. No es lo mismo que los tickets asociados: ésos son los
+**contactos recibidos**. Un AP caído con 120 clientes puede generar sólo 15 llamadas.
+- **Al crear el masivo** puedes escribir la cifra en **Servicios afectados** y marcar si es
+  **Estimado** (por ejemplo, los clientes del AP) o **Confirmado**. Es opcional.
+- **Después, en el detalle**, la tarjeta **Relaciones** muestra el bloque **Afectación**:
+  - servicios afectados, con su etiqueta *estimado* o *confirmado*;
+  - contactos recibidos;
+  - la duración, desde que se radicó el incidente hasta que se restableció el servicio;
+  - los **minutos-cliente** (servicios afectados × duración). Mientras el incidente sigue abierto,
+    la duración y los minutos son *provisionales* y cuentan hasta ahora.
+- Con **Registrar servicios afectados** o **Corregir cifra** cambias el número o lo pasas de
+  estimado a confirmado. Dejarlo vacío borra la cifra. Cada cambio queda en el historial con quién
+  lo hizo. Hace falta el permiso **«Tickets · editar contenido»** (`ticket_edit`).
 
 **Relaciones y reincidencia.** La tarjeta **Relaciones** del detalle dice a qué incidente está
 asociado el ticket o de cuál es duplicado. En un incidente masivo, lista los tickets asociados.

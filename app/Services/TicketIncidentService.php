@@ -325,6 +325,108 @@ class TicketIncidentService
         return $resultado;
     }
 
+    // ── Servicios afectados y minutos-cliente (F1-16) ────────────────────
+
+    /**
+     * Afectación de un incidente masivo: servicios afectados, contactos
+     * recibidos y minutos-cliente. `null` si el ticket no es masivo.
+     *
+     * § 16 pide «separar contactos recibidos de incidentes reales»: los
+     * CONTACTOS son los tickets asociados (quienes llamaron); los SERVICIOS
+     * AFECTADOS, la cifra que registra el operador (a quienes la falla dejó
+     * sin servicio, llamaran o no).
+     *
+     * LA DURACIÓN va de la radicación del masivo (`created_at`) al
+     * restablecimiento (`resolved_at`). `resolved_at` se estampa la primera
+     * vez y no se borra nunca (§ 19.5): si el incidente se reabre, la
+     * duración sigue siendo la del primer restablecimiento. Mientras no se
+     * restablece, la duración corre hasta `$ahora` y el resultado lo dice
+     * (`ongoing`); un masivo terminado sin restablecimiento (anulado, por
+     * ejemplo) no tiene duración.
+     *
+     * @return array{affected_services: int|null, basis: string|null, contacts: int, duration_minutes: int|null, customer_minutes: int|null, ongoing: bool}|null
+     */
+    public function afectacion(SupportTicket $ticket, ?Carbon $ahora = null): ?array
+    {
+        if (! $ticket->esMasivo()) {
+            return null;
+        }
+
+        $ahora ??= Carbon::now();
+        $inicio = $ticket->created_at;
+        $fin = $ticket->resolved_at;
+        $enCurso = $fin === null && ! TicketWorkflow::esTerminal($ticket->status);
+
+        $duracion = null;
+        if ($inicio !== null && ($fin !== null || $enCurso)) {
+            $duracion = max(0, (int) floor($inicio->diffInSeconds($fin ?? $ahora, true) / 60));
+        }
+
+        $servicios = $ticket->affected_services;
+
+        return [
+            'affected_services' => $servicios,
+            'basis'             => $ticket->affected_services_basis,
+            'contacts'          => $ticket->incident_children_count ?? $ticket->incidentChildren()->count(),
+            'duration_minutes'  => $duracion,
+            'customer_minutes'  => ($servicios !== null && $duracion !== null) ? $servicios * $duracion : null,
+            'ongoing'           => $enCurso,
+        ];
+    }
+
+    /**
+     * Totales de afectación para el tablero (§ 17: «incidentes reales,
+     * contactos asociados, servicios afectados y minutos-cliente»).
+     *
+     * Sólo suman minutos-cliente los masivos YA RESTABLECIDOS: un incidente en
+     * curso cambiaría de cifra con cada recarga del tablero. Los en curso y los
+     * que no tienen cifra se cuentan aparte, para que se vea qué falta.
+     *
+     * @return array{affected_services: int, affected_confirmed: int, affected_estimated: int, customer_minutes: int, ongoing: int, without_affected: int}
+     */
+    public function totalesDeAfectacion(Builder $baseQuery): array
+    {
+        $masivos = (clone $baseQuery)
+            ->where('modality', SupportTicket::MODALITY_MASIVO)
+            ->toBase()
+            ->select(['id', 'status_id', 'created_at', 'resolved_at', 'affected_services', 'affected_services_basis'])
+            ->get();
+
+        $terminales = $this->idsTerminales();
+        $totales = [
+            'affected_services'  => 0,
+            'affected_confirmed' => 0,
+            'affected_estimated' => 0,
+            'customer_minutes'   => 0,
+            'ongoing'            => 0,
+            'without_affected'   => 0,
+        ];
+
+        foreach ($masivos as $m) {
+            if ($m->resolved_at === null && ! in_array((int) $m->status_id, $terminales, true)) {
+                $totales['ongoing']++;
+            }
+
+            if ($m->affected_services === null) {
+                $totales['without_affected']++;
+                continue;
+            }
+
+            $servicios = (int) $m->affected_services;
+            $totales['affected_services'] += $servicios;
+            $totales[$m->affected_services_basis === SupportTicket::AFFECTED_CONFIRMED
+                ? 'affected_confirmed' : 'affected_estimated'] += $servicios;
+
+            if ($m->resolved_at !== null) {
+                $minutos = intdiv(max(0, (int) Carbon::parse($m->created_at, 'UTC')
+                    ->diffInSeconds(Carbon::parse($m->resolved_at, 'UTC'), false)), 60);
+                $totales['customer_minutes'] += $servicios * $minutos;
+            }
+        }
+
+        return $totales;
+    }
+
     // ── Internos ─────────────────────────────────────────────────────────
 
     /** @return array<int, int> */

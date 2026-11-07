@@ -376,7 +376,11 @@ class TicketIncidentsTest extends TestCase
         // cuenta como anterior: la ventana mira hacia atrás fuera del filtro.
         $stats = $this->actingAs($this->operador)->getJson('/api/support/statistics?created_from=2026-10-01')->assertOk()->json();
 
-        $this->assertSame(['mass_incidents' => 1, 'associated_tickets' => 1, 'duplicates' => 1], $stats['incidents']);
+        // F1-16 añade la afectación al mismo bloque (TicketAffectedServicesTest).
+        $this->assertSame(
+            ['mass_incidents' => 1, 'associated_tickets' => 1, 'duplicates' => 1],
+            array_intersect_key($stats['incidents'], array_flip(['mass_incidents', 'associated_tickets', 'duplicates'])),
+        );
 
         // Base: Ana-oct, Luis×2, el asociado = 4 (sin masivo ni duplicado).
         $this->assertSame(4, $stats['recurrence']['base']);

@@ -2974,6 +2974,49 @@ Cuenta tickets radicados **antes** de éste y dentro de la ventana, sin duplicad
 cliente**; `infrastructure` es del **mismo elemento** (`sectorial_id` del ticket), de cualquier
 cliente. `previous`: los del mismo cliente en 90 días.
 
+### 16.4 Servicios afectados y minutos-cliente (F1-16 · 2026-11-07)
+
+Fuente: Solicitud Maestra § 16 («registrar cantidad confirmada o estimada y separar contactos
+recibidos de incidentes reales»; «minutos-cliente = servicios afectados × duración») y § 17.
+
+**Campos del masivo.** `POST /api/support` y `PUT /api/support/{id}` aceptan:
+
+| Campo | Regla |
+|---|---|
+| `affected_services` | entero `0`–`1.000.000`, opcional. **Sólo en un masivo**: en el alta de un individual es 422 (`prohibited_unless`); en el `PUT` de un individual es 422 si trae valor, y se ignora si llega vacío (la pantalla reenvía el formulario) |
+| `affected_services_basis` | `estimado` o `confirmado`. Obligatorio cuando hay cifra (422 en este campo). En el `PUT` basta con mandar la cantidad si el ticket ya tenía naturaleza guardada |
+
+Mandar `affected_services: null` borra la cifra **y** su naturaleza. Cambiar cualquiera de las dos
+exige `ticket_edit` y deja el evento `affected_services_changed` en el historial (`old_value` /
+`new_value` como texto: `"120 (estimado)"`). El alta lleva `metadata.servicios_afectados`.
+
+**`GET /api/support/{ticket}/links`** trae además `impact` (`null` si el ticket no es masivo):
+
+```json
+{ "impact": { "affected_services": 120, "basis": "confirmado", "contacts": 2,
+              "duration_minutes": 90, "customer_minutes": 10800, "ongoing": false } }
+```
+
+- `contacts`: tickets asociados (quienes llamaron), aparte de `affected_services`.
+- `duration_minutes`: de `created_at` a `resolved_at` (el primer restablecimiento, que no se borra
+  al reabrir).
+  - **En curso**: corre hasta ahora y `ongoing: true`.
+  - **Terminado sin restablecimiento**: `null`.
+- `customer_minutes`: `affected_services × duration_minutes`, o `null` si falta alguno de los dos.
+
+**Tablero** (`GET /api/support/statistics`). El bloque `incidents` añade estas claves:
+
+| Clave | Qué cuenta |
+|---|---|
+| `affected_services` | Servicios afectados de los masivos del filtro |
+| `affected_confirmed`, `affected_estimated` | El mismo total, separado por naturaleza de la cifra |
+| `customer_minutes` | **Sólo de los masivos ya restablecidos**: un incidente en curso cambiaría la cifra en cada recarga |
+| `ongoing` | Masivos en curso |
+| `without_affected` | Masivos sin cifra registrada |
+
+**CSV** (`GET /api/support/export`). Al final van cuatro columnas más: **Servicios afectados**,
+**Cifra de afectados** (estimado/confirmado), **Contactos asociados** y **Minutos-cliente**. Sólo se
+llenan en los masivos; los minutos-cliente, sólo si el incidente ya se restableció.
 ---
 
 ## 17. Personal, roles y permisos

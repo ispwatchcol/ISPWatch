@@ -98,6 +98,10 @@ class SupportTicket extends Model
         'modality',
         'parent_ticket_id',
         'duplicate_of_id',
+        // F1-16 de CNO - solo en el incidente masivo: cuantos servicios dejo
+        // sin servicio la falla y si la cifra es estimada o confirmada.
+        'affected_services',
+        'affected_services_basis',
     ];
 
     /** § 6: lo unico que el operador elige. Un masivo es un incidente padre. */
@@ -105,6 +109,12 @@ class SupportTicket extends Model
     public const MODALITY_MASIVO     = 'masivo';
 
     public const MODALITIES = [self::MODALITY_INDIVIDUAL, self::MODALITY_MASIVO];
+
+    /** F1-16: naturaleza de la cifra de servicios afectados de un masivo. */
+    public const AFFECTED_ESTIMATED = 'estimado';
+    public const AFFECTED_CONFIRMED = 'confirmado';
+
+    public const AFFECTED_BASES = [self::AFFECTED_ESTIMATED, self::AFFECTED_CONFIRMED];
 
     /**
      * El mismo default que la columna, tambien en memoria: sin esto un ticket
@@ -119,6 +129,7 @@ class SupportTicket extends Model
         'closed_at'   => 'datetime',
         'deleted_at'  => 'datetime',
         'no_charge'   => 'boolean',
+        'affected_services' => 'integer',
     ];
 
     /**
