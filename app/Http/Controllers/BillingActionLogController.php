@@ -24,7 +24,7 @@ class BillingActionLogController extends Controller
         $query = BillingActionLog::query()
             ->with([
                 'customer:id,user_name,email',
-                'customer.customerProfile:id,user_id,name,last_name,phone',
+                'customer.customerProfile:user_id,name,last_name',
                 'router:id,name',
                 'invoice:id,number,total,balance_due,status',
             ])
@@ -119,7 +119,7 @@ class BillingActionLogController extends Controller
             'success' => $success,
             'log'     => $log->fresh()->load([
                 'customer:id,user_name',
-                'customer.customerProfile:id,user_id,name,last_name',
+                'customer.customerProfile:user_id,name,last_name',
                 'invoice:id,number',
             ]),
         ]);

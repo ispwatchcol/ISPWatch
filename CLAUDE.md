@@ -31,7 +31,7 @@ instalaciones, inventario, tickets de soporte y una API para integradores (`/api
 | Vocabularios cerrados / helpers de dominio | `app/Support` (`TicketWorkflow`, `ReconnectionOutcome`, `RouterOsVersion`…) |
 | Comando RouterOS | `app/Services/MikroTik/<Recurso>Manager` (los controladores **no** lo importan: `MikroTikBoundaryTest`) |
 | Permiso | `app/Constants/Permissions.php` **+ migración de backfill + caso en `ApiAuthorizationTest`** |
-| Esquema | `database/migrations` (aplicar con `migrate:both`) |
+| Esquema | `database/migrations` (en local solo a `ispwatch_dev`; `public` migra en el despliegue) |
 | Tareas programadas | `routes/console.php` |
 | Página / ruta del SPA | `resources/js/pages` + `resources/js/router/index.js` con `meta.permission` |
 | Llamada HTTP del SPA | `resources/js/services/api/<dominio>.js` |
@@ -41,8 +41,12 @@ instalaciones, inventario, tickets de soporte y una API para integradores (`/api
 1. **Tenant:** nunca se deriva del request. Sale de `auth()->user()->tenant_id` o del trait
    `BelongsToTenant`. Las FK de entrada se validan con `Rule::exists(...)->where('tenant_id', ...)`.
    Un recurso de otro tenant se responde como **inexistente** (404), no prohibido.
-2. **Base de datos:** el `.env` local apunta a Supabase. **Nunca `php artisan migrate` a secas**:
-   siempre `php artisan migrate:both`. Nunca seeders sobre `public`. No escribas datos con
+2. **Base de datos:** el `.env` local apunta a Supabase con `DB_SCHEMA=ispwatch_dev`. Desde local
+   las migraciones se aplican **solo en `ispwatch_dev`** (`php artisan migrate`, tras confirmar el
+   esquema con `php artisan config:show database.connections.pgsql.schema`). **Nunca
+   `migrate:both`**: escribe también en `public`, que es producción. `public` recibe las
+   migraciones en el despliegue (job `migrate` *PRE_DEPLOY* de App Platform, `php artisan migrate
+   --force`, en cada push a `main`). Nunca seeders sobre `public`. No escribas datos con
    `tinker` sin que el usuario lo pida. `ProductionDatabaseGuard` frena comandos de consola contra
    `public`; no lo saltes con `ISPWATCH_ALLOW_PRODUCTION_DB`.
 3. **Migraciones:** portables a SQLite (lo exclusivo de PostgreSQL va tras

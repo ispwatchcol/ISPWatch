@@ -11112,3 +11112,36 @@ conserva la guardada, y escribir una nueva la reemplaza.
 Nada en el código. Si hubo roles de soporte o clientes con acceso a la API mientras estuvo
 expuesta, conviene rotar las contraseñas de los RouterBoard registrados en Sectoriales; es
 decisión de cada ISP.
+
+## 124. Migraciones sólo en `ispwatch_dev` desde local, y el panel de failover vuelve a cargar — 2026-11-07
+
+### La regla de `migrate:both` estaba al revés
+
+`CLAUDE.md`, `MANUAL_DESARROLLADOR` § 5, `BASE_DATOS` y `ARQUITECTURA` decían «siempre
+`migrate:both`». Ese comando aplica la migración también en `public`, es decir, cambia producción
+desde una máquina local **antes** de que el código que la usa esté desplegado. El flujo real es
+otro: App Platform corre `php artisan migrate --force` en el job `migrate` (*PRE_DEPLOY*) en cada
+push a `main`. Desde local sólo se migra `ispwatch_dev`. Lo corrigió el responsable del proyecto
+el 2026-11-04 y ahora la documentación lo dice igual. Las entradas antiguas de esta bitácora que
+mencionan `migrate:both` se dejan como están: registran lo que se hizo entonces.
+
+Al revisar el texto apareció otra trampa: `db:sync-dev` llama a `migrate:both --force` antes de
+copiar, salvo con `--no-migrate`. El manual ahora pide `--no-migrate`; cambiar el comando queda
+como **P-113**.
+
+### `GET /api/billing/action-logs` fallaba en PostgreSQL justo cuando había algo que mostrar
+
+El panel de «Acciones masivas → failover de facturación» pedía
+`customer.customerProfile:id,user_id,name,last_name,phone`. `customer_profile` **no tiene** `id`
+(su clave es `user_id`) **ni** `phone`. Desde el 2026-05-27 (`ce6028f`), en PostgreSQL la carga
+del perfil lanza *column does not exist* y la petición responde 500. Con la lista vacía no se
+nota, porque el *eager load* no llega a ejecutarse. Por eso sólo fallaba cuando había facturas
+fallidas que revisar. El reintento individual (`POST …/{id}/retry`) tenía el mismo `:id`. Es la
+misma causa que el `TicketLinkController` del § 122 (trampa 60 del manual): SQLite toma el
+identificador desconocido entre comillas como un literal y los tests no lo ven.
+
+**Corrección.** Las dos cargas piden `customerProfile:user_id,name,last_name`. La pantalla sólo
+usa nombre y apellido (`MassActions.vue`, `logCustomerName`), así que quitar `phone` no le quita
+nada. `tests/Feature/Billing/BillingActionLogEndpointTest.php` cubre el listado y el reintento
+(con `BillingService` simulado). En SQLite pasan con y sin el arreglo; quien los hace fallar es el
+job PostgreSQL del CI.
