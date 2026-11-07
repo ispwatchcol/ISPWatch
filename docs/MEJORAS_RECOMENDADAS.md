@@ -3014,6 +3014,18 @@ Individual o Masivo; «asociado», «reabierto» y «sin falla confirmada» se c
 (si son campo, cálculo o etiqueta). «Reabierto» se podría deducir del evento `ticket_reopened`;
 «sin falla confirmada» necesita que el cliente diga qué código de causa o resultado la define.
 
+### 📋 P-114 · Los minutos-cliente cuentan desde que se radica el masivo, no desde la caída
+
+Visto al implementar F1-16 (bitácora § 125). La duración de la afectación va de `created_at` del
+incidente masivo a `resolved_at`. Si el NOC abre el masivo 40 minutos después de que el AP se
+cayó, esos 40 minutos no cuentan, y los minutos-cliente salen por debajo de los reales. Tampoco
+hay forma de registrar un restablecimiento anterior a la transición (por ejemplo, el servicio
+volvió a las 10:05 pero el operador lo marcó a las 10:40).
+
+**Recomendación.** Preguntarle al cliente si quiere un «inicio de la afectación» y un «fin de la
+afectación» editables en el masivo (con auditoría, como la cifra), o si le basta con la
+radicación. Si se agregan, `TicketIncidentService::afectacion()` es el único sitio que cambia.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3177,6 +3189,7 @@ Individual o Masivo; «asociado», «reabierto» y «sin falla confirmada» se c
 | **P-110** | Los CSV de facturas, recaudos y gastos escriben el texto libre sin neutralizar fórmulas (`=`, `+`, `-`, `@`) | Un nombre o referencia malicioso se ejecuta como fórmula al abrir el archivo en Excel | 🟡 Media | 📋 Pendiente · aplicar `ExportsCsv::csvText()` a los campos de texto (no a importes) |
 | **P-111** | Al restablecerse un incidente masivo, sus tickets asociados se restablecen **sin correo** al cliente | El cliente no se entera por el sistema de que su servicio volvió | 🟡 Media | 📋 Pendiente · encolar el aviso (mismo patrón que P-108) |
 | **P-112** | Las modalidades «reabierto» (STR) y «sin falla confirmada» (STN) del § 6 no se derivan | El tablero no puede contar esas dos categorías | 🟢 Baja | 📋 Pendiente · depende de D-04 |
+| **P-114** | La duración de un masivo arranca en su radicación (`created_at`), no en la hora real de la caída; tampoco hay fin de afectación editable | Los minutos-cliente salen por debajo de los reales cuando el masivo se abre tarde | 🟢 Baja | 📋 Pendiente · decisión del cliente (inicio/fin de afectación editables) |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

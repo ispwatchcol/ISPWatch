@@ -171,6 +171,30 @@
                             <p class="text-2xl font-bold text-gray-800 dark:text-white tabular-nums">{{ c.valor }}</p>
                         </div>
                     </div>
+
+                    <!-- F1-16 · § 17: servicios afectados y minutos-cliente de
+                         los masivos del filtro. -->
+                    <div class="mt-3 grid grid-cols-2 gap-3">
+                        <div class="rounded-lg bg-gray-50 dark:bg-gray-700/50 p-3 text-center">
+                            <p class="text-xs text-gray-500 dark:text-gray-400">Servicios afectados</p>
+                            <p class="text-2xl font-bold text-gray-800 dark:text-white tabular-nums">{{ entero(stats.incidents?.affected_services) }}</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                {{ entero(stats.incidents?.affected_confirmed) }} confirmados · {{ entero(stats.incidents?.affected_estimated) }} estimados
+                            </p>
+                        </div>
+                        <div class="rounded-lg bg-gray-50 dark:bg-gray-700/50 p-3 text-center">
+                            <p class="text-xs text-gray-500 dark:text-gray-400">Minutos-cliente</p>
+                            <p class="text-2xl font-bold text-gray-800 dark:text-white tabular-nums">{{ entero(stats.incidents?.customer_minutes) }}</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">servicios × duración, sólo incidentes restablecidos</p>
+                        </div>
+                    </div>
+                    <p
+                        v-if="(stats.incidents?.ongoing ?? 0) > 0 || (stats.incidents?.without_affected ?? 0) > 0"
+                        class="mt-2 text-xs text-amber-700 dark:text-amber-400"
+                    >
+                        <template v-if="stats.incidents?.ongoing">{{ stats.incidents.ongoing }} incidente(s) en curso no suman minutos todavía.</template>
+                        <template v-if="stats.incidents?.without_affected"> {{ stats.incidents.without_affected }} sin cifra de servicios afectados.</template>
+                    </p>
                 </div>
             </div>
 
@@ -272,7 +296,11 @@ const stats = ref({
     avg_resolution_time: 0,
     resolution_time: null,
     closure_time: null,
-    incidents: { mass_incidents: 0, associated_tickets: 0, duplicates: 0 },
+    incidents: {
+        mass_incidents: 0, associated_tickets: 0, duplicates: 0,
+        affected_services: 0, affected_confirmed: 0, affected_estimated: 0,
+        customer_minutes: 0, ongoing: 0, without_affected: 0,
+    },
     recurrence: { base: 0, windows: {} },
     by_status: [],
     by_priority: [],
@@ -299,6 +327,8 @@ const tarjetasDeIncidentes = computed(() => [
     { nombre: 'Tickets asociados', valor: stats.value.incidents?.associated_tickets ?? 0 },
     { nombre: 'Duplicados', valor: stats.value.incidents?.duplicates ?? 0 },
 ])
+
+const entero = (v) => Number(v ?? 0).toLocaleString('es-CO')
 
 const porcentaje = (v) => (v === null || v === undefined)
     ? '—'

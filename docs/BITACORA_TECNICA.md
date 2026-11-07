@@ -11067,3 +11067,60 @@ nuevos en `ApiAuthorizationTest` para las rutas de lectura.
 
 **Sin aplicar en ninguna base desde local.** La migración la aplica el despliegue: `migrate:both`
 desde esta máquina tocaría `public`, que es producción.
+
+## 125. Servicios afectados y minutos-cliente del incidente masivo (F1-16 de CNO) — 2026-11-07
+
+**Por qué.** El § 16 de la Solicitud Maestra pide registrar la «cantidad confirmada o estimada» de
+servicios afectados, «separar contactos recibidos de incidentes reales» y calcular «servicios
+afectados × duración». El § 17 lo pide en el tablero. El PR #6 (§ 122) dejó el incidente padre y
+sus asociados, pero el masivo no sabía a cuántos servicios afectó: sólo cuántos llamaron.
+
+**Qué se hizo.**
+- **Datos.** Migración `2026_11_07_000001`: `support_ticket.affected_services` y
+  `affected_services_basis` (`estimado`/`confirmado`). En PostgreSQL, un CHECK las exige juntas.
+- **Validación.**
+  - En el alta, sólo el masivo las acepta (`prohibited_unless`) y la naturaleza es obligatoria
+    cuando hay cifra.
+  - En el `PUT`, `errorDeAfectacion()` mira el resultado sobre el ticket. Así basta con mandar la
+    cantidad si la naturaleza ya estaba guardada, y un formulario reenviado con los campos vacíos en
+    un individual no da error.
+  - Cambiar la cifra exige `ticket_edit`.
+- **Historial.** El observer registra `affected_services_changed` con el texto «120 (estimado)» →
+  «134 (confirmado)». El alta lleva la cifra en `metadata`.
+- **Cálculo.** `TicketIncidentService::afectacion()` devuelve, por masivo:
+  - servicios afectados y naturaleza;
+  - contactos (tickets asociados);
+  - duración de `created_at` a `resolved_at`;
+  - minutos-cliente;
+  - si sigue **en curso**: la duración corre hasta ahora y se marca como provisional.
+
+  `totalesDeAfectacion()` suma para el tablero, separando confirmados de estimados. **Sólo suma
+  minutos de los restablecidos**: uno en curso cambiaría la cifra en cada recarga. Los masivos en
+  curso y los que no tienen cifra se cuentan aparte, como dato por completar.
+- **Salidas.**
+  - `GET /support/{ticket}/links` trae `impact`;
+  - `GET /support/statistics` añade seis claves a `incidents`;
+  - el CSV suma cuatro columnas.
+- **Pantallas.**
+  - Alta: cifra opcional con «Estimado/Confirmado».
+  - Detalle: bloque **Afectación** en la tarjeta Relaciones, con corrección en línea.
+  - Estadísticas: dos tarjetas.
+
+**Decisiones.**
+- **Los minutos-cliente no se guardan.** Son un cálculo sobre la cifra y dos fechas. Guardarlos
+  dejaría un valor viejo cada vez que alguien corrige la cifra o el incidente se reabre.
+- **`resolved_at` es el primer restablecimiento** y no se borra al reabrir (§ 19.5). La duración es
+  la de esa primera vez.
+- **La duración arranca en la radicación del masivo.** No hay campo de «inicio de la afectación»;
+  queda como **P-114**, para que lo decida el cliente.
+
+**Validado** en `ispwatch_dev` con el masivo #7 del § 122 (1 asociado, restablecido a los 5 min):
+- registrar 120 estimados dio 600 minutos-cliente;
+- corregir a 134 confirmados dio 670, con los dos eventos en el historial;
+- el tablero muestra 134 confirmados y 670 minutos-cliente.
+
+La migración se aplicó **sólo en `ispwatch_dev`**; `public` la recibe en el despliegue.
+
+**Pruebas.** `TicketAffectedServicesTest` tiene 13 casos: alta, validaciones, corrección e
+historial, permiso, expediente con contactos y minutos, incidente en curso, tablero y CSV.
+`TicketIncidentsTest` compara ahora sólo sus tres claves del bloque `incidents`.

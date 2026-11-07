@@ -2257,6 +2257,14 @@ Decisiones:
   el operador elija sólo entre las dos primeras; las otras tres son atributos derivados. «Asociado»
   ya se deduce de `parent_ticket_id`; «reabierto» y «sin falla confirmada» quedan para cuando se
   cierre **D-04**, que es justamente si son campo, cálculo o etiqueta.
+- **Servicios afectados ≠ contactos (F1-16, 2026-11-07).** El masivo guarda la cifra que da el
+  operador (`affected_services` + `estimado`/`confirmado`); los contactos son sus tickets
+  asociados. Los **minutos-cliente se calculan al leer**
+  (`TicketIncidentService::afectacion()` y `totalesDeAfectacion()`), con la duración de
+  `created_at` a `resolved_at`. Guardarlos obligaría a recalcularlos al corregir la cifra o al
+  reabrir. El tablero sólo suma minutos de incidentes restablecidos: uno en curso cambiaría la
+  cifra en cada recarga. El inicio de la afectación es la radicación del masivo, no la hora real de
+  la caída (P-114).
 
 ---
 

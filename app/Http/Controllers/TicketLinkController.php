@@ -93,6 +93,8 @@ class TicketLinkController extends Controller
             // Un masivo no tiene servicio propio: su reincidencia es la del
             // elemento, que también sale aquí.
             'recurrence'       => $this->incidentes->reincidencia($ticket),
+            // F1-16: servicios afectados, contactos y minutos-cliente del masivo.
+            'impact'           => $this->incidentes->afectacion($ticket),
         ]);
     }
 

@@ -71,6 +71,35 @@
                                 <p v-else class="text-sm text-gray-500 dark:text-gray-400">Cargando elementos de red...</p>
                             </div>
 
+                            <!-- F1-16 · § 16: a cuántos servicios dejó sin servicio la
+                                 falla, llamaran o no. Opcional al abrir: casi siempre
+                                 es una estimación y se confirma después en el detalle. -->
+                            <div v-if="esMasivo">
+                                <label for="affected_services" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Servicios afectados <span class="font-normal text-gray-400">(opcional)</span>
+                                </label>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <input
+                                        id="affected_services"
+                                        v-model="form.affected_services"
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        inputmode="numeric"
+                                        placeholder="Ej. 120"
+                                        class="w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                                    />
+                                    <label v-for="b in BASES_AFECTADOS" :key="b.value" class="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-300">
+                                        <input v-model="form.affected_services_basis" type="radio" :value="b.value" class="text-blue-600" />
+                                        {{ b.label }}
+                                    </label>
+                                </div>
+                                <p v-if="errors.affected_services" class="mt-1 text-xs text-red-600 dark:text-red-400">{{ errors.affected_services }}</p>
+                                <p v-else class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    No es lo mismo que los clientes que llamen: ésos se asocian después como tickets.
+                                </p>
+                            </div>
+
                             <div v-if="!esMasivo">
                                 <SearchableSelect
                                     v-if="!loadingCustomers"
@@ -406,9 +435,18 @@ const form = ref({
     modality: 'individual',
     user_id: '',
     sectorial_id: '',
+    affected_services: '',
+    affected_services_basis: 'estimado',
     staff_id: '',
     description: ''
 })
+
+// F1-16 · Naturaleza de la cifra de servicios afectados.
+const BASES_AFECTADOS = [
+    { value: 'estimado', label: 'Estimado' },
+    { value: 'confirmado', label: 'Confirmado' },
+]
+const hayAfectados = computed(() => form.value.affected_services !== '' && form.value.affected_services !== null)
 
 // PR #6 · § 6 de la Solicitud Maestra.
 const MODALIDADES = [
@@ -444,6 +482,7 @@ watch(esMasivo, (masivo) => {
         loadElementos()
     } else {
         form.value.sectorial_id = ''
+        form.value.affected_services = ''
     }
 })
 
@@ -551,6 +590,10 @@ const validate = () => {
     errors.value = {}
     if (!esMasivo.value && !form.value.user_id) errors.value.user_id = 'El cliente es requerido'
     if (esMasivo.value && !form.value.sectorial_id) errors.value.sectorial_id = 'Elige el elemento de red afectado'
+    if (esMasivo.value && hayAfectados.value
+        && (!Number.isInteger(Number(form.value.affected_services)) || Number(form.value.affected_services) < 0)) {
+        errors.value.affected_services = 'Escribe un número entero de servicios, 0 o más'
+    }
     if (!asunto.value.subject_id && !asuntoTexto.value) errors.value.subject = 'Elige un asunto o escribe uno'
     return Object.keys(errors.value).length === 0
 }
@@ -576,7 +619,16 @@ const handleSubmit = async () => {
             modality: form.value.modality,
             // Un masivo no lleva cliente (el servidor lo rechaza) y sí elemento.
             ...(esMasivo.value
-                ? { sectorial_id: form.value.sectorial_id }
+                ? {
+                    sectorial_id: form.value.sectorial_id,
+                    // La cifra viaja sólo si se escribió, siempre con su naturaleza.
+                    ...(hayAfectados.value
+                        ? {
+                            affected_services: Number(form.value.affected_services),
+                            affected_services_basis: form.value.affected_services_basis,
+                        }
+                        : {}),
+                }
                 : { user_id: form.value.user_id }),
             staff_id: form.value.staff_id || null,
             // Con asunto del catálogo el servidor copia su nombre; con «Otro…»

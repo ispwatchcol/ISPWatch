@@ -71,6 +71,10 @@ class SupportTicketHistoryObserver
                 'category'    => $ticket->category,
                 'diagnostico' => $this->diagnosticoInicial($ticket),
                 'tecnico'     => $this->nombreDe($ticket->staff_id),
+                'servicios_afectados' => $this->textoDeAfectacion(
+                    $ticket->affected_services,
+                    $ticket->affected_services_basis,
+                ),
             ], fn ($v) => $v !== null && $v !== []),
         );
     }
@@ -111,6 +115,46 @@ class SupportTicketHistoryObserver
         if (array_key_exists('subject', $cambios) || array_key_exists('subject_id', $cambios)) {
             $this->registrarAsunto($ticket);
         }
+
+        if (array_key_exists('affected_services', $cambios) || array_key_exists('affected_services_basis', $cambios)) {
+            $this->registrarAfectacion($ticket);
+        }
+    }
+
+    /**
+     * F1-16 · La cifra de servicios afectados de un masivo cambió. El valor
+     * es el texto que se lee («120 (estimado)»): los minutos-cliente del
+     * tablero salen de esta cifra, y el expediente tiene que decir quién la
+     * pasó de estimada a confirmada, o la corrigió, y cuándo.
+     */
+    private function registrarAfectacion(SupportTicket $ticket): void
+    {
+        $anterior = $this->textoDeAfectacion(
+            $ticket->getOriginal('affected_services'),
+            $ticket->getOriginal('affected_services_basis'),
+        );
+        $nuevo = $this->textoDeAfectacion($ticket->affected_services, $ticket->affected_services_basis);
+
+        if ($anterior === $nuevo) {
+            return;
+        }
+
+        SupportTicketHistory::registrar(
+            $ticket,
+            SupportTicketHistory::AFFECTED_SERVICES,
+            field: 'affected_services',
+            oldValue: $anterior,
+            newValue: $nuevo,
+        );
+    }
+
+    private function textoDeAfectacion($cifra, ?string $base): ?string
+    {
+        if ($cifra === null) {
+            return null;
+        }
+
+        return (int) $cifra . ($base ? " ({$base})" : '');
     }
 
     /**

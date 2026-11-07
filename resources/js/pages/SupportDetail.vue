@@ -913,6 +913,90 @@
                                 · {{ vinculos.duplicate_of.subject }}
                             </p>
 
+                            <!-- F1-16 · § 16: servicios afectados (a quiénes dejó sin
+                                 servicio la falla) separados de los contactos (quiénes
+                                 llamaron), y minutos-cliente = servicios × duración. -->
+                            <div v-if="vinculos.impact" class="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Afectación</p>
+                                <dl class="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                                    <div>
+                                        <dt class="text-gray-500 dark:text-gray-400">Servicios afectados</dt>
+                                        <dd class="font-semibold text-gray-800 dark:text-gray-100">
+                                            <template v-if="vinculos.impact.affected_services !== null">
+                                                {{ formatoEntero(vinculos.impact.affected_services) }}
+                                                <span
+                                                    class="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                                                    :class="vinculos.impact.basis === 'confirmado'
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+                                                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'"
+                                                >{{ vinculos.impact.basis }}</span>
+                                            </template>
+                                            <span v-else class="font-normal text-amber-700 dark:text-amber-400">Sin registrar</span>
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-gray-500 dark:text-gray-400">Contactos recibidos</dt>
+                                        <dd class="font-semibold text-gray-800 dark:text-gray-100">{{ formatoEntero(vinculos.impact.contacts) }}</dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-gray-500 dark:text-gray-400">Duración</dt>
+                                        <dd class="font-semibold text-gray-800 dark:text-gray-100">
+                                            {{ vinculos.impact.duration_minutes !== null ? formatoDuracion(vinculos.impact.duration_minutes) : '—' }}
+                                            <span v-if="vinculos.impact.ongoing" class="block font-normal text-gray-500 dark:text-gray-400">en curso, hasta ahora</span>
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt class="text-gray-500 dark:text-gray-400">Minutos-cliente</dt>
+                                        <dd class="font-semibold text-gray-800 dark:text-gray-100">
+                                            {{ vinculos.impact.customer_minutes !== null ? formatoEntero(vinculos.impact.customer_minutes) : '—' }}
+                                            <span v-if="vinculos.impact.ongoing && vinculos.impact.customer_minutes !== null" class="block font-normal text-gray-500 dark:text-gray-400">provisional</span>
+                                        </dd>
+                                    </div>
+                                </dl>
+
+                                <template v-if="canEdit">
+                                    <button
+                                        v-if="!editandoAfectados"
+                                        type="button"
+                                        class="mt-3 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                                        @click="abrirEdicionAfectados"
+                                    >{{ vinculos.impact.affected_services === null ? 'Registrar servicios afectados' : 'Corregir cifra' }}</button>
+                                    <form v-else class="mt-3 space-y-2" @submit.prevent="guardarAfectados">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <label for="afectados-cifra" class="sr-only">Servicios afectados</label>
+                                            <input
+                                                id="afectados-cifra"
+                                                v-model="afectadosForm.cifra"
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                inputmode="numeric"
+                                                placeholder="Ej. 120"
+                                                class="w-24 rounded-lg border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                                            />
+                                            <label v-for="b in BASES_AFECTADOS" :key="b.value" class="inline-flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300">
+                                                <input v-model="afectadosForm.base" type="radio" :value="b.value" class="text-blue-600" />
+                                                {{ b.label }}
+                                            </label>
+                                        </div>
+                                        <p v-if="errorAfectados" class="text-xs text-red-600 dark:text-red-400">{{ errorAfectados }}</p>
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">Vacío borra la cifra. El cambio queda en el historial.</p>
+                                        <div class="flex gap-2">
+                                            <button
+                                                type="submit"
+                                                :disabled="guardandoAfectados"
+                                                class="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                                            >{{ guardandoAfectados ? 'Guardando…' : 'Guardar' }}</button>
+                                            <button
+                                                type="button"
+                                                class="rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                                                @click="editandoAfectados = false"
+                                            >Cancelar</button>
+                                        </div>
+                                    </form>
+                                </template>
+                            </div>
+
                             <div v-if="ticket.modality === 'masivo'">
                                 <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                                     Tickets asociados ({{ vinculos.incident_children.length }})
@@ -2228,6 +2312,11 @@ const etiquetaDeEvento = (evento) => {
             return `Se asoció al incidente masivo #${meta.ticket_id ?? evento.new_value}`
         case 'restored_by_incident':
             return `Servicio restablecido junto con el incidente masivo #${meta.incident_id}`
+        // F1-16 · cifra de servicios afectados del masivo.
+        case 'affected_services_changed':
+            if (!evento.old_value) return `Registró los servicios afectados: ${evento.new_value}`
+            if (!evento.new_value) return `Borró los servicios afectados (eran ${evento.old_value})`
+            return `Corrigió los servicios afectados: ${evento.old_value} → ${evento.new_value}`
         case 'no_charge_changed': {
             const sinCobro = evento.new_value === 'sin cobro al cliente'
             const motivo = meta.reason ? ` (${meta.reason})` : ''
@@ -2662,6 +2751,62 @@ const cargarVinculos = async () => {
 const fechaCortaBogota = (iso) => iso
     ? new Date(iso).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', dateStyle: 'medium' })
     : ''
+
+// ── F1-16 · Servicios afectados del masivo ───────────────────────────────
+const BASES_AFECTADOS = [
+    { value: 'estimado', label: 'Estimado' },
+    { value: 'confirmado', label: 'Confirmado' },
+]
+const editandoAfectados = ref(false)
+const guardandoAfectados = ref(false)
+const errorAfectados = ref('')
+const afectadosForm = ref({ cifra: '', base: 'estimado' })
+
+const formatoEntero = (n) => new Intl.NumberFormat('es-CO').format(n ?? 0)
+const formatoDuracion = (minutos) => {
+    const h = Math.floor(minutos / 60)
+    const m = minutos % 60
+    return h ? `${h} h ${m} min` : `${m} min`
+}
+
+const abrirEdicionAfectados = () => {
+    const impacto = vinculos.value?.impact
+    afectadosForm.value = {
+        cifra: impacto?.affected_services ?? '',
+        // Corregir suele ser confirmar: si ya había cifra estimada, se propone confirmada.
+        base: impacto?.affected_services === null ? 'estimado' : 'confirmado',
+    }
+    errorAfectados.value = ''
+    editandoAfectados.value = true
+}
+
+const guardarAfectados = async () => {
+    const texto = String(afectadosForm.value.cifra ?? '').trim()
+    const cifra = texto === '' ? null : Number(texto)
+    if (cifra !== null && (!Number.isInteger(cifra) || cifra < 0)) {
+        errorAfectados.value = 'Escribe un número entero de servicios, 0 o más.'
+        return
+    }
+
+    try {
+        guardandoAfectados.value = true
+        errorAfectados.value = ''
+        await api.support.update(ticketId, cifra === null
+            ? { affected_services: null }
+            : { affected_services: cifra, affected_services_basis: afectadosForm.value.base })
+        editandoAfectados.value = false
+        toast.value?.success('Listo', 'Servicios afectados actualizados.')
+        await cargarVinculos()
+        if (canViewHistory.value) cargarHistorial()
+    } catch (err) {
+        const errores = err.response?.data?.errors
+        errorAfectados.value = errores
+            ? Object.values(errores)[0]?.[0]
+            : (err.response?.data?.message || 'No se pudo guardar la cifra.')
+    } finally {
+        guardandoAfectados.value = false
+    }
+}
 
 const cerrarAccion = () => {
     accion.value = null

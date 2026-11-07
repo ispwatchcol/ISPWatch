@@ -150,6 +150,13 @@ class SupportTicketHistory extends Model
     /** El incidente padre se restablecio y arrastro a este ticket asociado. */
     public const RESTORED_BY_INCIDENT = 'restored_by_incident';
 
+    /**
+     * F1-16 de CNO · Cambio de la cifra de servicios afectados de un masivo
+     * (cantidad o naturaleza estimada/confirmada). Un solo evento aunque
+     * cambien las dos: para quien lee es una sola correccion.
+     */
+    public const AFFECTED_SERVICES    = 'affected_services_changed';
+
     protected $fillable = [
         'tenant_id',
         'support_ticket_id',

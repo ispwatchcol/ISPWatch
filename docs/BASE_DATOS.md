@@ -1243,6 +1243,21 @@ incidentes anidados) viven en `App\Services\TicketIncidentService`, no en la bas
 constancia de que estuvo asociado. `duplicate_of_id` sí, al reabrir: un duplicado reabierto es uno
 que resultó no serlo, y el id anterior queda en el evento `ticket_reopened` del historial.
 
+#### Servicios afectados del incidente masivo (F1-16 de CNO · 2026-11-07)
+
+Migración `2026_11_07_000001_add_affected_services_to_support_ticket`.
+
+| Columna | Tipo | Regla | Para qué |
+|---|---|---|---|
+| `affected_services` | `integer NULL` | `>= 0` | Cuántos servicios dejó sin servicio la falla, llamaran o no. **No** es el número de tickets asociados: ésos son los contactos recibidos |
+| `affected_services_basis` | `varchar(20) NULL` | `estimado`, `confirmado` | Si la cifra es una estimación (clientes del AP) o ya se confirmó |
+
+CHECK `support_ticket_affected_services_check` (pgsql): las dos columnas son nulas a la vez o van
+juntas, con cifra `>= 0` y naturaleza de la lista. Que sólo un `masivo` las lleve lo exige el
+controlador, no la base. Los **minutos-cliente no se guardan**: se calculan al leer
+(`affected_services × (resolved_at − created_at)`, `TicketIncidentService::afectacion()`), para que
+corregir la cifra o reabrir no deje un valor viejo guardado.
+
 ### 4.15a `support_ticket_history` — auditoría inalterable
 
 Añadida por el PR #3 para el requisito **F1-17**, cuyo criterio es literal: «cada cambio debe

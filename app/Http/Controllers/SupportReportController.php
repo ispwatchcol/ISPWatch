@@ -109,6 +109,8 @@ class SupportReportController extends Controller
             'associated_tickets' => (clone $baseQuery)->whereNotNull('parent_ticket_id')->count(),
             'duplicates'         => (clone $baseQuery)->where('status_id', $idDe(TicketWorkflow::DUPLICADO))->count(),
         ];
+        // F1-16 · § 17: «servicios afectados y minutos-cliente».
+        $incidentes += $this->incidentes->totalesDeAfectacion($baseQuery);
 
         $recentTickets = (clone $baseQuery)->with(['user', 'staff'])
             ->orderBy('created_at', 'desc')
@@ -153,7 +155,7 @@ class SupportReportController extends Controller
 
         $query = $this->consultaBase($tenantId, $filtros)
             ->with(['user.customerProfile.router', 'staff', 'sectorial'])
-            ->withCount('interventions')
+            ->withCount(['interventions', 'incidentChildren'])
             ->orderBy('created_at', 'desc')
             ->orderBy('id', 'desc');
 
@@ -180,6 +182,8 @@ class SupportReportController extends Controller
             'Intervenciones', 'Sin cobro', 'Motivo sin cobro',
             // PR #6 · el vínculo con otro ticket, por número.
             'Modalidad', 'Incidente padre', 'Duplicado de',
+            // F1-16 · sólo en el masivo. Minutos-cliente, sólo si ya se restableció.
+            'Servicios afectados', 'Cifra de afectados', 'Contactos asociados', 'Minutos-cliente',
         );
 
         $nombreArchivo = 'tickets-' . Carbon::now($zona)->format('Y-m-d') . '.csv';
@@ -225,6 +229,15 @@ class SupportReportController extends Controller
                 $t->esMasivo() ? 'Masivo' : 'Individual',
                 $t->parent_ticket_id ?? '',
                 $t->duplicate_of_id ?? '',
+            );
+
+            $afectacion = $this->incidentes->afectacion($t);
+            array_push(
+                $fila,
+                $afectacion['affected_services'] ?? '',
+                $afectacion['basis'] ?? '',
+                $afectacion['contacts'] ?? '',
+                ($afectacion && ! $afectacion['ongoing']) ? ($afectacion['customer_minutes'] ?? '') : '',
             );
 
             return $fila;
