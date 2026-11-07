@@ -34,8 +34,10 @@ La misma base de datos Supabase aloja **dos esquemas**:
 | `public` | **Producción** | `DB_SCHEMA=public` |
 | `ispwatch_dev` | Desarrollo | `DB_SCHEMA=ispwatch_dev` |
 
-Por eso **nunca se usa `php artisan migrate` a secas**: el comando correcto es
-`php artisan migrate:both`, que aplica en ambos esquemas. PostGIS vive en `public`, lo que
+Desde local las migraciones se aplican **sólo en `ispwatch_dev`** (`php artisan migrate` con
+`DB_SCHEMA=ispwatch_dev`); `public` las recibe en el despliegue, con el job `migrate` de App
+Platform (`php artisan migrate --force`). `migrate:both` aplica en ambos esquemas y por eso no se
+usa desde local para una migración nueva (MANUAL_DESARROLLADOR § 5). PostGIS vive en `public`, lo que
 obliga a un *fallback* en el `search_path` para el esquema de desarrollo.
 
 **`DB_SCHEMA` no tiene valor por defecto** desde el 2026-09-21 (KAN-95 · P-39). Antes

@@ -282,21 +282,24 @@ php artisan billing:simulate                    # simulador del ciclo completo
 
 ### Regla número uno
 
-> **Nunca uses `php artisan migrate` a secas contra Supabase.**
-> El comando correcto es **`php artisan migrate:both`**, que aplica el cambio en
-> `ispwatch_dev` **y** en `public`.
+> **Desde local, las migraciones se aplican sólo en `ispwatch_dev`.** Producción (`public`)
+> las recibe **en el despliegue**: el job `migrate` (*PRE_DEPLOY*) de App Platform corre
+> `php artisan migrate --force` en cada push a `main` (`.do/deploy.template.yaml`).
+> **No uses `migrate:both` desde tu máquina**: escribe también en `public`, o sea, cambia
+> producción antes de que el código que la usa esté desplegado.
 
 ```bash
-php artisan migrate:both                  # ambos esquemas
-php artisan migrate:both --path=database/migrations/2026_07_30_000000_....php
-php artisan migrate:both --seed           # el seed sólo corre en ispwatch_dev
-php artisan migrate:both --fresh          # pide confirmación por esquema
-php artisan db:sync-dev                   # copia public → ispwatch_dev
+php artisan config:show database.connections.pgsql.schema   # debe decir ispwatch_dev
+php artisan migrate:status                                   # qué falta
+php artisan migrate                                          # sólo ispwatch_dev
+php artisan db:sync-dev --no-migrate                         # copia public → ispwatch_dev
 ```
 
-El comando cambia `database.connections.pgsql.schema`, purga y reconecta antes de cada
-esquema. **Los seeders nunca corren sobre `public`**: crean filas de demostración que
-contaminarían producción.
+`migrate:both` sigue existiendo, pero no es el camino para aplicar una migración nueva.
+**Ojo con `db:sync-dev`:** sin `--no-migrate` llama a `migrate:both --force` antes de copiar,
+así que aplicaría en `public` cualquier migración pendiente de tu rama (ver P-113 en
+`MEJORAS_RECOMENDADAS.md`). **Los seeders nunca corren sobre `public`**: crean filas de
+demostración que contaminarían producción.
 
 ### Escribir migraciones
 
@@ -612,7 +615,7 @@ decirle al cajero "está suspendido" y luego no reconectar (o al revés).
 
 | Comando | Descripción |
 |---|---|
-| `migrate:both [--fresh] [--seed] [--path=] [--force]` | Migraciones en ambos esquemas |
+| `migrate:both [--fresh] [--seed] [--path=] [--force]` | Migraciones en ambos esquemas. **No lo uses desde local** para aplicar una migración nueva: `public` migra en el despliegue (§ 5) |
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences [--table=] [--all]` | Repara secuencias |
 | `inventory:duplicate-identifiers [--tenant=]` | Lista seriales y MAC repetidos dentro de un tenant **ignorando mayúsculas**. **No escribe nada**; sale con código 1 si encuentra algo. Correrlo ANTES de la migración `2026_09_21_000001`, que aborta mientras queden duplicados (KAN-100) |
@@ -654,7 +657,7 @@ componentes en `failing`. Ver `ARQUITECTURA.md` § 16 y `API_REFERENCE.md` § 3.
 | Regla de facturación **pura** | `app/Billing` |
 | Comando RouterOS | `app/Services/MikroTik/<Recurso>Manager` |
 | Permiso nuevo | `app/Constants/Permissions.php` **+ migración de backfill** |
-| Cambio de esquema | `database/migrations` + `migrate:both` |
+| Cambio de esquema | `database/migrations` + `migrate` en `ispwatch_dev` (producción migra al desplegar) |
 | Página nueva | `resources/js/pages` + `router/index.js` con `meta.permission` |
 | Llamada HTTP nueva | `resources/js/services/api/<dominio>.js` |
 
@@ -1043,7 +1046,7 @@ Sintaxis: la clave del issue primero, los comandos después, **en la misma líne
 ```
 fix(inventario): un celular no cabia en el Numero de una sucursal
 
-KAN-89 #comment migracion aplicada con migrate:both, /health en verde
+KAN-89 #comment migracion aplicada en el despliegue, /health en verde
 KAN-89 #in-review
 ```
 
@@ -1078,7 +1081,7 @@ dos capas, en este orden de prioridad:
 
 | Capa | Dónde | Qué aporta |
 |---|---|---|
-| **Nuestra** | `CLAUDE.md`, arriba del bloque de Boost | Mapa del proyecto, reglas que no se ven en el código (tenant, `migrate:both`, ecuación del libro, SQLite), índice de `/docs`, protocolo de Jira. **Se escribe a mano** |
+| **Nuestra** | `CLAUDE.md`, arriba del bloque de Boost | Mapa del proyecto, reglas que no se ven en el código (tenant, migraciones sólo en `ispwatch_dev`, ecuación del libro, SQLite), índice de `/docs`, protocolo de Jira. **Se escribe a mano** |
 | **Boost** | `CLAUDE.md`, bloque `<laravel-boost-guidelines>`; `.claude/skills/`; `.mcp.json` | Guías genéricas de Laravel 12 / PHPUnit y un servidor MCP (`php artisan boost:mcp`) con esquema de BD, logs, último error y búsqueda en la documentación oficial según versión. **Lo genera Boost** |
 
 Si las dos chocan, manda la nuestra (lo dice la nota de precedencia al inicio de `CLAUDE.md`).
@@ -2029,7 +2032,7 @@ foreach ($nuevos as $fila) {
 }
 ```
 
-`migrate:both` aplica migraciones en `ispwatch_dev` **y** en `public`, pero **nunca siembra
+Las migraciones llegan a `public` (en el despliegue), pero los seeders **nunca siembran
 `public`**. Un catálogo que dependa del seeder queda vacío en producción, y sin filas en
 `ticket_status` no se puede crear ni un ticket. Ya pasó con `cut_type` (ver
 `2026_07_31_000001`); no vuelvas a pagarlo.
@@ -2110,7 +2113,7 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | # | Trampa | Detalle |
 |---|---|---|
 | 1 | **`.env` local apunta a producción** | `DB_SCHEMA=public` = datos reales. Verifica antes de cualquier escritura |
-| 2 | **`migrate` a secas** | Deja los esquemas desincronizados. Usa `migrate:both` |
+| 2 | **`migrate:both` desde local** | Aplica en `public` (producción) una migración cuyo código aún no está desplegado. Desde local, `migrate` sólo en `ispwatch_dev`; `public` migra en el despliegue (§ 5) |
 | 3 | **`customer_profile.status` es booleano** | Compararlo con `'active'` lanza `22P02` en PostgreSQL y coincide con cero filas en SQLite |
 | 4 | **`LIKE` sensible a mayúsculas** | Usa las macros `whereLike`/`orWhereLike`, que eligen operador por driver. Escribir `ilike` a pelo tiene el defecto simétrico: SQLite no lo conoce y revienta en los tests |
 | 5 | **Scope de tenant sobre `Role`** | Si `users.tenant_id` ≠ `role.tenant_id`, el rol se anula y sale un falso 403. Carga el rol con `withoutGlobalScope('tenant')` |
@@ -2127,7 +2130,7 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 13 | **`cut_type` vacío en producción** | `OverdueSuspensionService` compara por el **nombre literal** `'Corte Automático'`. Sin filas en la tabla, nadie se corta |
 | 14 | **`email_verified_at` no está en `$fillable`** | `User::create()` lo descarta en silencio y el usuario nace sin verificar → el login devuelve 403. Márcalo con `forceFill()` |
 | 15 | **`SubstituteBindings` corre antes que el middleware de ruta** | En el grupo `api`, un id inexistente en una ruta con vinculación implícita (`destroy(Router $router)`) devuelve **404 antes** de comprobar el permiso. Al testear autorización, crea el registro |
-| 16 | **`password_rb`, `vpn_password` y `wg_private_key` están en `$hidden`, y el formulario NO debe volver a prellenarlas** | Desde KAN-45 la API no las devuelve; para saber si hay contraseña guardada está `has_password_rb`. `RouterEdit.vue` arranca el campo vacío y sólo envía `password_rb` si se escribió una nueva («en blanco = conservar»). Si un formulario vuelve a mandar `password_rb: ""`, la validación la rechaza (`sometimes\|required`); si la manda `null` en un router RADIUS, la **vacía**. No reintroduzcas el prellenado: era lo que obligaba a serializar el secreto |
+| 16 | **`password_rb`, `vpn_password` y `wg_private_key` están en `$hidden`, y el formulario NO debe volver a prellenarlas** | Desde KAN-45 la API no las devuelve; para saber si hay contraseña guardada está `has_password_rb`. `RouterEdit.vue` arranca el campo vacío y sólo envía `password_rb` si se escribió una nueva («en blanco = conservar»). Si un formulario vuelve a mandar `password_rb: ""`, la validación la rechaza (`sometimes\|required`); si la manda `null` en un router RADIUS, la **vacía**. No reintroduzcas el prellenado: era lo que obligaba a serializar el secreto. **Lo mismo vale para `Sectorial::pass_rb`** (desde el 2026-11-07: `$hidden`, `has_pass_rb`, y `SectorialController::update()` ignora un `pass_rb` vacío). Toda columna con cast `encrypted` es un secreto: si la añades a un modelo, va también en `$hidden` |
 | 17 | **El modo de corte se compara normalizado** | Usa `CutType::matches()` / `isAutomatic()`, nunca `=== 'Corte Automático'`: una tilde de menos dejaba de cortar sin ningún error |
 | 18 | **`*/` dentro de un docblock lo cierra antes de tiempo** | Un comentario tipo `/** ... on*/url() ... */` rompe con `syntax error, unexpected identifier` en la línea *siguiente*, no en la que tiene el error. Pasó dos veces escribiendo docs de `BlockMarkerInjector`/`AdvancedTemplateSanitizer` (`on*/url()`, `cliente.*/empresa.*`). Evita `algo*/algo` en prosa dentro de `/** */` |
 | 19 | **No todas las propiedades CSS de HTMLPurifier están activas por default** | `CSSDefinition::doSetup()` sólo registra un subconjunto; `display`/`visibility`/`overflow`/`opacity` requieren `CSS.AllowTricky`, `border-radius` (y variantes) requiere `CSS.Proprietary` (no `Tricky`) — mensajes de error como `Style attribute 'X' is not supported` no dicen cuál flag falta. Verifica contra el código fuente de `CSSDefinition.php` instalado, no contra la memoria/docs generales de HTMLPurifier. **Nunca** actives `CSS.Trusted` (habilita `position`/`z-index`) ni `HTML.Trusted` (habilita `<script>`) para resolver esto |
@@ -2162,9 +2165,9 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 63 | **`$table->enum()` no se hace cumplir en SQLite, y sí en PostgreSQL** | En PostgreSQL, Laravel traduce `enum` a `varchar` + un `CHECK` con nombre (`<tabla>_status_check`). En SQLite lo traduce a `varchar` **y nada más**. Un valor fuera de la lista pasa la suite entera en local y revienta únicamente en el job de PostgreSQL, con un error que apunta a la línea del `create()` y no a la causa. Pasó con `customer_installations.status`, que es `enum('pendiente','completada','cancelada')` —en **castellano**, a diferencia de `payments.status`, que es `'completed'` en inglés—: un fixture nuevo escribió `'completed'` y el PR se fue a rojo en CI estando verde en local. **Antes de inventar un valor de estado, mira la migración que creó la columna**; el idioma no es uniforme entre tablas. La corrección de fondo —pendiente, ver P-59— son constantes en el modelo (`CustomerInstallation::STATUS_COMPLETADA`) para que el valor no se teclee nunca a mano |
 | 53 | **Meter una ruta en el grupo `staff_profile` sin mirar quién la va a usar** | Ese middleware no comprueba una capacidad: comprueba que el **código de rol** sea `admin` o `staff`. Todo `/api/support/*` vive ahí, así que la primera versión de los equipos del ticket habría dejado fuera justo al **técnico de campo** (`code = 'technician'`), que es quien carga el equipo en la visita. Las rutas de equipo —de instalación y de ticket— van fuera del grupo, con `permission:` a secas. Antes de añadir una ruta a un grupo, mira qué rol la va a ejecutar en la calle |
 | 51 | **Tocar una ruta de `v1/partner` sin tocar el OpenAPI** | `docs/openapi/ispwatch-partner-v1.yaml` es el archivo que el integrador **compila**, no que lee: con él genera su cliente y valida sus respuestas. Un endpoint nuevo sin documentar, uno documentado que ya no existe, o un `ability` que no coincide, rompen su integración semanas después y en su entorno — donde lo primero que se sospecha es su código. `PartnerOpenApiContractTest` compara rutas y `x-ability` en los dos sentidos y falla en el mismo PR |
-| 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` es desde KAN-75 un **upsert** (categoría por `name`, artículo por `category_id` + `title`) que no borra lo creado desde la UI. Pero `migrate:both` corre los seeders **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
+| 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` es desde KAN-75 un **upsert** (categoría por `name`, artículo por `category_id` + `title`) que no borra lo creado desde la UI. Pero los seeders corren **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
 | 43 | **`customer_profile.service_id` NO es un servicio: es el PLAN** | FK a `service_plan.id`, pese al nombre (`Plan::find($customer->service_id)` en `CustomerProvisioningService`). Cualquiera que lo mapee a un "id de servicio" —sobre todo integrando con un sistema externo que sí distingue cliente de servicio— correlaciona clientes contra planes y **no ve ningún error**. El id de servicio de verdad es `user_services.id`. La API pública ya lo expone renombrado como `plan.id` justamente para no propagar la trampa |
-| 60 | **`customer_profile` NO tiene columna `id` — y SQLite esconde que la pidas** | Su clave primaria es `user_id` (`unsignedBigInteger('user_id')->primary()`). Un `CustomerProfile::…->latest('id')` revienta en PostgreSQL con *column "id" does not exist*, pero en SQLite **pasa**: un identificador entrecomillado que no resuelve a ninguna columna se trata como literal de texto, así que `order by "id"` ordena por la cadena `'id'` — no ordena nada. Comprobado: `order by "columna_inventada"` también pasa. Es decir que el fallo no es sólo de portabilidad: en SQLite el `latest()` era un no-op silencioso y `first()` devolvía una fila arbitraria. Localiza el perfil por `user_id`, nunca por orden. Lo cazó el job de PostgreSQL del CI (§ 73)  |
+| 60 | **`customer_profile` NO tiene columna `id` — y SQLite esconde que la pidas** | Su clave primaria es `user_id` (`unsignedBigInteger('user_id')->primary()`). Un `CustomerProfile::…->latest('id')` revienta en PostgreSQL con *column "id" does not exist*, pero en SQLite **pasa**: un identificador entrecomillado que no resuelve a ninguna columna se trata como literal de texto, así que `order by "id"` ordena por la cadena `'id'` — no ordena nada. Comprobado: `order by "columna_inventada"` también pasa. Es decir que el fallo no es sólo de portabilidad: en SQLite el `latest()` era un no-op silencioso y `first()` devolvía una fila arbitraria. Localiza el perfil por `user_id`, nunca por orden, y en un *eager load* con columnas pide `customerProfile:user_id,...` (sin `id`): ese error llegó a `TicketLinkController` (§ 122) y al panel de failover de facturación (§ 124). Lo cazó el job de PostgreSQL del CI (§ 73)  |
 | 44 | **Hay DOS punteros al plan y nada garantiza que coincidan** | `user_services.service_plan_id` es el que usa **facturación** (`BillingService` resuelve por ahí qué cobrar); `customer_profile.service_id` es el que usa **aprovisionamiento**. `UserService::syncForCustomer()` los mantiene alineados cuando el cambio pasa por el alta/edición, pero no hay restricción en base que lo imponga: un camino que escriba solo uno los desincroniza en silencio, y el cliente termina facturado por un plan y configurado con otro. Al exponer "el plan" hacia afuera, decidir explícitamente cuál — la API pública usa el de facturación en `/services` |
 | 45 | **Una escritura masiva por query builder no dispara observers** | `Modelo::insert([...])` y `Modelo::where(...)->update([...])` no pasan por Eloquent, así que ni `MoneyAuditObserver` ni `PartnerEventObserver` se enteran. Este manual decía que la carga masiva de clientes estaba cubierta: **no lo estaba** desde que pasó a `insert()` en bloque (fix del 504), y sus altas no aparecían en el feed partner hasta KAN-111. Hoy emiten a mano con `PartnerEvent::recordMany()` la carga masiva de clientes y el cambio de RADIUS de un router. Si agregas un camino masivo que mueva estado comercial, router, IP o PPPoE, emite el evento tú: el integrador externo quedaría desincronizado **sin ninguna señal** |
 | 65 | **Cambiar `router_id` deja trabajo en el router VIEJO** | El aprovisionamiento sólo mira el router nuevo. `CustomerRouterMoveObserver` encola `PurgeCustomerFromPreviousRouterJob` con la identidad **original** (la que el cliente tenía allí, aunque la misma edición cambie IP o PPPoE) y sólo si el router viejo lo gestiona ISPWatch. Si escribes un camino que mude clientes por query builder (`where()->update()`), el observer no se entera y el residuo vuelve: despacha el job a mano. El job omite cualquier dato que hoy use otro cliente del router viejo, porque el barrido borra por esas claves (KAN-119) |

@@ -1060,7 +1060,7 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 | `contracts:remind-unsigned {--after=24} {--dry-run}` | **Un** recordatorio por enlace de firma sin usar (emite uno nuevo: el viejo no se puede reenviar) |
 | `traffic:collect` | Muestreo de contadores WAN |
 | `traffic:prune {--days=30}` | Poda de muestras finas |
-| `migrate:both` | **Aplica migraciones a `ispwatch_dev` y `public` a la vez** |
+| `migrate:both` | **Aplica migraciones a `ispwatch_dev` y `public` a la vez.** No se usa desde local para una migración nueva: `public` migra en el despliegue (job `migrate`, *PRE_DEPLOY*) |
 | `db:sync-dev` | Copia `public` → `ispwatch_dev` |
 | `db:fix-sequences` | Repara secuencias de PostgreSQL desincronizadas |
 | `documents:migrate-to-s3 {--dry-run}` | Migra documentos locales a S3 |
@@ -1075,7 +1075,8 @@ servidor envió algo de verdad; afirmar lo contrario ensuciaría la constancia d
 - **Motor:** PostgreSQL sobre Supabase (pooler `aws-0-us-east-1.pooler.supabase.com:5432`).
 - **Separación dev/prod por esquema:** la variable `DB_SCHEMA` selecciona `public`
   (producción) o `ispwatch_dev` (desarrollo) **dentro de la misma base de datos**.
-  Por eso existe el comando `migrate:both`.
+  Desde local se migra sólo `ispwatch_dev`; `public` migra en el despliegue (job `migrate`
+  de App Platform). `migrate:both` existe para igualar ambos, pero no se usa desde local.
 - **55 tablas de aplicación** + tablas de infraestructura Laravel (`cache`, `jobs`,
   `sessions`, `migrations`, `personal_access_tokens`) + tablas PostGIS
   (`spatial_ref_sys`, vistas `geometry_columns`/`geography_columns`).

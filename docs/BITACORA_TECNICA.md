@@ -11068,6 +11068,84 @@ nuevos en `ApiAuthorizationTest` para las rutas de lectura.
 **Sin aplicar en ninguna base desde local.** La migración la aplica el despliegue: `migrate:both`
 desde esta máquina tocaría `public`, que es producción.
 
+## 123. La contraseña del RouterBoard de un elemento de red ya no sale en la API — 2026-11-07
+
+**Hotfix sobre `main`.** Al validar en navegador el PR #6 de CNO (#336), `GET /api/sectorials`
+respondió 500 en local con `DecryptException`: el cast `encrypted` de `Sectorial::pass_rb`
+intentaba descifrar al **serializar**. Es decir, en producción —donde la `APP_KEY` sí
+coincide— el listado devolvía la contraseña del RouterBoard **en claro**.
+
+### Causa
+
+KAN-45 (§ 97) ocultó las credenciales de `Router` y cifrar en reposo (A-3) cubrió
+`sectorial.pass_rb`, pero nadie lo puso en `$hidden`. Las rutas de lectura de sectoriales están
+abiertas a `view_sectorials`, `view_support`, `view_clients` y `add_clients`, porque los
+selectores de elemento de red de clientes, instalaciones y tickets usan ese listado. Cualquiera
+de esos roles podía leer la contraseña de cada equipo del ISP.
+
+### Arreglo
+
+El mismo de `Router`, en el mismo orden de razonamiento:
+
+1. **Formulario.** `SectorialEdit.vue` ya no prellena `pass_rb`: el campo arranca vacío, con el
+   aviso «Déjalo en blanco para conservar la actual» cuando `has_pass_rb` es verdadero, y sólo
+   envía `pass_rb` si se escribió una nueva.
+2. **Backend.** `SectorialController::update()` **ignora** un `pass_rb` vacío. En `Router` el
+   blanco lo rechazaba la validación; aquí la regla es `nullable`, así que `""` llegaba como
+   `null` y **borraba** la contraseña. Sin esta línea, un `SectorialEdit.vue` viejo en la caché
+   del navegador, justo después del despliegue, la borraría en el primer guardado: ya no recibe
+   el valor para reenviarlo.
+3. **Modelo.** `Sectorial::$hidden = ['pass_rb']` y `has_pass_rb` en `$appends`. El accessor
+   mira el valor **cifrado** sin descifrarlo: el listado lo arma por cada fila.
+
+Efecto lateral bueno: como `$hidden` se aplica antes de los casts al serializar, el listado ya no
+descifra nada. En local deja de caerse por filas cifradas con otra `APP_KEY`.
+
+### Pruebas
+
+`SectorialCredentialsHiddenTest` (5): el listado con un rol sólo de `view_support`, el detalle
+con `has_pass_rb` verdadero y falso, las respuestas de alta y edición, editar con `pass_rb: ""`
+conserva la guardada, y escribir una nueva la reemplaza.
+
+### Pendiente
+
+Nada en el código. Si hubo roles de soporte o clientes con acceso a la API mientras estuvo
+expuesta, conviene rotar las contraseñas de los RouterBoard registrados en Sectoriales; es
+decisión de cada ISP.
+
+## 124. Migraciones sólo en `ispwatch_dev` desde local, y el panel de failover vuelve a cargar — 2026-11-07
+
+### La regla de `migrate:both` estaba al revés
+
+`CLAUDE.md`, `MANUAL_DESARROLLADOR` § 5, `BASE_DATOS` y `ARQUITECTURA` decían «siempre
+`migrate:both`». Ese comando aplica la migración también en `public`, es decir, cambia producción
+desde una máquina local **antes** de que el código que la usa esté desplegado. El flujo real es
+otro: App Platform corre `php artisan migrate --force` en el job `migrate` (*PRE_DEPLOY*) en cada
+push a `main`. Desde local sólo se migra `ispwatch_dev`. Lo corrigió el responsable del proyecto
+el 2026-11-04 y ahora la documentación lo dice igual. Las entradas antiguas de esta bitácora que
+mencionan `migrate:both` se dejan como están: registran lo que se hizo entonces.
+
+Al revisar el texto apareció otra trampa: `db:sync-dev` llama a `migrate:both --force` antes de
+copiar, salvo con `--no-migrate`. El manual ahora pide `--no-migrate`; cambiar el comando queda
+como **P-113**.
+
+### `GET /api/billing/action-logs` fallaba en PostgreSQL justo cuando había algo que mostrar
+
+El panel de «Acciones masivas → failover de facturación» pedía
+`customer.customerProfile:id,user_id,name,last_name,phone`. `customer_profile` **no tiene** `id`
+(su clave es `user_id`) **ni** `phone`. Desde el 2026-05-27 (`ce6028f`), en PostgreSQL la carga
+del perfil lanza *column does not exist* y la petición responde 500. Con la lista vacía no se
+nota, porque el *eager load* no llega a ejecutarse. Por eso sólo fallaba cuando había facturas
+fallidas que revisar. El reintento individual (`POST …/{id}/retry`) tenía el mismo `:id`. Es la
+misma causa que el `TicketLinkController` del § 122 (trampa 60 del manual): SQLite toma el
+identificador desconocido entre comillas como un literal y los tests no lo ven.
+
+**Corrección.** Las dos cargas piden `customerProfile:user_id,name,last_name`. La pantalla sólo
+usa nombre y apellido (`MassActions.vue`, `logCustomerName`), así que quitar `phone` no le quita
+nada. `tests/Feature/Billing/BillingActionLogEndpointTest.php` cubre el listado y el reintento
+(con `BillingService` simulado). En SQLite pasan con y sin el arreglo; quien los hace fallar es el
+job PostgreSQL del CI.
+
 ## 125. Servicios afectados y minutos-cliente del incidente masivo (F1-16 de CNO) — 2026-11-07
 
 **Por qué.** El § 16 de la Solicitud Maestra pide registrar la «cantidad confirmada o estimada» de

@@ -849,6 +849,14 @@ seguro porque el sync es aditivo y cubre los 30 roles canónicos.
 > decía la recomendación, el backend **no** ignoraba un `password_rb` vacío: lo rechazaba
 > (`sometimes|required`). Por eso el arreglo es omitir el campo. Lo de abajo queda como
 > contexto.
+>
+> **El mismo agujero en `Sectorial::pass_rb`, cerrado el 2026-11-07** (bitácora § 123). KAN-45
+> sólo cubrió `Router`: `GET /api/sectorials` y `/api/sectorials/{id}` seguían devolviendo la
+> contraseña del RouterBoard descifrada, y esas rutas las abren `view_support`, `view_clients`
+> y `add_clients` (los selectores de elemento de red). Mismo arreglo —`$hidden`,
+> `has_pass_rb`, «en blanco = conservar» en `SectorialEdit.vue`— y además el backend **ignora**
+> un `pass_rb` vacío en la edición, para que un formulario viejo en caché no la borre durante
+> el despliegue.
 
 `password_rb` y `vpn_password` viajan en la respuesta de `GET /api/routers/{id}`. No se
 pusieron en `$hidden` porque `RouterEdit.vue` prellena el formulario con ese valor y lo
@@ -3014,6 +3022,18 @@ Individual o Masivo; «asociado», «reabierto» y «sin falla confirmada» se c
 (si son campo, cálculo o etiqueta). «Reabierto» se podría deducir del evento `ticket_reopened`;
 «sin falla confirmada» necesita que el cliente diga qué código de causa o resultado la define.
 
+### 📋 P-113 · `db:sync-dev` migra también producción
+
+Visto al corregir la regla de migraciones (bitácora § 124). Antes de copiar `public` →
+`ispwatch_dev`, `db:sync-dev` llama a `migrate:both --force` salvo que se pase `--no-migrate`.
+Si la rama local tiene una migración que todavía no está en `main`, el comando la aplica en
+`public` antes del despliegue, justo lo que la regla de «migraciones sólo por despliegue»
+quiere evitar. Hoy la defensa es documental: el manual pide `--no-migrate`.
+
+**Recomendación.** Que `db:sync-dev` iguale la estructura migrando sólo `ispwatch_dev` (o que
+`--no-migrate` sea el valor por defecto), y que `migrate:both` pida confirmación explícita antes
+de tocar `public`.
+
 ### 📋 P-114 · Los minutos-cliente cuentan desde que se radica el masivo, no desde la caída
 
 Visto al implementar F1-16 (bitácora § 125). La duración de la afectación va de `created_at` del
@@ -3189,6 +3209,7 @@ radicación. Si se agregan, `TicketIncidentService::afectacion()` es el único s
 | **P-110** | Los CSV de facturas, recaudos y gastos escriben el texto libre sin neutralizar fórmulas (`=`, `+`, `-`, `@`) | Un nombre o referencia malicioso se ejecuta como fórmula al abrir el archivo en Excel | 🟡 Media | 📋 Pendiente · aplicar `ExportsCsv::csvText()` a los campos de texto (no a importes) |
 | **P-111** | Al restablecerse un incidente masivo, sus tickets asociados se restablecen **sin correo** al cliente | El cliente no se entera por el sistema de que su servicio volvió | 🟡 Media | 📋 Pendiente · encolar el aviso (mismo patrón que P-108) |
 | **P-112** | Las modalidades «reabierto» (STR) y «sin falla confirmada» (STN) del § 6 no se derivan | El tablero no puede contar esas dos categorías | 🟢 Baja | 📋 Pendiente · depende de D-04 |
+| **P-113** | `db:sync-dev` sin `--no-migrate` corre `migrate:both --force`: aplica en `public` las migraciones pendientes de la rama local | Producción cambia de esquema antes de que se despliegue el código que lo usa | 🟡 Media | 📋 Pendiente · migrar sólo `ispwatch_dev` en el sync |
 | **P-114** | La duración de un masivo arranca en su radicación (`created_at`), no en la hora real de la caída; tampoco hay fin de afectación editable | Los minutos-cliente salen por debajo de los reales cuando el masivo se abre tarde | 🟢 Baja | 📋 Pendiente · decisión del cliente (inicio/fin de afectación editables) |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
