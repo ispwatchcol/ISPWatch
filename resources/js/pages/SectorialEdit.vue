@@ -380,12 +380,16 @@
                             <input
                                 v-model="form.pass_rb"
                                 type="text"
+                                autocomplete="off"
                                 class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 
                                        bg-gray-50 dark:bg-gray-700/50 text-gray-800 dark:text-white
                                        focus:border-emerald-500 dark:focus:border-emerald-400 focus:ring-4 focus:ring-emerald-500/10
                                        transition-all duration-300 placeholder:text-gray-400"
-                                placeholder="Escribe la contraseña..."
+                                :placeholder="hasStoredPassword ? 'Déjalo en blanco para conservar la actual' : 'Escribe la contraseña...'"
                             />
+                            <p v-if="hasStoredPassword" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Hay una contraseña guardada. Por seguridad no se muestra; escribe una nueva sólo si quieres cambiarla.
+                            </p>
                         </div>
 
                         <!-- Latitud -->
@@ -532,6 +536,8 @@ const splitterPorts = computed(() => splitRatioPorts(form.value.split_ratio))
 // true mientras cargamos datos existentes, para que el watcher no pise
 // el radio guardado con el sugerido por la antena.
 const hydrating = ref(false)
+// ¿Hay contraseña de RouterBoard guardada? La API dice si hay, no cuál es.
+const hasStoredPassword = ref(false)
 
 const suggestedRadius = computed(() =>
     suggestRadius(form.value.antenna_type, form.value.type, form.value.element_type)
@@ -602,6 +608,7 @@ const loadSectorial = async () => {
         const sectorial = response.data
 
         hydrating.value = true
+        hasStoredPassword.value = sectorial.has_pass_rb === true
         form.value = {
             name: sectorial.name || '',
             element_type: sectorial.element_type || 'sectorial',
@@ -615,7 +622,9 @@ const loadSectorial = async () => {
             antenna_type: sectorial.antenna_type || null,
             coverage_radius_meters: sectorial.coverage_radius_meters ?? null,
             user_rb: sectorial.user_rb || '',
-            pass_rb: sectorial.pass_rb || '',
+            // La API ya no devuelve la contraseña: el campo arranca vacío y
+            // «en blanco = conservar» (ver handleSubmit).
+            pass_rb: '',
             zona_id: sectorial.zona_id || null,
             frequency: sectorial.frequency || null,
             node_tower: sectorial.node_tower || '',
@@ -665,6 +674,12 @@ const handleSubmit = async () => {
 
     try {
         const dataToSend = { ...form.value }
+
+        // En blanco = conservar la contraseña guardada: sólo viaja si se
+        // escribió una nueva. Mandar "" la vaciaría.
+        if (!form.value.pass_rb) {
+            delete dataToSend.pass_rb
+        }
 
         dataToSend.antenna_type = form.value.antenna_type || null
         dataToSend.coverage_radius_meters = form.value.coverage_radius_meters

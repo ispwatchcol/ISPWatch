@@ -1144,6 +1144,11 @@ Cada acción crea una fila nueva en `router_outage_events` (nunca actualiza). Lo
 | `GET` | `/api/sectorials/{sectorial}/history` | Bitácora de cambios |
 | `GET` | `/api/sectorials/{sectorial}/tickets` | Tickets asociados al elemento |
 
+**Credencial del elemento.** Desde el 2026-11-07 ninguna respuesta de `/api/sectorials*`
+(listado, detalle, alta, edición, ni un elemento cargado como relación de otro recurso)
+incluye `pass_rb`. En su lugar cada elemento trae `has_pass_rb` (bool). En `PUT`, omitir
+`pass_rb` **o mandarlo vacío** conserva la guardada; un valor no vacío la reemplaza.
+
 `element_type` admite: `sectorial`, `switch`, `nodo`, `olt`, `splitter`, `nap`, `mufa`.
 Los cuatro últimos forman el **árbol de fibra** por `parent_id`. Los puertos usados
 (`ports_used`) se **calculan** (hijos + clientes), no se almacenan.

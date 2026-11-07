@@ -166,6 +166,13 @@ class SectorialController extends Controller
 
         $data = $request->validate($this->rules(false));
 
+        // «En blanco = conservar»: la API ya no devuelve la contraseña, así que
+        // un formulario que la reenvía vacía —el de edición, o uno viejo en
+        // caché del navegador durante el despliegue— no puede borrarla.
+        if (array_key_exists('pass_rb', $data) && blank($data['pass_rb'])) {
+            unset($data['pass_rb']);
+        }
+
         // Un elemento no puede colgar de sí mismo.
         if (array_key_exists('parent_id', $data) && (int) $data['parent_id'] === (int) $id) {
             return response()->json([
