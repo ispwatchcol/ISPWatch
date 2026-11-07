@@ -36,7 +36,7 @@ class Sectorial extends Model
         'antenna_type',
     ];
 
-    protected $appends = ['ports_used', 'ports_capacity', 'ports_free'];
+    protected $appends = ['ports_used', 'ports_capacity', 'ports_free', 'has_pass_rb'];
 
     /**
      * Credencial del equipo cifrada en reposo (ver migración
@@ -46,6 +46,30 @@ class Sectorial extends Model
     protected $casts = [
         'pass_rb' => 'encrypted',
     ];
+
+    /**
+     * La contraseña del equipo no sale en ninguna respuesta: el cast la
+     * descifraba y `GET /sectorials` la entregaba en claro a cualquiera con
+     * `view_support`, `view_clients` o `add_clients` (los selectores de
+     * elemento de red usan ese listado). Es el mismo arreglo que `Router`
+     * (P-2 / KAN-45): el servidor la sigue leyendo como siempre; el formulario
+     * de edición arranca con el campo vacío, «en blanco = conservar», y sabe
+     * si hay una guardada por `has_pass_rb`.
+     */
+    protected $hidden = [
+        'pass_rb',
+    ];
+
+    /**
+     * ¿Hay contraseña guardada? Mira el valor CIFRADO, sin descifrarlo: el
+     * listado arma esto por cada fila y no tiene por qué pagar un descifrado
+     * —ni caerse con `DecryptException` si una fila quedó con otra APP_KEY—
+     * sólo para saber si el campo está lleno.
+     */
+    public function getHasPassRbAttribute(): bool
+    {
+        return filled($this->attributes['pass_rb'] ?? null);
+    }
 
     // Infraestructura inalámbrica / genérica
     public const ELEMENT_SECTORIAL = 'sectorial';

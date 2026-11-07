@@ -849,6 +849,14 @@ seguro porque el sync es aditivo y cubre los 30 roles canónicos.
 > decía la recomendación, el backend **no** ignoraba un `password_rb` vacío: lo rechazaba
 > (`sometimes|required`). Por eso el arreglo es omitir el campo. Lo de abajo queda como
 > contexto.
+>
+> **El mismo agujero en `Sectorial::pass_rb`, cerrado el 2026-11-07** (bitácora § 123). KAN-45
+> sólo cubrió `Router`: `GET /api/sectorials` y `/api/sectorials/{id}` seguían devolviendo la
+> contraseña del RouterBoard descifrada, y esas rutas las abren `view_support`, `view_clients`
+> y `add_clients` (los selectores de elemento de red). Mismo arreglo —`$hidden`,
+> `has_pass_rb`, «en blanco = conservar» en `SectorialEdit.vue`— y además el backend **ignora**
+> un `pass_rb` vacío en la edición, para que un formulario viejo en caché no la borre durante
+> el despliegue.
 
 `password_rb` y `vpn_password` viajan en la respuesta de `GET /api/routers/{id}`. No se
 pusieron en `$hidden` porque `RouterEdit.vue` prellena el formulario con ese valor y lo

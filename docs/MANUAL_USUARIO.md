@@ -1790,6 +1790,12 @@ Para armar el árbol, al crear un elemento indica cuál es su **elemento padre**
 > cliente, así que no debería volver a pasar; si ves un cliente así, ábrelo y guárdalo para
 > dejarlo consistente.
 
+> **La contraseña del RouterBoard no se vuelve a mostrar.** Al abrir *Editar* en un elemento
+> que ya tiene contraseña guardada, el campo aparece **vacío** con el aviso *«Déjalo en blanco
+> para conservar la actual»*. Si lo dejas así, la contraseña no cambia; escribe una solo si
+> quieres reemplazarla. Es a propósito: la lista de elementos de red también la usan Soporte y
+> Clientes, y desde el 2026-11-07 la contraseña ya no sale del servidor (igual que en Routers).
+
 ### 12.2 Fotos, notas e historial
 
 Cada elemento tiene tres pestañas: **Fotos** (para documentar la instalación en campo),
