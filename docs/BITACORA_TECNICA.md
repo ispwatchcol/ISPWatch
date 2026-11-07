@@ -11067,3 +11067,48 @@ nuevos en `ApiAuthorizationTest` para las rutas de lectura.
 
 **Sin aplicar en ninguna base desde local.** La migración la aplica el despliegue: `migrate:both`
 desde esta máquina tocaría `public`, que es producción.
+
+## 123. La contraseña del RouterBoard de un elemento de red ya no sale en la API — 2026-11-07
+
+**Hotfix sobre `main`.** Al validar en navegador el PR #6 de CNO (#336), `GET /api/sectorials`
+respondió 500 en local con `DecryptException`: el cast `encrypted` de `Sectorial::pass_rb`
+intentaba descifrar al **serializar**. Es decir, en producción —donde la `APP_KEY` sí
+coincide— el listado devolvía la contraseña del RouterBoard **en claro**.
+
+### Causa
+
+KAN-45 (§ 97) ocultó las credenciales de `Router` y cifrar en reposo (A-3) cubrió
+`sectorial.pass_rb`, pero nadie lo puso en `$hidden`. Las rutas de lectura de sectoriales están
+abiertas a `view_sectorials`, `view_support`, `view_clients` y `add_clients`, porque los
+selectores de elemento de red de clientes, instalaciones y tickets usan ese listado. Cualquiera
+de esos roles podía leer la contraseña de cada equipo del ISP.
+
+### Arreglo
+
+El mismo de `Router`, en el mismo orden de razonamiento:
+
+1. **Formulario.** `SectorialEdit.vue` ya no prellena `pass_rb`: el campo arranca vacío, con el
+   aviso «Déjalo en blanco para conservar la actual» cuando `has_pass_rb` es verdadero, y sólo
+   envía `pass_rb` si se escribió una nueva.
+2. **Backend.** `SectorialController::update()` **ignora** un `pass_rb` vacío. En `Router` el
+   blanco lo rechazaba la validación; aquí la regla es `nullable`, así que `""` llegaba como
+   `null` y **borraba** la contraseña. Sin esta línea, un `SectorialEdit.vue` viejo en la caché
+   del navegador, justo después del despliegue, la borraría en el primer guardado: ya no recibe
+   el valor para reenviarlo.
+3. **Modelo.** `Sectorial::$hidden = ['pass_rb']` y `has_pass_rb` en `$appends`. El accessor
+   mira el valor **cifrado** sin descifrarlo: el listado lo arma por cada fila.
+
+Efecto lateral bueno: como `$hidden` se aplica antes de los casts al serializar, el listado ya no
+descifra nada. En local deja de caerse por filas cifradas con otra `APP_KEY`.
+
+### Pruebas
+
+`SectorialCredentialsHiddenTest` (5): el listado con un rol sólo de `view_support`, el detalle
+con `has_pass_rb` verdadero y falso, las respuestas de alta y edición, editar con `pass_rb: ""`
+conserva la guardada, y escribir una nueva la reemplaza.
+
+### Pendiente
+
+Nada en el código. Si hubo roles de soporte o clientes con acceso a la API mientras estuvo
+expuesta, conviene rotar las contraseñas de los RouterBoard registrados en Sectoriales; es
+decisión de cada ISP.
