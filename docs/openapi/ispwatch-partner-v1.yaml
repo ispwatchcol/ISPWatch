@@ -31,7 +31,11 @@ info:
   # consumía cambió de forma ni de significado.
   # 1.2.0 (2026-10-05): el 403 `ip_not_allowed` trae `your_ip`, la IP con la
   # que llegó la petición (P-37 / KAN-39). Aditivo: `error` y `message` no cambian.
-  version: "1.2.0"
+  # 1.2.1 (2026-11-12): documentación, sin cambio de comportamiento. Se definen
+  # con tipo, obligatoriedad y nulabilidad los `changes` de `CUSTOMER_DELETED` y
+  # `ROUTER_CHANGED` (`EventChangesCustomerDeleted`, `EventChangesRouterChanged`),
+  # con ejemplos, a petición del integrador AAA.
+  version: "1.2.1"
   description: |
     API de **solo lectura** para integradores externos (CRM, facturación
     electrónica, orquestadores AAA). Expone la autoridad comercial de ISPWatch
@@ -838,6 +842,10 @@ components:
         En `CUSTOMER_UPDATED`, `fields` usa los nombres internos
         (`name`, `last_name`, `cedula` = `document`, `address`, `city`,
         `state`, `is_company`) más `is_enabled`.
+
+        La forma exacta de `changes` de `CUSTOMER_DELETED` y `ROUTER_CHANGED`
+        (tipos, obligatoriedad, nulabilidad) está en
+        `EventChangesCustomerDeleted` y `EventChangesRouterChanged`.
       enum:
         - SERVICE_CREATED
         - SERVICE_ACTIVATED
@@ -1138,6 +1146,9 @@ components:
           additionalProperties: true
           example:
             plan_id: { from: 118, to: 136 }
+          x-changes-by-event-type:
+            CUSTOMER_DELETED: "#/components/schemas/EventChangesCustomerDeleted"
+            ROUTER_CHANGED: "#/components/schemas/EventChangesRouterChanged"
         occurred_at: { type: string, format: date-time, nullable: true }
         revision:
           type: integer
@@ -1145,6 +1156,133 @@ components:
             Igual a `event_id`. Permite comparar directamente contra el
             `revision` que devuelven `/customers` y `/services` sin pedir nada
             más.
+
+    EventChangesCustomerDeleted:
+      type: object
+      description: |
+        `changes` de un evento `CUSTOMER_DELETED` (baja física). Es la
+        **lápida**: el cliente y sus servicios ya no existen (404), así que esto
+        es todo lo que queda para revocar.
+
+        **Cómo revocar.** Para cada `service_id` de `service_ids`, revocar en el
+        router `router_id` (el que tenía el cliente al momento del borrado). El
+        router es **uno por cliente**, no por servicio: hoy no hay multipunto, y
+        los atributos de red viven en la ficha del cliente. Los `service_ids`
+        incluyen **todos** los servicios del cliente, también los
+        cancelados/retirados.
+
+        **En el evento (sobre) de este tipo:** `customer_id` viene siempre
+        (entero) y `service_id` viene siempre `null` — la lista está en
+        `changes.service_ids`, no en el campo de primer nivel. `changes` no es
+        `null` en este tipo.
+
+        **Fail-closed.** Las tres claves vienen **siempre presentes**. Si una
+        falta, o el tipo no es el declarado, trátelo como evento inválido: no lo
+        procese como «nada que revocar» y re-sincronice contra `/customers` y
+        `/services`.
+      required: [service_ids, router_id, managed_by_external_aaa]
+      properties:
+        service_ids:
+          type: array
+          description: |
+            `user_services.id` de todos los servicios que tenía el cliente,
+            ordenados ascendentemente. **Puede ser `[]`** (cliente sin
+            servicios; no es un error y no hay nada que revocar por servicio —
+            la baja del cliente sigue siendo real). **Nunca es `null`.**
+          items: { type: integer }
+        router_id:
+          type: integer
+          nullable: true
+          description: |
+            Router del cliente al borrarlo. **`null` = no tenía router
+            asignado** (no hay NAS en el que revocar). Nunca ausente.
+        managed_by_external_aaa:
+          type: boolean
+          description: |
+            `true` = ese router estaba en modo AAA externo (`radius`) al
+            momento del borrado, o sea que ISPWatch **no** escribía en él y la
+            revocación es de usted. **Nunca `null` ni ausente.**
+
+            `false` vale tanto «router gestionado por ISPWatch» como «sin
+            router» (`router_id: null`) o «el router ya no existe». No
+            distingue esos tres casos; para eso use `router_id`.
+      example:
+        service_ids: [8841, 9102]
+        router_id: 17
+        managed_by_external_aaa: true
+
+    EventChangesRouterChanged:
+      type: object
+      description: |
+        `changes` de un evento `ROUTER_CHANGED`. Tiene **dos orígenes**, con la
+        misma forma:
+
+        1. **Cambio de router del cliente:** `router_id.from` ≠ `router_id.to`.
+           Revocar/invalidar en `from` (si no es `null`); el contexto vigente es
+           `to`.
+        2. **Se activó o desactivó RADIUS en el router del cliente:**
+           `router_id.from` = `router_id.to`, y `managed_by_external_aaa.from` ≠
+           `managed_by_external_aaa.to`. Se emite un evento por cada cliente de
+           ese router. No hay router que invalidar: cambió quién gestiona.
+
+        **En el evento (sobre):** `customer_id` viene siempre; `service_id`
+        viene siempre `null` (el cambio es del cliente, y el router es único
+        por cliente: aplica a todos sus servicios, que se listan con
+        `GET /services?customer_id=`). `changes` no es `null` en este tipo.
+
+        **Estado actual.** El evento es delgado y sus valores son los del
+        instante del cambio. Para el estado vigente, re-consulte
+        `/customers/{id}` (`router_id`, `router_managed_by_external_aaa`) — los
+        eventos llegan en orden de `event_id`, pero un cambio posterior puede
+        ya haber superado a este.
+
+        **Fail-closed.** Las dos claves vienen **siempre presentes**, y cada
+        una trae **siempre** `from` y `to` (nunca un escalar suelto). Si falta
+        alguna, o `from`/`to` no son del tipo declarado, trátelo como evento
+        inválido y re-sincronice.
+      required: [router_id, managed_by_external_aaa]
+      properties:
+        router_id:
+          type: object
+          required: [from, to]
+          properties:
+            from:
+              type: integer
+              nullable: true
+              description: |
+                Router anterior. **`null` = no tenía** (primera asignación).
+                La clave siempre está presente; lo que puede ser `null` es el
+                valor.
+            to:
+              type: integer
+              nullable: true
+              description: |
+                Router nuevo. **`null` = se le quitó el router** (queda sin
+                router). La clave siempre está presente.
+        managed_by_external_aaa:
+          type: object
+          required: [from, to]
+          description: |
+            Modo AAA externo del router `from` y del router `to`,
+            respectivamente. **Nunca `null`**: un lado sin router, o con un
+            router que ya no existe, vale `false`. Para saber si ese lado
+            existe, mire `router_id.from` / `router_id.to`.
+          properties:
+            from: { type: boolean }
+            to: { type: boolean }
+      example:
+        router_id: { from: 12, to: 17 }
+        managed_by_external_aaa: { from: false, to: true }
+      x-examples:
+        primera_asignacion:
+          router_id: { from: null, to: 17 }
+          managed_by_external_aaa: { from: false, to: true }
+        router_quitado:
+          router_id: { from: 17, to: null }
+          managed_by_external_aaa: { from: true, to: false }
+        radius_activado_en_el_router:
+          router_id: { from: 17, to: 17 }
+          managed_by_external_aaa: { from: false, to: true }
 
     Invoice:
       type: object

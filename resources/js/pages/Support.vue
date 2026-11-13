@@ -542,7 +542,9 @@ const filteredTickets = computed(() => {
 
 const loadStaff = async () => {
     try {
-        const response = await api.staff.getAll()
+        // Opcional: sólo alimenta el filtro «Todos los técnicos». Un técnico no
+        // tiene `view_staff` y eso no debe disparar el cartel de permisos.
+        const response = await api.staff.getAll({}, { silentForbidden: true })
         const allUsers = response.data.data || []
         // Filtrar solo técnicos por NOMBRE de rol: los roles son por tenant y el id
         // varía, por eso no se usa role_id fijo. Tolera acentos/mayúsculas.

@@ -3030,6 +3030,13 @@ La suscripción de tu empresa a ISPWatch tiene una factura vencida. Tus clientes
 navegando; lo que se bloquea es el panel. Paga con los datos que muestra la pantalla y pulsa
 **Ya pagué, comprobar de nuevo**. Ver [Si aparece «Servicio suspendido»](#si-aparece-servicio-suspendido).
 
+**Me sale un cartel rojo grande: «No tienes permiso para hacer esto».**
+No es una falla del sistema: tu rol no tiene el permiso que esa acción necesita. El cartel dice
+**qué permiso falta** y **qué acción se bloqueó**. Pulsa **Entendido**, pídele a un administrador
+que lo active en **Roles** (diciéndole el permiso que aparece en el cartel) y, cuando lo haga,
+cierra sesión y vuelve a entrar. Si dice «Tu usuario no tiene un rol asignado», el administrador
+tiene que asignarte uno.
+
 **No veo una sección del menú.**
 Tu rol no tiene el permiso. Pide a un administrador que lo revise en **Roles**.
 Si es un permiso recién creado, además tendrás que cerrar sesión y volver a entrar.

@@ -217,21 +217,31 @@ const toast = ref(null)
 const loadTicket = async () => {
     try {
         loading.value = true
-        // Cargar ticket y staff en paralelo
+        // Cargar ticket y staff en paralelo. La lista de personal es OPCIONAL:
+        // `/staff` exige `view_staff`, que un técnico no tiene (403). Antes un
+        // fallo ahí tumbaba la pantalla entera con «Error al cargar los detalles
+        // del ticket» aunque el ticket sí cargara. Ahora sólo deja el desplegable
+        // de asignación reducido; lo que importa —el ticket— no depende de él.
         const [ticketRes, staffRes] = await Promise.all([
             api.support.getOne(ticketId),
-            api.staff.getAll()
+            api.staff.getAll({}, { silentForbidden: true }).catch(() => null)
         ])
 
         const ticket = ticketRes.data
         // Filtrar solo técnicos por NOMBRE de rol: los roles son por tenant y el id
         // varía, por eso no se usa role_id fijo. Tolera acentos/mayúsculas.
-        const allUsers = staffRes.data.data || []
+        const allUsers = staffRes?.data?.data || []
         staffList.value = allUsers.filter(user => {
             const n = (user.role_name || '').trim().toLowerCase()
             return n === 'técnico' || n === 'tecnico'
         })
-        
+        // Sin lista (sin permiso), el desplegable debe al menos mostrar a quien
+        // ya está asignado; si no, quedaría en «Sin asignar» y el guardado
+        // reenviaría staff_id vacío, des-asignando al técnico sin querer.
+        if (ticket.staff && !staffList.value.some(m => m.id === ticket.staff.id)) {
+            staffList.value.unshift(ticket.staff)
+        }
+
         asunto.value = { subject_id: ticket.subject_id ?? null, subject: ticket.subject || '' }
 
         form.value = {

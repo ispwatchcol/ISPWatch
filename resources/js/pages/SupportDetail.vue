@@ -1302,7 +1302,7 @@ const alCambiarMedicion = async () => {
 
 const loadStaff = async () => {
     try {
-        const { data } = await api.staff.getAll()
+        const { data } = await api.staff.getAll({}, { silentForbidden: true })
         staffList.value = data.data || []
     } catch (e) {
         // Sin lista, los desplegables quedan vacios pero el resto de la pantalla

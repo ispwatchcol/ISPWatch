@@ -308,6 +308,58 @@ class PartnerFeedCoverageTest extends TestCase
         );
     }
 
+    /**
+     * Contrato OpenAPI 1.2.1: `from`/`to` son claves SIEMPRE presentes; lo que
+     * puede ser null es el valor, y `managed_by_external_aaa` nunca lo es. Un
+     * integrador fail-closed depende de esto.
+     */
+    #[Test]
+    public function router_changed_con_router_ausente_conserva_las_claves_y_nunca_pone_null_el_modo_aaa(): void
+    {
+        $router  = $this->router($this->tenantA, 'NAS Destino', radius: true);
+        $profile = $this->seedCustomer($this->tenantA, 'SinRouter');
+
+        // null → router (primera asignación)
+        $profile->update(['router_id' => $router->id]);
+        // router → null (se le quita)
+        $profile->update(['router_id' => null]);
+
+        $eventos = $this->eventsOf($profile->user_id, PartnerEvent::ROUTER_CHANGED);
+
+        $this->assertCount(2, $eventos);
+
+        $this->assertSame(['from' => null, 'to' => $router->id], $eventos[0]['changes']['router_id']);
+        $this->assertSame(['from' => false, 'to' => true], $eventos[0]['changes']['managed_by_external_aaa']);
+
+        $this->assertSame(['from' => $router->id, 'to' => null], $eventos[1]['changes']['router_id']);
+        $this->assertSame(['from' => true, 'to' => false], $eventos[1]['changes']['managed_by_external_aaa']);
+
+        foreach ($eventos as $evento) {
+            $this->assertNull($evento['service_id'], 'ROUTER_CHANGED es del cliente, no de un servicio');
+        }
+    }
+
+    #[Test]
+    public function la_lapida_de_un_cliente_sin_router_ni_servicios_trae_vacios_tipados_no_null(): void
+    {
+        $this->app->instance(CustomerDeprovisionManager::class, \Mockery::mock(CustomerDeprovisionManager::class));
+
+        $profile = $this->seedCustomer($this->tenantA, 'Pelado');
+        UserService::where('user_id', $profile->user_id)->delete();
+        $user = User::findOrFail($profile->user_id);
+
+        app(CustomerDeletionService::class)->delete($user, $profile);
+
+        $lapidas = $this->eventsOf($user->id, PartnerEvent::CUSTOMER_DELETED);
+
+        $this->assertCount(1, $lapidas);
+        $this->assertNull($lapidas[0]['service_id'], 'Los servicios van en changes.service_ids');
+        $this->assertSame(
+            ['service_ids' => [], 'router_id' => null, 'managed_by_external_aaa' => false],
+            $lapidas[0]['changes']
+        );
+    }
+
     #[Test]
     public function cambiar_la_ip_o_el_usuario_pppoe_publica_un_cambio_de_red_sin_los_valores(): void
     {

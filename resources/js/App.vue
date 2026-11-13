@@ -16,6 +16,8 @@
     -->
     <template v-if="!suspension">
       <NotificationHost />
+      <!-- Cartel grande de «no tienes permiso» (403 de permisos). Una sola vez, aquí. -->
+      <PermissionDeniedAlert />
     </template>
 
     <!--
@@ -32,6 +34,7 @@ import { onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from './stores/auth';
 import NotificationHost from './components/NotificationHost.vue';
 import NewVersionBanner from './components/NewVersionBanner.vue';
+import PermissionDeniedAlert from './components/PermissionDeniedAlert.vue';
 import { useServiceSuspension } from './composables/useServiceSuspension.js';
 
 const authStore = useAuthStore();

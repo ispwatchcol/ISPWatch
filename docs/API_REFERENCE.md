@@ -3361,6 +3361,47 @@ evento es la **lápida** y trae lo necesario para revocar sin consultar nada —
 servicios y en qué router. `partner_events` no tiene FK a propósito y sobrevive
 al borrado.
 
+#### Esquema exacto de `CUSTOMER_DELETED` y `ROUTER_CHANGED` (OpenAPI 1.2.1)
+
+Las claves **siempre están presentes**; lo que varía es el valor. Un consumidor
+fail-closed debe tratar una clave ausente o de otro tipo como evento inválido
+(re-sincronizar contra `/customers` y `/services`), no como «nada que hacer». En ambos
+tipos el campo `service_id` del sobre es `null` y `changes` no es `null`.
+
+`CUSTOMER_DELETED` → `changes`:
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `service_ids` | `integer[]` | Todos los `user_services.id` del cliente (también cancelados), ascendente. **Puede ser `[]`, nunca `null`.** |
+| `router_id` | `integer \| null` | Router del cliente al borrarlo. `null` = no tenía. Es **uno por cliente**: aplica a todos los `service_ids`. |
+| `managed_by_external_aaa` | `boolean` | Nunca `null`. `true` = ese router era AAA externo: revocar es del integrador. `false` también cubre «sin router». |
+
+`ROUTER_CHANGED` → `changes`:
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `router_id` | `{from: integer \| null, to: integer \| null}` | `from: null` = primera asignación; `to: null` = se le quitó el router. |
+| `managed_by_external_aaa` | `{from: boolean, to: boolean}` | Nunca `null`: un lado sin router (o inexistente) vale `false`. |
+
+Dos orígenes, misma forma: cambio de router (`from` ≠ `to`) y activación/desactivación de
+RADIUS en el router (`from` = `to`, un evento por cliente del router). Ejemplos saneados:
+
+```json
+{ "event_type": "CUSTOMER_DELETED", "customer_id": 5120, "service_id": null,
+  "changes": { "service_ids": [8841, 9102], "router_id": 17, "managed_by_external_aaa": true } }
+
+{ "event_type": "CUSTOMER_DELETED", "customer_id": 5121, "service_id": null,
+  "changes": { "service_ids": [], "router_id": null, "managed_by_external_aaa": false } }
+
+{ "event_type": "ROUTER_CHANGED", "customer_id": 5120, "service_id": null,
+  "changes": { "router_id": { "from": 12, "to": 17 },
+               "managed_by_external_aaa": { "from": false, "to": true } } }
+
+{ "event_type": "ROUTER_CHANGED", "customer_id": 5120, "service_id": null,
+  "changes": { "router_id": { "from": 17, "to": null },
+               "managed_by_external_aaa": { "from": true, "to": false } } }
+```
+
 **Retención:** hoy los eventos no se podan. Compromiso con los integradores: si se
 introduce retención, se avisa antes y un cursor más viejo que lo conservado recibe
 un error explícito, nunca un lote silenciosamente incompleto.
