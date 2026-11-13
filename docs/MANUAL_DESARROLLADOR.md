@@ -1366,6 +1366,31 @@ $warnings = $this->planService->sync($installation, $data['planned_items'] ?? nu
   (`generateCharge`) no pasa por ahí a propósito.
 - **«Quitar» (`releaseFromInstallation`) es corrección de captura, no devolución.** No lo
   reutilices para cancelar ni para devoluciones parciales: eso es la conciliación de la entrega B.
+- **Orden firmada (2026-11-13).** `InstallationEquipmentController::lateReasonFor()` decide si un
+  `POST` puede registrar lo que faltó: firmada + `managesInventory()` + `late_reason` ≥ 5. La
+  marca `after_signature`/`late_reason` se escribe con `forceFill` **dentro de la misma
+  transacción** que la línea (no las metas en `$fillable`). `destroy()` sobre una orden firmada
+  sólo deja quitar líneas `after_signature`. No amplíes esto a corregir o quitar lo firmado: eso
+  sigue siendo la conciliación de la entrega B.
+
+**Buscador en ventana (2026-11-13).** Las listas largas de inventario ya no son `<select>`:
+`components/ui/SearchPickerModal.vue` recibe `items` (`{ key, title, subtitle?, meta?, badge?,
+badgeClass?, search?, disabled? }`), pestañas opcionales (`filters: [{ key, label, test }]`) y
+sólo emite `select(item)`; quien lo usa decide qué hacer. Busca sin mayúsculas ni tildes, ignora
+separadores (`AA:BB` = `aabb`), exige todas las palabras y pinta como mucho `limit` (200)
+resultados. Lo usan el plan (`InstallationPlanEditor`), los materiales de la hoja
+(`InstallationDetail`) y `SerialDevicePicker` (hoja y ticket). Para cualquier otra lista larga,
+úsalo en vez de otro `<select>`. Las cantidades se formatean con `fmtQty` de
+`utils/materialQuantity.js`, que ahora usa separador de miles (`1.400`); no dupliques otro
+formateador.
+
+**Catálogo de unidades (2026-11-13, P-92).** `App\Models\InventoryUnit` + `InventoryUnitController`.
+Las básicas viven en `InventoryUnit::BUILT_IN` (no en BD). `InventoryStockController` valida la
+unidad con `InventoryUnit::existsNamed()` sólo si el producto es «por cantidad» y la unidad cambió.
+En pantalla: `components/InventoryUnitsModal.vue` (gestor, abierto desde *Stock / Modelos*) y el
+`<select data-testid=stock-unit>` del formulario de producto, que sugiere la precisión de la
+unidad al crear. El resumen de cable (`isLengthUnit`) sigue con su lista fija: el catálogo no
+guarda magnitud (ver P-92 en MEJORAS).
 
 **Frontend.** El editor del plan es `components/InstallationPlanEditor.vue` (lo usan
 `pages/Installations.vue` y `components/customer/CustomerInstallations.vue`) y las reglas de
@@ -1382,8 +1407,11 @@ botón que va a fallar y explica por qué.
   salen de esa lista. No le pases el catálogo de planificación: eso es la empresa entera.
 - Elegir en la lista no emite nada; sólo el botón de acción emite `pick(device)`, y es el padre el
   que hace el `POST` con `device_id`. No vuelvas a un `<select @change>` que registre al elegir.
+  Desde 2026-11-13 la lista es el `SearchPickerModal` (serial, MAC o modelo); la prop `disabled`
+  bloquea la confirmación (la hoja la usa mientras falta el motivo de un registro tardío).
 - `v-model:model` fija el filtro de modelo (`stock_id`). «Elegir serial» del plan sólo fija ese
-  filtro y llama a `focus()` del componente (expuesto con `defineExpose`); nunca registra.
+  filtro y llama a `focus()` del componente (expuesto con `defineExpose`), que abre el buscador ya
+  filtrado; nunca registra.
 - Con la lista vacía, el componente **no desaparece**: explica el motivo y el siguiente paso sin
   nombrar unidades ni custodios que el usuario no puede consultar.
 - Las etiquetas salen de `utils/deviceLabels.js` (`deviceFullLabel`, `deviceIdsText`,

@@ -272,6 +272,33 @@
             🔒 {{ equipmentLock.message }}
           </p>
 
+          <!-- Firmada, pero faltó registrar algo: quien administra inventario
+               lo registra con motivo. Lo firmado no se toca y lo nuevo queda
+               marcado «después de la firma». -->
+          <div v-if="equipmentLock.late_allowed" data-testid="late-panel"
+            class="mb-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3">
+            <button v-if="!lateMode" type="button" @click="lateMode = true" data-testid="late-open"
+              class="text-xs font-medium text-amber-900 dark:text-amber-200 border border-amber-400 dark:border-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/40 px-3 py-1.5 rounded-lg transition">
+              Registrar equipos o materiales que faltaron
+            </button>
+            <template v-else>
+              <label class="block text-xs font-medium text-amber-900 dark:text-amber-200 mb-1" for="late-reason">
+                Motivo del registro posterior a la firma (obligatorio)
+              </label>
+              <input id="late-reason" v-model="lateReason" type="text" maxlength="255" data-testid="late-reason"
+                placeholder="Ej.: el técnico no alcanzó a cargar los amarres antes de la firma"
+                class="w-full bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm" />
+              <p class="mt-1 text-[11px] text-amber-800 dark:text-amber-300">
+                Descuenta del inventario igual que antes de firmar y queda en el kardex con este motivo. El acta firmada
+                no cambia: lo que registres aquí se verá marcado como «registrado después de la firma».
+                <template v-if="!lateReasonOk"> Escribe el motivo (mínimo 5 letras) para habilitar «Agregar».</template>
+              </p>
+              <button type="button" @click="closeLateMode" class="mt-1 text-[11px] text-amber-900 dark:text-amber-200 hover:underline">
+                Terminar
+              </button>
+            </template>
+          </div>
+
           <!-- Plan de la orden frente a lo usado. Planificar no descuenta: esto
                sólo ayuda a cargar lo previsto sin buscarlo en la lista. -->
           <div v-if="plannedVsUsed.length" class="mb-3">
@@ -286,7 +313,7 @@
                   <!-- Lo que ESTE usuario puede registrar, no lo que hay en la
                        empresa: sale de /equipment/available, que ya filtra
                        por las fuentes que tiene autorizadas. -->
-                  <span v-if="equipmentLoaded && !equipmentLock.is_locked && p.used < p.quantity && p.stock_id"
+                  <span v-if="equipmentLoaded && canAddLines && p.used < p.quantity && p.stock_id"
                     class="block text-[11px] text-gray-500 dark:text-gray-400">
                     <template v-if="p.is_serialized && p.reachableUnits > 0">
                       Para que tú registres la entrega: {{ p.reachableUnits }} unidad(es) con serial a tu alcance.
@@ -300,7 +327,7 @@
                     </template>
                   </span>
                 </span>
-                <template v-if="!equipmentLock.is_locked && p.used < p.quantity">
+                <template v-if="canAddLines && p.used < p.quantity">
                   <!-- Elegir serial sólo filtra y lleva al selector; registrar
                        sigue siendo el botón «Agregar» de allí. -->
                   <button v-if="p.is_serialized && p.stock_id" type="button" @click="chooseSerialFor(p)" :disabled="equipmentBusy"
@@ -331,6 +358,11 @@
                   <span v-if="item.unit_price"> · {{ fmtMoney(item.unit_price * item.quantity) }}</span>
                   <span v-if="chargedLineIds.has(item.id)" class="text-indigo-600 dark:text-indigo-400"> · en el cobro</span>
                 </p>
+                <p v-if="item.after_signature" data-testid="late-line"
+                  class="text-[11px] text-amber-700 dark:text-amber-400">
+                  Registrado después de la firma{{ item.registered_at ? ` (${formatDate(item.registered_at)})` : '' }}
+                  — no figura en el acta firmada · {{ item.late_reason }}
+                </p>
               </div>
               <div class="shrink-0 flex items-center gap-1">
                 <!-- Cobrar NO descuenta: copia descripción y precio a la cartera. -->
@@ -339,7 +371,8 @@
                   class="text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-2.5 py-1.5 rounded-lg transition">
                   Cobrar
                 </button>
-                <button v-if="!equipmentLock.is_locked" @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
+                <button v-if="!equipmentLock.is_locked || (item.after_signature && equipmentLock.late_allowed)"
+                  @click="removeEquipment(item)" :disabled="equipmentBusy" type="button"
                   title="Deshace una captura equivocada antes de firmar. No es devolución de material gastado."
                   class="text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50">
                   Quitar
@@ -359,38 +392,45 @@
 
           <!-- Agregar equipo con serial. Se ve SIEMPRE, aunque no haya
                unidades: vacío, explica por qué y cuál es el siguiente paso. -->
-          <div v-if="!equipmentLock.is_locked" class="space-y-3">
+          <div v-if="canAddLines" class="space-y-3">
             <SerialDevicePicker ref="serialPicker" v-model:model="serialModelFilter"
               :devices="availableDevices" :known-models="plannedSerialModels"
-              :loaded="equipmentLoaded" :busy="equipmentBusy"
+              :loaded="equipmentLoaded" :busy="equipmentBusy" :disabled="!lateReasonOk"
               action-label="Agregar" context="esta orden" @pick="addDevice" />
 
             <!-- Agregar material por cantidad. La sección se muestra SIEMPRE:
                  si no hay nada que ofrecer, se explica por qué en vez de
                  desaparecer. -->
             <div ref="materialRow">
-              <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Materiales por cantidad (cable, conectores…)</p>
+              <p class="text-[11px] font-medium text-blue-700 dark:text-blue-300 uppercase mb-1">Materiales por cantidad (cable, conectores, amarres…)</p>
               <template v-if="availableMaterials.length">
-              <div class="flex flex-wrap items-center gap-2">
-                <select v-model="materialPick" :disabled="equipmentBusy"
-                  class="flex-1 min-w-[12rem] bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50">
-                  <option :value="null">+ Agregar material por cantidad…</option>
-                  <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
-                    {{ materialLabel(m) }}
-                  </option>
-                </select>
+              <!-- Buscador en ventana, como en Agendar instalación. -->
+              <button type="button" @click="materialPickerOpen = true" :disabled="equipmentBusy" data-testid="material-search"
+                class="w-full sm:w-auto inline-flex items-center gap-2 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 hover:border-blue-400 rounded-lg px-3 py-2 text-sm text-gray-700 dark:text-gray-200 disabled:opacity-50 transition">
+                <span aria-hidden="true">🔍</span>
+                {{ materialPick ? 'Cambiar material…' : `Buscar material (${availableMaterials.length} a tu alcance)…` }}
+              </button>
+              <div v-if="materialPick" class="mt-2 flex flex-wrap items-center gap-2" data-testid="material-picked">
+                <p class="w-full text-sm font-medium text-gray-800 dark:text-white">{{ materialName(materialPick) }}
+                  <span class="text-xs font-normal text-gray-500 dark:text-gray-400">· de {{ materialPick.source_label }}</span>
+                </p>
+                <label class="text-xs text-gray-600 dark:text-gray-300" for="material-qty">Cantidad usada</label>
                 <div class="flex items-center gap-1">
-                  <input v-model.number="materialQty" type="number" :min="quantityStep(materialPick)" :step="quantityStep(materialPick)"
+                  <input id="material-qty" v-model.number="materialQty" type="number" :min="quantityStep(materialPick)" :step="quantityStep(materialPick)"
                     :max="materialPick ? materialPick.quantity : null" placeholder="Cant." onwheel="this.blur()"
                     :disabled="equipmentBusy" data-testid="material-qty"
                     class="w-28 bg-white dark:bg-gray-700 border border-blue-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm disabled:opacity-50" />
                   <span class="text-xs text-gray-600 dark:text-gray-300 min-w-[2.5rem]">{{ materialPick?.unit || '' }}</span>
                 </div>
-                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy || !!materialQtyError"
+                <button @click="addMaterial" type="button" :disabled="!materialPick || equipmentBusy || !!materialQtyError || !lateReasonOk"
                   class="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition">
                   Agregar
                 </button>
               </div>
+              <SearchPickerModal :visible="materialPickerOpen" title="Elegir material"
+                placeholder="Busca por nombre o por quién lo tiene: amarres, RJ45, cable…"
+                :items="materialPickerItems" empty-text="No hay materiales a tu alcance."
+                @select="onMaterialPicked" @close="materialPickerOpen = false" />
               <p v-if="materialPick && materialQtyError" class="mt-1 text-[11px] text-rose-600 dark:text-rose-400" data-testid="material-qty-error">
                 {{ materialQtyError }}
               </p>
@@ -979,6 +1019,18 @@
           Para rehacerla, elimínala en <strong>Documentos de la orden</strong> y vuelve a firmar.
         </div>
 
+        <!-- Lo que todavía no se registró. No bloquea (hay órdenes sin
+             materiales), pero después de firmar ya no lo puede cargar el
+             técnico: sólo quien administra inventario, con motivo. -->
+        <div v-if="!signedSheet && !installation.signed_at && signWarnings.length" data-testid="sign-warnings"
+          class="mt-5 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 text-xs text-amber-900 dark:text-amber-200">
+          <p class="font-semibold mb-1">Revisa antes de firmar:</p>
+          <ul class="list-disc pl-5 space-y-0.5">
+            <li v-for="w in signWarnings" :key="w">{{ w }}</li>
+          </ul>
+          <p class="mt-1">Después de la firma el técnico ya no puede cargar equipos ni materiales en esta orden.</p>
+        </div>
+
         <div class="flex flex-wrap gap-3 mt-5">
           <button v-if="!signedSheet" @click="sign" :disabled="signing || !hasCustSig"
             class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition">
@@ -1044,6 +1096,7 @@ import { compressImage } from '@/utils/image'
 import NotificationToast from '@/components/NotificationToast.vue'
 import IpRangeAnalyzer from '@/components/IpRangeAnalyzer.vue'
 import SerialDevicePicker from '@/components/SerialDevicePicker.vue'
+import SearchPickerModal from '@/components/ui/SearchPickerModal.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 import { cableSummary, fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
@@ -1135,7 +1188,20 @@ const deviceKeys = new Map()
 const chargePick = ref(null)
 // Lo decide el servidor en /equipment/available: firmada o cancelada, no se
 // cargan ni se quitan líneas.
-const equipmentLock = ref({ is_locked: false, reason: null, message: null })
+const equipmentLock = ref({ is_locked: false, reason: null, message: null, late_allowed: false })
+
+// Registro posterior a la firma: sólo si el servidor lo permite a este
+// usuario (late_allowed) y con motivo. El servidor vuelve a exigir las dos cosas.
+const lateMode = ref(false)
+const lateReason = ref('')
+const lateReasonOk = computed(() => !equipmentLock.value.is_locked || lateReason.value.trim().length >= 5)
+const canAddLines = computed(() => !equipmentLock.value.is_locked
+  || (equipmentLock.value.late_allowed && lateMode.value))
+const closeLateMode = () => { lateMode.value = false; lateReason.value = '' }
+/** Lo que se añade al registro si la orden está firmada. */
+const latePayload = () => (equipmentLock.value.is_locked ? { late_reason: lateReason.value.trim() } : {})
+
+const materialPickerOpen = ref(false)
 // Por qué la lista de materiales puede venir vacía (sin productos por
 // cantidad, sin saldo, o saldo en manos de quien no se puede tomar).
 const materialsStatus = ref({ code: 'ok', message: null })
@@ -1184,6 +1250,19 @@ const plannedVsUsed = computed(() => (installation.value?.planned_items ?? []).m
       .reduce((sum, m) => sum + (Number(m.quantity) || 0), 0)
   return { ...p, used, source, reachableUnits, reachableQty, unitText: unit ? ` ${unit}` : '' }
 }))
+
+// Avisos antes de firmar: lo previsto que no se registró, o una orden sin
+// ninguna línea. Es exactamente lo que después no se puede cargar.
+const signWarnings = computed(() => {
+  if (!equipmentLoaded.value) return []
+  const out = plannedVsUsed.value
+    .filter(p => p.used < p.quantity)
+    .map(p => `${p.label}: previsto ${fmtQty(p.quantity)}${p.unitText} · registrado ${fmtQty(p.used)}${p.unitText}`)
+  if (!out.length && !equipmentItems.value.length) {
+    out.push('La orden no tiene ningún equipo ni material registrado del inventario.')
+  }
+  return out
+})
 
 // Nombres de los modelos por serial del plan, para que el selector los nombre
 // aunque no haya ninguna unidad a mano.
@@ -1248,9 +1327,20 @@ const technicianSourceName = computed(() => {
   return tech?.label ?? ''
 })
 
-const materialLabel = (m) => {
-  const name = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
-  return `${name} — ${fmtQty(m.quantity)}${m.unit ? ` ${m.unit}` : ''} en ${m.source_label}`
+const materialName = (m) => `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
+
+const materialPickerItems = computed(() => availableMaterials.value.map((m, idx) => ({
+  key: `${m.stock_id}-${m.source_type}-${m.source_id}`,
+  idx,
+  title: materialName(m),
+  subtitle: `De ${m.source_label}`,
+  meta: `${fmtQty(m.quantity)}${m.unit ? ` ${m.unit}` : ''} disponibles`,
+})))
+
+const onMaterialPicked = (item) => {
+  materialPick.value = availableMaterials.value[item.idx] ?? null
+  materialQty.value = 1
+  materialPickerOpen.value = false
 }
 
 
@@ -1284,6 +1374,7 @@ const addDevice = async (device) => {
     const { data } = await installationEquipmentApi.add(installationId.value, {
       device_id: device.id,
       client_request_id: deviceKeys.get(device.id),
+      ...latePayload(),
     })
     deviceKeys.delete(device.id)
     equipmentItems.value = data.equipment ?? equipmentItems.value
@@ -1319,6 +1410,7 @@ const addMaterial = async () => {
       source_type: material.source_type,
       source_id:   material.source_id,
       client_request_id: materialKey.value,
+      ...latePayload(),
     })
     equipmentItems.value = data.equipment ?? equipmentItems.value
     materialPick.value = null
@@ -1913,6 +2005,11 @@ const sign = async () => {
     toast.value?.error('Falta firma', 'La firma del cliente es obligatoria — traza la firma en el recuadro.')
     return
   }
+  if (signWarnings.value.length && !window.confirm(
+    'Antes de firmar:\n\n• ' + signWarnings.value.join('\n• ') + '\n\n'
+    + 'Después de la firma el técnico ya no puede cargar equipos ni materiales en esta orden '
+    + '(sólo quien administra el inventario, con un motivo). ¿Firmar de todos modos?'
+  )) return
   signing.value = true
   try {
     const payload = {

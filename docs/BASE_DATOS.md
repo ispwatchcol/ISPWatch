@@ -1505,9 +1505,22 @@ viejos. El filtro va por `subject_id`, así que siguen agrupados. Un asunto que 
 | `inventory_device` | `stock_id`, `provider_id`, `branch_id`, `user_id`, `customer_id`, `status`, `serial`, `mac` |
 | `inventory_balances` | `stock_id`, `holder_type`, `holder_id`, `quantity` numeric(12,2) |
 | `inventory_movements` | `stock_id`, `device_id`, `device_serial`, `type`, `quantity`, `from_type`/`from_id`, `to_type`/`to_id`, `installation_id`, `support_ticket_id`, `customer_id`, `notes`, `created_by`, `created_at` |
-| `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`client_request_id`** varchar(64) nulable |
+| `installation_equipment` | `installation_id`, `stock_id`, `device_id`, `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`client_request_id`** varchar(64) nulable, **`after_signature`** bool default false (2026-11-13), **`late_reason`** varchar(255) nulable (2026-11-13) |
+| `inventory_units` (2026-11-13) | `tenant_id` (FK `tenant`, CASCADE), **`name`** varchar(20), **`decimals`** tinyint default 0 · `unique(tenant_id, name)` |
 | `installation_planned_items` (2026-09-30) | `installation_id`, `stock_id` (nullable), **`label`** varchar(255), **`unit`** varchar(20), **`is_serialized`** bool, `quantity` numeric(12,2), `notes` varchar(255), `created_by`, `tenant_id` |
 | `ticket_equipment` | `ticket_id`, `stock_id`, `device_id`, **`direction`** (`out`/`in`), `quantity`, `unit_price`, `source_type`/`source_id`, `notes`, `created_by`, **`reversed_at`**, `reversed_by`, `reversed_by_name`, `reversal_reason`, **`client_request_id`** varchar(64) nulable |
+
+> **`installation_equipment.after_signature`** (migración `2026_11_13_000001`) marca la línea
+> registrada con la orden ya firmada —lo que el técnico no alcanzó a cargar—, y `late_reason` dice
+> por qué. Sólo las escribe `InstallationEquipmentController` (no están en `$fillable`). Todas las
+> filas anteriores quedan en `false`: hasta esa fecha no había forma de registrar después de firmar.
+>
+> **`inventory_units`** (migración `2026_11_13_000002`, P-92) es la lista de unidades **propias**
+> de cada empresa. Las básicas (`unidad`, `metro`, `rollo`, `caja`, `paquete`) no se guardan: las
+> agrega `InventoryUnit::catalog()`. `inventory_stock.unit` sigue guardando el **nombre** de la
+> unidad (no hay FK): el catálogo es la lista de nombres válidos. El backfill copió a cada empresa
+> las unidades no básicas que ya usaban sus productos «por cantidad» (una fila por nombre sin
+> distinguir mayúsculas, con el mayor `quantity_decimals` de quienes la usaban).
 
 > **`installation_planned_items` es el PLAN, no el consumo** (migración
 > `2026_09_30_000001`). No pasa por el ledger, no descuenta ni reserva, y admite cantidades

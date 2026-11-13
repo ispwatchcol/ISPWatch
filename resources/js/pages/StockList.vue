@@ -18,6 +18,15 @@
 
         <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <button
+            @click="showUnitsModal = true"
+            data-testid="open-units"
+            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800
+                   px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium w-full sm:w-auto justify-center transition-all"
+          >
+            <v-icon name="md-list" class="w-5 h-5 fill-current" />
+            <span>Unidades de medida</span>
+          </button>
+          <button
             v-if="can('view_inventory')"
             @click="openAddModal({ material: true })"
             data-testid="add-material"
@@ -376,16 +385,25 @@
               </label>
 
               <div v-if="form.is_serialized === false">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Unidad de medida</label>
-                <input
+                <div class="flex items-center justify-between gap-2 mb-2">
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300" for="stock-unit">Unidad de medida</label>
+                  <button type="button" @click="showUnitsModal = true"
+                    class="text-xs text-purple-700 dark:text-purple-300 hover:underline">Gestionar unidades</button>
+                </div>
+                <!-- De la lista de unidades (P-92): ya no nacen «m», «mts» y «metro» para lo mismo. -->
+                <select
+                  id="stock-unit"
                   v-model="form.unit"
-                  type="text"
-                  maxlength="20"
-                  placeholder="unidad, metro, rollo..."
+                  @change="onUnitChosen"
+                  data-testid="stock-unit"
                   class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
                          focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none"
-                />
+                >
+                  <option v-for="u in unitOptions" :key="u.name" :value="u.name">
+                    {{ u.name }}{{ u.legacy ? ' (fuera del catálogo: guárdala o elige otra)' : '' }}
+                  </option>
+                </select>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-3 mb-2">Precisión de la cantidad</label>
                 <select
                   v-model.number="form.quantity_decimals"
@@ -491,6 +509,13 @@
       </div>
 
       <!-- Notification Toast -->
+      <InventoryUnitsModal
+        :visible="showUnitsModal"
+        :units="units"
+        @close="showUnitsModal = false"
+        @changed="onUnitsChanged"
+      />
+
       <NotificationToast ref="toast" />
 
     </main>
@@ -500,6 +525,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import inventoryStockApi from '@/services/api/inventory-stock'
+import inventoryUnitApi from '@/services/api/inventory-unit'
+import InventoryUnitsModal from '@/components/InventoryUnitsModal.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -544,13 +571,57 @@ const form = ref({
 // La existencia sólo llega a quien administra inventario (el servidor decide).
 const showsAvailable = computed(() => items.value.some(i => i.available !== undefined))
 
-// Un producto nuevo en metros casi siempre se fracciona: se sugiere 2
-// decimales al escribir la unidad, sin pisar una elección ya hecha a mano.
-watch(() => form.value.unit, (unit) => {
-  if (!isEditing.value && isLengthUnit(unit) && form.value.quantity_decimals === 0) {
+// Catálogo de unidades de medida (básicas + las de la empresa).
+const units = ref([])
+const showUnitsModal = ref(false)
+
+const loadUnits = async () => {
+  try {
+    const { data } = await inventoryUnitApi.getAll()
+    units.value = Array.isArray(data) ? data : []
+  } catch {
+    // Sin catálogo, al menos las básicas: el formulario no puede quedarse sin opciones.
+    units.value = ['unidad', 'metro', 'rollo', 'caja', 'paquete'].map(name => ({ name, decimals: name === 'metro' ? 2 : 0, built_in: true }))
+  }
+}
+
+// Las del catálogo, y la que ya tenía el producto aunque no esté en él
+// (producto viejo con «mts»): se conserva mientras no se cambie.
+const unitOptions = computed(() => {
+  const list = units.value.map(u => ({ name: u.name, decimals: u.decimals }))
+  const current = (form.value.unit || '').trim()
+  if (current && !list.some(u => u.name.toLowerCase() === current.toLowerCase())) {
+    list.push({ name: current, decimals: null, legacy: true })
+  }
+  return list
+})
+
+// Al elegir la unidad de un producto NUEVO se propone su precisión (metro → 2
+// decimales, unidad → enteros). En uno existente no se toca: cambiar la
+// precisión con saldos lo valida el servidor y es una decisión aparte.
+const onUnitChosen = () => {
+  if (isEditing.value) return
+  const unit = units.value.find(u => u.name === form.value.unit)
+  if (unit) {
+    form.value.quantity_decimals = Number(unit.decimals) || 0
+  } else if (isLengthUnit(form.value.unit)) {
     form.value.quantity_decimals = 2
   }
+}
+
+// Pasar a «Por cantidad» sin unidad: se parte de «unidad», que es lo que el
+// servidor guardaba igual si llegaba vacía, y el selector no queda en blanco.
+watch(() => form.value.is_serialized, (serial) => {
+  if (serial === false && !(form.value.unit || '').trim()) form.value.unit = 'unidad'
 })
+
+const onUnitsChanged = async ({ renamed } = {}) => {
+  await loadUnits()
+  if (renamed > 0) {
+    toast.value?.success('Unidad renombrada', `Se actualizó en ${renamed} producto(s).`)
+    await loadItems()
+  }
+}
 
 // Computed
 const filteredItems = computed(() => {
@@ -699,6 +770,7 @@ const formatCurrency = (value) => {
 onMounted(() => {
   tenantId.value = getUserTenantId()
   loadItems()
+  loadUnits()
   openFromQuery()
 })
 </script>

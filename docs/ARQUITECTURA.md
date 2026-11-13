@@ -413,7 +413,7 @@ la causa de un producto concreto.
 |---|---|---|
 | Borrar la orden | tiene líneas usadas, hoja firmada o factura | `409 installation_has_history` + `blocked_by` |
 | Cancelar la orden | tiene líneas usadas o está firmada | `422` en `status` |
-| Cargar o quitar líneas | la orden está firmada (y cargar, si está cancelada) | `422` en `installation` |
+| Cargar o quitar líneas | la orden está firmada (y cargar, si está cancelada). **Excepción** (2026-11-13): quien administra inventario registra lo que faltó con `late_reason`, y quita sólo esas líneas tardías | `422` en `installation` |
 | Entregar, consumir, retirar o revertir en un ticket | el ticket está en un estado terminal | `422 ticket_already_closed` |
 
 Además `CustomerInstallation` lanza en `deleting` si tiene líneas, igual que `TicketEquipment`:
@@ -421,6 +421,14 @@ cubre un borrado por consola o por código. La cancelación **no** sugiere desha
 consumo es real, y «Quitar» (`releaseFromInstallation`) es la corrección de una captura
 equivocada antes de firmar, no una devolución. La conciliación y las correcciones auditadas
 después de la firma son la entrega B. El cobro de lo ya usado no depende del estado del ticket.
+
+**Registro posterior a la firma (2026-11-13).** Es la parte de la entrega B que no podía esperar:
+órdenes firmadas sin los amarres o el router registrados. Sólo **agrega** líneas —nunca corrige
+ni quita lo firmado—, lo hace quien administra inventario, exige motivo, pasa por el mismo ledger
+(descuento, kardex, idempotencia por `client_request_id`) y marca la línea `after_signature`. El
+acta firmada es el PDF guardado al firmar y no se regenera, así que no incluye esas líneas; la
+pantalla las muestra como «registrado después de la firma». Los marcadores de plantilla de
+documentos posteriores (`instalacion.equipos`) sí las incluyen, porque describen lo instalado.
 
 ### Composición de la factura mensual
 
