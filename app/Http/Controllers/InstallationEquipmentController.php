@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Inventory\InventoryAvailability;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -40,18 +41,42 @@ class InstallationEquipmentController extends Controller
     }
 
     /**
-     * Una orden firmada no admite cambios en sus líneas: lo usado es lo que el
-     * cliente firmó. Corregirlo después exige una corrección auditada, que es
-     * de la entrega B y todavía no existe; hasta entonces, no se toca.
+     * Una orden firmada no admite cambios en lo que el cliente firmó.
+     *
+     * Lo que sí admite es REGISTRAR LO QUE FALTÓ: el técnico hizo firmar sin
+     * haber cargado los amarres o el router, y el equipo ya está en la casa del
+     * cliente mientras el inventario lo sigue dando en bodega. Eso lo hace sólo
+     * quien administra inventario y con un motivo, y la línea queda marcada
+     * `after_signature`: no figura en el acta firmada y la pantalla lo dice.
+     *
+     * Devoluciones y correcciones de lo firmado siguen siendo la conciliación
+     * de la entrega B; esto no las sustituye.
+     *
+     * @return string|null el motivo del registro tardío, o null si la orden no está firmada
      */
-    private function assertLinesEditable(CustomerInstallation $installation): void
+    private function lateReasonFor(Request $request, CustomerInstallation $installation): ?string
     {
-        if ($installation->isSigned()) {
+        if (!$installation->isSigned()) {
+            return null;
+        }
+
+        if (!$this->ledger->managesInventory($request->user())) {
             throw ValidationException::withMessages([
                 'installation' => 'La orden ya está firmada: sus equipos y materiales no se modifican desde aquí. '
-                    . 'Lo registrado es lo que el cliente firmó.',
+                    . 'Si faltó registrar algo, pídeselo a quien administra el inventario.',
             ]);
         }
+
+        $reason = trim((string) $request->input('late_reason', ''));
+
+        if (mb_strlen($reason) < 5) {
+            throw ValidationException::withMessages([
+                'installation' => 'La orden ya está firmada. Para registrar lo que faltó, escribe el motivo '
+                    . '(p. ej. «el técnico no alcanzó a cargar los amarres antes de la firma»).',
+            ]);
+        }
+
+        return mb_substr($reason, 0, 255);
     }
 
     /** Líneas ya cargadas en la orden. */
@@ -165,7 +190,7 @@ class InstallationEquipmentController extends Controller
                 $balances->count(),
                 'esta orden'
             ),
-            'locked' => $this->lockState($installation),
+            'locked' => $this->lockState($installation, $actor),
         ]);
     }
 
@@ -173,27 +198,38 @@ class InstallationEquipmentController extends Controller
      * Si la orden admite cambios en sus líneas, y por qué no. La pantalla lo
      * usa para esconder los controles; quien decide es store()/destroy().
      *
-     * @return array{is_locked: bool, reason: string|null, message: string|null}
+     * `late_allowed`: la orden está firmada y este usuario puede registrar lo
+     * que faltó (con motivo). Lo firmado sigue sin tocarse.
+     *
+     * @return array{is_locked: bool, reason: string|null, message: string|null, late_allowed: bool}
      */
-    private function lockState(CustomerInstallation $installation): array
+    private function lockState(CustomerInstallation $installation, User $actor): array
     {
-        if ($installation->isSigned()) {
-            return [
-                'is_locked' => true,
-                'reason'    => 'signed',
-                'message'   => 'La orden ya está firmada: sus equipos y materiales quedan como se firmaron.',
-            ];
-        }
-
         if ($installation->status === 'cancelada') {
             return [
-                'is_locked' => true,
-                'reason'    => 'cancelled',
-                'message'   => 'La orden está cancelada: no se le cargan equipos ni materiales.',
+                'is_locked'    => true,
+                'reason'       => 'cancelled',
+                'message'      => 'La orden está cancelada: no se le cargan equipos ni materiales.',
+                'late_allowed' => false,
             ];
         }
 
-        return ['is_locked' => false, 'reason' => null, 'message' => null];
+        if ($installation->isSigned()) {
+            $late = $this->ledger->managesInventory($actor);
+
+            return [
+                'is_locked'    => true,
+                'reason'       => 'signed',
+                'message'      => $late
+                    ? 'La orden ya está firmada: lo que el cliente firmó no cambia. Si faltó registrar algún equipo o '
+                        . 'material, regístralo abajo con el motivo; quedará marcado como registrado después de la firma.'
+                    : 'La orden ya está firmada: sus equipos y materiales quedan como se firmaron. Si faltó registrar '
+                        . 'algo, pídeselo a quien administra el inventario.',
+                'late_allowed' => $late,
+            ];
+        }
+
+        return ['is_locked' => false, 'reason' => null, 'message' => null, 'late_allowed' => false];
     }
 
     /**
@@ -204,13 +240,13 @@ class InstallationEquipmentController extends Controller
         $installation = $this->resolveInstallation($request, $installationId);
         $actor        = $request->user();
 
-        $this->assertLinesEditable($installation);
-
         if ($installation->status === 'cancelada') {
             throw ValidationException::withMessages([
                 'installation' => 'La orden está cancelada: no se le cargan equipos ni materiales.',
             ]);
         }
+
+        $lateReason = $this->lateReasonFor($request, $installation);
 
         $data = $request->validate([
             'device_id'   => 'nullable|integer',
@@ -222,6 +258,7 @@ class InstallationEquipmentController extends Controller
             // Clave del intento que genera la pantalla: el mismo «Agregar»
             // reenviado (doble clic, señal que se cae) no descuenta dos veces.
             'client_request_id' => 'nullable|string|max:64',
+            'late_reason'       => 'nullable|string|max:255',
         ]);
 
         if (empty($data['device_id']) && empty($data['stock_id'])) {
@@ -238,7 +275,7 @@ class InstallationEquipmentController extends Controller
             'installation_id',
             (int) $installation->id,
             $requestId,
-            fn () => $this->write($installation, $actor, $data, $requestId)
+            fn () => $this->write($installation, $actor, $data, $requestId, $lateReason)
         );
 
         return response()->json([
@@ -253,9 +290,45 @@ class InstallationEquipmentController extends Controller
         ], $created ? 201 : 200);
     }
 
-    /** Escribe la línea: un equipo por serial o un material por cantidad. */
-    private function write(CustomerInstallation $installation, User $actor, array $data, ?string $requestId): InstallationEquipment
-    {
+    /**
+     * Escribe la línea: un equipo por serial o un material por cantidad.
+     *
+     * Con `$lateReason` la línea se registra después de la firma: el motivo va
+     * en la línea y, delante de la nota, en el kardex, para que el movimiento
+     * explique por sí solo por qué entró tarde.
+     */
+    private function write(
+        CustomerInstallation $installation,
+        User $actor,
+        array $data,
+        ?string $requestId,
+        ?string $lateReason = null
+    ): InstallationEquipment {
+        $notes = $data['notes'] ?? null;
+
+        if ($lateReason !== null) {
+            $notes = 'Registrado después de la firma: ' . $lateReason . ($notes ? " · {$notes}" : '');
+        }
+
+        // Misma transacción: nunca queda una línea tardía sin su marca.
+        return DB::transaction(function () use ($installation, $actor, $data, $requestId, $notes, $lateReason) {
+            $item = $this->writeLine($installation, $actor, $data, $requestId, $notes);
+
+            if ($lateReason !== null) {
+                $item->forceFill(['after_signature' => true, 'late_reason' => $lateReason])->save();
+            }
+
+            return $item;
+        });
+    }
+
+    private function writeLine(
+        CustomerInstallation $installation,
+        User $actor,
+        array $data,
+        ?string $requestId,
+        ?string $notes
+    ): InstallationEquipment {
         if (!empty($data['device_id'])) {
             $device = InventoryDevice::with('stock')->findOrFail($data['device_id']);
 
@@ -263,7 +336,7 @@ class InstallationEquipmentController extends Controller
                 $installation,
                 $device,
                 $actor,
-                $data['notes'] ?? null,
+                $notes,
                 $requestId
             );
         }
@@ -289,7 +362,7 @@ class InstallationEquipmentController extends Controller
             $data['source_type'],
             (int) $data['source_id'],
             $actor,
-            $data['notes'] ?? null,
+            $notes,
             $requestId
         );
     }
@@ -305,14 +378,25 @@ class InstallationEquipmentController extends Controller
      * revertir, total o parcialmente, necesita la conciliación auditada de la
      * entrega B. Por eso la firma lo bloquea y la pantalla lo presenta como
      * «Quitar (error de captura)».
+     *
+     * Con la orden firmada sólo se puede quitar una línea registrada DESPUÉS
+     * de la firma, y sólo quien administra inventario: es el mismo error de
+     * captura, cometido al registrar lo que faltó. Lo que el cliente firmó no
+     * se quita.
      */
     public function destroy(Request $request, $installationId, $itemId)
     {
         $installation = $this->resolveInstallation($request, $installationId);
 
-        $this->assertLinesEditable($installation);
-
         $item = InstallationEquipment::where('installation_id', $installation->id)->findOrFail($itemId);
+
+        if ($installation->isSigned()
+            && !($item->after_signature && $this->ledger->managesInventory($request->user()))) {
+            throw ValidationException::withMessages([
+                'installation' => 'La orden ya está firmada: sus equipos y materiales no se modifican desde aquí. '
+                    . 'Lo registrado es lo que el cliente firmó.',
+            ]);
+        }
 
         $this->ledger->releaseFromInstallation($item, $request->user());
 
@@ -403,6 +487,9 @@ class InstallationEquipmentController extends Controller
             'source_type' => $item->source_type,
             'source_id'   => $item->source_id,
             'notes'       => $item->notes,
+            'after_signature' => (bool) $item->after_signature,
+            'late_reason'     => $item->late_reason,
+            'registered_at'   => $item->created_at?->toIso8601String(),
         ];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\InventoryStock;
+use App\Models\InventoryUnit;
 use App\Services\Inventory\InventoryAvailability;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
@@ -45,6 +46,8 @@ class InventoryStockController extends Controller
     {
         $data = $request->validate($this->rules());
 
+        $this->rechazarUnidadFueraDelCatalogo($data, null);
+
         return response()->json(InventoryStock::create($data), 201);
     }
 
@@ -52,6 +55,7 @@ class InventoryStockController extends Controller
     {
         $data = $request->validate($this->rules());
 
+        $this->rechazarUnidadFueraDelCatalogo($data, $inventoryStock);
         $this->rechazarCambioDeConteoConExistencias($inventoryStock, $data);
         $this->rechazarPrecisionMenorQueSaldos($inventoryStock, $data);
 
@@ -154,6 +158,35 @@ class InventoryStockController extends Controller
         $inventoryStock->delete();
 
         return response()->json(['message' => 'Stock eliminado correctamente.']);
+    }
+
+    /**
+     * La unidad de un material sale del catálogo de unidades (P-92): así no
+     * nacen «m», «mts» y «metro» para lo mismo. Un producto que ya tenía una
+     * unidad fuera del catálogo la conserva mientras no se la cambien: editar
+     * su precio no puede exigir antes ordenar sus unidades.
+     */
+    private function rechazarUnidadFueraDelCatalogo(array $data, ?InventoryStock $actual): void
+    {
+        $unidad = trim((string) ($data['unit'] ?? ''));
+
+        $porSerial = array_key_exists('is_serialized', $data) && $data['is_serialized'] !== null
+            ? filter_var($data['is_serialized'], FILTER_VALIDATE_BOOLEAN)
+            : (bool) $actual?->is_serialized;
+
+        if ($unidad === '' || $porSerial) {
+            return;
+        }
+
+        if ($actual && mb_strtolower($unidad) === mb_strtolower(trim((string) $actual->unit))) {
+            return;
+        }
+
+        if (!InventoryUnit::existsNamed($unidad)) {
+            throw ValidationException::withMessages([
+                'unit' => "La unidad «{$unidad}» no está en el catálogo. Agrégala en Stock / Modelos → Unidades de medida.",
+            ]);
+        }
     }
 
     /**

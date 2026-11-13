@@ -6,10 +6,7 @@
 // Los bloqueos los DECIDE el servidor; esto sólo evita ofrecer un botón que va
 // a ser rechazado y explica por qué.
 
-const fmtQty = (n) => {
-  const value = Number(n) || 0
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace('.', ',')
-}
+import { fmtQty } from './materialQuantity'
 
 /** «30 m CABLE UTP · 1 TP-LINK ARCHER C6», o el texto libre de siempre. */
 export const equipmentSummary = (inst) => {

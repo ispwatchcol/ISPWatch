@@ -10893,3 +10893,72 @@ Decisiones:
   llamadas accesorias que convenga marcar como `silentForbidden` o cuyo permiso convenga dar al rol.
 - El mensaje de los middleware llega en inglés («Forbidden - …»); el cartel muestra como dato
   principal el permiso (`required_permission`) y la acción (`GET /staff`), no ese texto.
+
+## 126. Inventario en instalaciones: buscador, lo que faltó tras la firma y unidades de medida — 2026-11-13
+
+**Reporte de un cliente** (tres puntos):
+
+1. *Agendar instalación*: «la búsqueda no es fácil; debe ser un buscador en un modal». En amarres
+   «aparece *Unidad 1* y al lado *1400 en Chaguaní*».
+2. *Hoja de instalación*: igual, búsqueda sencilla para los equipos con serial; «los amarres y los
+   equipos de unidad no se están cargando bien; hay órdenes que el técnico ya hizo firmar y no se
+   cargaron los equipos».
+3. «No hay un apartado donde se agreguen los valores como metros, unidad» en inventario.
+
+### Diagnóstico (desde el código; sin acceso de lectura a producción en esta sesión)
+
+- **«Unidad 1 · 1400 en Chaguaní»** no era un dato erróneo: era la línea del plan con cantidad
+  planificada `1`, unidad `unidad`, y la pista «Dónde hay: Chaguaní 1400 unidad». Sin separador de
+  miles ni dos puntos, las tres cifras se leían como una sola cosa. Y el selector era un `<select>`
+  con todos los productos del tenant.
+- **Por qué no se cargaban los amarres.** La hoja sólo ofrece lo que **ese usuario** puede tomar:
+  lo suyo, lo del técnico asignado y —sólo con `view_inventory`— las bodegas. Los amarres estaban
+  en la bodega Chaguaní, no a nombre del técnico; si el técnico tenía *algún* material a su nombre,
+  la lista mostraba ese y nada explicaba por qué faltaban los amarres. El técnico firmaba igual.
+- **Por qué no tenía arreglo después.** `assertLinesEditable()` rechazaba toda línea en una orden
+  firmada («la corrección auditada es la entrega B»). El equipo quedaba en casa del cliente y el
+  inventario lo seguía dando en bodega, sin camino para corregirlo.
+- **Unidades:** el campo existía, pero como texto libre dentro del producto (P-92).
+
+### Qué se hizo
+
+- **Registro posterior a la firma** (`InstallationEquipmentController`): quien administra
+  inventario puede **agregar** a una orden firmada lo que faltó, con motivo obligatorio. Pasa por el
+  ledger de siempre; la línea queda `after_signature` + `late_reason` y el kardex lleva el motivo.
+  Se pueden quitar sólo esas líneas tardías (error de captura); lo firmado sigue intocable. El
+  técnico sin `view_inventory` sigue bloqueado y la pantalla le dice a quién pedírselo.
+- **Prevención:** antes de firmar, la hoja lista lo previsto que no se registró (o avisa si la orden
+  no tiene ninguna línea) y pide confirmación. No bloquea: hay órdenes legítimas sin materiales.
+- **Buscador en ventana** (`SearchPickerModal`) en el plan, en los materiales de la hoja y en el
+  selector de equipos con serial (también el del ticket). Busca por nombre, por sitio («chaguani»),
+  por serial o MAC sin separadores. Cantidades con separador de miles en todo `fmtQty`.
+- **Catálogo de unidades** (`inventory_units` + básicas del sistema, gestor en *Stock / Modelos*);
+  el producto elige su unidad de la lista y la validación está en el servidor.
+
+### Decisiones
+
+- **No se toca el acta firmada.** Es el PDF guardado al firmar; regenerarla con líneas nuevas haría
+  decir al cliente algo que no firmó. Las líneas tardías se ven marcadas y no van en el acta (P-115).
+- **Sólo agregar, nunca corregir lo firmado.** Corregir cantidades firmadas o devolver material es la
+  conciliación de la entrega B, que sigue pendiente; esto no la sustituye.
+- **Permiso: el mismo de las bodegas (`managesInventory`).** No se creó un permiso nuevo: quien puede
+  sacar de bodega es quien puede responder por lo que salió tarde. Un permiso nuevo además dejaría a
+  los admins existentes sin verlo (ver la nota de backfill de permisos).
+- **Unidades básicas fuera de la BD**: así existen en toda empresa nueva sin sembrar ni escribir en un
+  `GET`. `inventory_stock.unit` sigue siendo texto: ninguna pantalla ni consulta existente cambia.
+- **Productos viejos con unidad fuera del catálogo** la conservan mientras no la cambien: editar el
+  precio no puede exigir antes ordenar unidades. El backfill además las copió al catálogo.
+- **Qué NO se hizo:** consultar producción para listar las órdenes firmadas afectadas (no hubo
+  permiso en esta sesión). Las órdenes se corrigen una a una desde la hoja, con el motivo.
+
+### Verificación
+
+- 19 pruebas nuevas (`LateRegistrationAfterSignatureTest`, `InventoryUnitCatalogTest`, incluido el
+  backfill y el aislamiento entre tenants). Suite completa en SQLite: 2004 pruebas, verde tras ajustar
+  `InventoryDeletionPermissionTest` (cuenta los `can('delete_inventory')` de `StockList.vue`: el
+  permiso del gestor de unidades se movió al propio componente).
+- Recorrido de navegador contra un backend SQLite aislado (Edge headless): buscador del plan con
+  «amarr» y «chaguani», buscador de material y de serial por MAC compacta, avisos antes de firmar,
+  registro tardío como admin (línea marcada) y panel ausente para el técnico, gestor de unidades
+  (alta, duplicado rechazado con mensaje, selector del producto) y modal a pantalla completa en 390 px
+  sin scroll horizontal.

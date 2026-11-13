@@ -18,10 +18,11 @@ export const quantityStep = (m) => {
   return d === 0 ? '1' : (1 / 10 ** d).toFixed(d)
 }
 
-export const fmtQty = (n) => {
-  const value = Number(n) || 0
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace('.', ',')
-}
+// Con separador de miles: «1400» al lado de «Unidad 1» se leía como otro
+// dato, «1.400» se lee como la cantidad que es.
+const QTY_FORMAT = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 })
+
+export const fmtQty = (n) => QTY_FORMAT.format(Number(n) || 0)
 
 /**
  * Motivo por el que la cantidad no se puede registrar, o '' si se puede.

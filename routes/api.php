@@ -40,6 +40,7 @@ use App\Http\Controllers\CustomerAdditionalServiceController;
 use App\Http\Controllers\HelpCenterController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\InventoryStockController;
+use App\Http\Controllers\InventoryUnitController;
 use App\Http\Controllers\InventoryProviderController;
 use App\Http\Controllers\InventoryBranchController;
 use App\Http\Controllers\InventoryMovementController;
@@ -692,6 +693,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         Route::get('/inventory-stock', [InventoryStockController::class, 'index']);
         Route::get('/inventory-providers', [InventoryProviderController::class, 'index']);
         Route::get('/inventory-branches', [InventoryBranchController::class, 'index']);
+        // Catálogo de unidades de medida: lo leen el formulario de producto y quien planifica.
+        Route::get('/inventory-units', [InventoryUnitController::class, 'index']);
     });
     // El kardex y las entregas son gestión de inventario, no consulta de campo.
     Route::middleware('permission:view_inventory')->group(function () {
@@ -717,6 +720,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
             ->only(['store', 'update']);
         Route::apiResource('inventory-branches', InventoryBranchController::class)
             ->only(['store', 'update']);
+        Route::apiResource('inventory-units', InventoryUnitController::class)
+            ->only(['store', 'update']);
     });
     // Borrar exige permiso propio: `view_inventory` es de LECTURA y autorizaba
     // los cuatro `destroy` de aquí abajo. Mientras nada los expusiera el agujero
@@ -731,6 +736,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         Route::apiResource('inventory-providers', InventoryProviderController::class)
             ->only(['destroy']);
         Route::apiResource('inventory-branches', InventoryBranchController::class)
+            ->only(['destroy']);
+        Route::apiResource('inventory-units', InventoryUnitController::class)
             ->only(['destroy']);
     });
 
