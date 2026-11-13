@@ -2960,6 +2960,18 @@ Facturación, así que no es una regresión. Pero tampoco está bien.
 y mandar el resto a `syncExcessCredit()`; o rechazar el guardado con un 422 que diga que la
 factura ya está pagada en Facturación. Es una decisión de producto.
 
+### 📋 P-104 · Borrar un router suelta a las bajas sin emitir `ROUTER_CHANGED`
+
+Visto al documentar los esquemas de evento para CNO (bitácora § 124).
+`RouterController::destroy` pone `router_id = null` a los clientes dados de baja que aún
+referencian el router con `CustomerProfile::where(...)->update([...])`, una escritura masiva por
+query builder que **no pasa por `PartnerEventObserver`**: el feed no publica `ROUTER_CHANGED`
+para ellos. No afecta a clientes con servicio (con vivos el borrado devuelve 409), así que no deja
+nada sin invalidar en un AAA; pero el feed y `/customers` dejan de coincidir para esas bajas.
+
+**Recomendación.** Emitir con `PartnerEvent::recordMany()` dentro de la misma transacción, como ya
+hace `fromRouter()`, o declarar en el contrato que las bajas quedan fuera del feed.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3113,6 +3125,7 @@ factura ya está pagada en Facturación. Es una decisión de producto.
 | **P-101** | Con el panel suspendido (KAN-126) el ISP no puede registrar pagos y los cortes automáticos siguen | El suscriptor que paga en efectivo queda cortado | 🟡 Media | 📋 Pendiente · decisión de negocio |
 | **P-102** | El logout de la SPA no invalida la sesión del servidor (no hay ruta de logout) | La sesión sigue viva en un equipo compartido (y la cookie de «recordarme» la reabre) | 🟡 Media | 📋 Pendiente · `POST /api/logout` |
 | **P-103** | La cartera asigna `min(recibido, total)` sin restar los abonos de Facturación: la factura de instalación puede quedar con más asignado que su total | El excedente no llega a saldo a favor y la auditoría lo denuncia | 🟢 Baja | 📋 Pendiente · decisión: asignar sólo el faltante o rechazar con 422 |
+| **P-104** | `RouterController::destroy` suelta el `router_id` de las bajas con un `update()` masivo que no emite `ROUTER_CHANGED` | El feed no refleja ese cambio para clientes ya dados de baja (los vivos bloquean el borrado) | 🟢 Baja | 📋 Pendiente · emitir con `recordMany()` o declararlo fuera del feed |
 | **P-92** | La unidad del producto es texto libre (`m`, `metro`, `mts` conviven) y no hay catálogo de unidades; el resumen de cable de la orden reconoce una lista fija de unidades de longitud | Un producto en «mtrs.» o «rollo de 305 m» no suma en el cable calculado, aunque sí descuenta bien | 🟢 Baja | 📋 Pendiente · candidato: catálogo cerrado de unidades con su magnitud |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |

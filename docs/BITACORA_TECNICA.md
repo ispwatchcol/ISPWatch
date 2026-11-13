@@ -10795,3 +10795,101 @@ conserva la guardada, y escribir una nueva la reemplaza.
 Nada en el código. Si hubo roles de soporte o clientes con acceso a la API mientras estuvo
 expuesta, conviene rotar las contraseñas de los RouterBoard registrados en Sectoriales; es
 decisión de cada ISP.
+
+
+## 124. Partner API: tipos exactos de `CUSTOMER_DELETED` y `ROUTER_CHANGED` en el contrato (OpenAPI 1.2.1) — 2026-11-12
+
+### Qué pidió el integrador
+
+CNO, al validar su capa AAA contra OpenAPI 1.2.0, preguntó el esquema exacto —tipo,
+obligatoriedad, nulabilidad— de `service_ids`, `router_id`, `managed_by_external_aaa` y los
+`from`/`to` de esos dos eventos, para escribir handlers fail-closed. El contrato sólo daba los
+nombres (`{service_ids, router_id, managed_by_external_aaa}`), y `changes` era
+`additionalProperties: true`.
+
+### Qué se hizo
+
+Sin cambio de comportamiento: se **documentó lo que el código ya hacía**, leyéndolo de
+`PartnerEventObserver` y no de memoria. Nuevos esquemas `EventChangesCustomerDeleted` y
+`EventChangesRouterChanged` en `docs/openapi/ispwatch-partner-v1.yaml` (versión `1.2.1`), con
+`required`, `nullable`, ejemplos y los casos con router ausente.
+
+Lo que quedó fijado como contrato:
+
+- **Las claves siempre están presentes**; lo que varía es el valor. `from`/`to` nunca vienen
+  como escalar suelto.
+- `service_ids`: `integer[]`, ordenado, **puede ser `[]`, nunca `null`**; incluye todos los
+  servicios (también cancelados).
+- `router_id` (lápida): `integer | null` (`null` = sin router). En `ROUTER_CHANGED`:
+  `{from: int|null, to: int|null}`.
+- `managed_by_external_aaa`: `boolean`, **nunca `null`**. `false` es ambiguo a propósito:
+  significa «gestionado por ISPWatch», «sin router» o «router inexistente»; para distinguirlos
+  se mira `router_id`.
+- En el sobre del evento, `service_id` es siempre `null` en ambos tipos; la lista de servicios
+  de la baja va en `changes.service_ids`.
+- `ROUTER_CHANGED` tiene dos orígenes con la misma forma: cambio de router (`from` ≠ `to`) y
+  toggle RADIUS del router (`from` = `to`, un evento por cliente).
+
+### Pruebas
+
+Dos pruebas nuevas en `PartnerFeedCoverageTest` que fijan los casos nulos: `null → router`,
+`router → null` y la lápida de un cliente sin router ni servicios
+(`['service_ids' => [], 'router_id' => null, 'managed_by_external_aaa' => false]`).
+
+### Deuda conocida (no resuelta, comunicada)
+
+Eliminar un router pone en `null` el `router_id` de las bajas que aún lo referencian con un
+`update()` masivo (`RouterController::destroy`), que **no emite `ROUTER_CHANGED`**. Sólo afecta
+a clientes ya dados de baja (con vivos el borrado se rechaza con 409), así que no deja a un
+cliente con servicio sin invalidar. Ver `MEJORAS_RECOMENDADAS.md`.
+
+---
+
+## 125. Editar ticket como técnico: «Error al cargar los detalles del ticket» — 2026-11-13
+
+### Síntoma
+
+Un usuario con rol de técnico pulsa **Editar** en un ticket y ve el toast «Error al cargar los
+detalles del ticket»; la pantalla lo devuelve al listado.
+
+### Causa raíz
+
+`SupportEdit.vue` cargaba el ticket y la lista de personal en un `Promise.all`. La lista sale de
+`GET /staff`, que exige `view_staff` (`routes/api.php`, grupo «STAFF»). El técnico no tiene ese
+permiso → 403 → el `Promise.all` rechaza → el `catch` muestra el error genérico aunque
+`GET /support/{id}` hubiera respondido bien. `Support.vue` y `SupportDetail.vue` ya toleraban ese
+403 con su propio `try/catch`; `SupportEdit.vue` era la única que no.
+
+### Cambio
+
+- `api.staff.getAll()` ahora lleva `.catch(() => null)`: sin permiso, la lista queda vacía y el
+  resto de la pantalla funciona.
+- Si la lista queda sin el técnico ya asignado, se le añade desde `ticket.staff`. Sin esto el
+  desplegable caería en «Sin asignar» y el guardado reenviaría `staff_id` vacío, **des-asignando al
+  técnico sin que nadie lo pidiera**.
+
+### Pendiente de confirmar
+
+El reporte decía «ver / editar». En el código, **Ver** (`SupportDetail.vue`) sólo depende de
+`GET /support/{id}` y ya toleraba el fallo de `/staff`; si Ver también falla en producción la causa
+es otra (permiso `ticket_view` del rol, o un 404/500 del ticket) y hay que mirar el status de la
+petición en la consola del navegador.
+
+### Seguimiento: cartel global para los 403 de permisos
+
+A raíz de este caso el usuario pidió que **cuando algo falle por permisos se muestre grande en
+pantalla**, porque «uno queda perdido». Se añadió `PermissionDeniedAlert` (montado una vez en
+`App.vue`), alimentado por el interceptor de `services/api.js` vía
+`composables/usePermissionDenied.js`. Ver *«Los 403 de permisos se avisan en grande»* en el manual
+del desarrollador.
+
+Decisiones:
+- **Sólo 403 de permisos**, no todo 403: los de regla de negocio (borrar ticket, rol en uso) ya los
+  explica su pantalla y el cartel los haría pasar por un problema de rol.
+- **`silentForbidden: true`** para llamadas accesorias (lista de personal en `Support`,
+  `SupportDetail`, `SupportEdit`). Sin ella un técnico vería el cartel en cada carga.
+- **Deuda aceptada:** otras pantallas que hoy toleran un 403 en silencio (`try/catch` vacío) ahora
+  mostrarán el cartel. Es lo buscado —antes ese permiso faltante era invisible— pero puede destapar
+  llamadas accesorias que convenga marcar como `silentForbidden` o cuyo permiso convenga dar al rol.
+- El mensaje de los middleware llega en inglés («Forbidden - …»); el cartel muestra como dato
+  principal el permiso (`required_permission`) y la acción (`GET /staff`), no ese texto.

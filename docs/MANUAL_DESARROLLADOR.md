@@ -2221,6 +2221,29 @@ comparando la ruta con la firma del método.
 
 Ver `tests/Feature/Inventory/InventoryDeviceCrudTest.php`.
 
+### Los 403 de permisos se avisan en grande (`PermissionDeniedAlert`)
+
+Antes cada pantalla trataba un 403 a su manera —un toast genérico («Error al cargar…») o nada— y
+el usuario no sabía que le faltaba un permiso (así costó diagnosticar el de Editar ticket como
+técnico, § 125 de la bitácora). Ahora hay **un solo punto**:
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Detección + estado | `composables/usePermissionDenied.js` | `isPermissionDeniedError` (403 con `required_permission`, o mensaje «Forbidden…»/«Unauthorized…»/«…permiso…») y la lista de avisos, deduplicada por petición+permiso, máx. 5 |
+| Interceptor | `services/api.js` | Anota todo 403 de permisos; **la promesa se rechaza igual**, el cartel avisa y no reemplaza el manejo de la pantalla |
+| Cartel | `components/PermissionDeniedAlert.vue` | Diálogo centrado, rojo, con el permiso que falta y la acción bloqueada. Se monta **una sola vez** en `App.vue`; no montes otro ni pintes un aviso propio para un 403 de permisos |
+
+**Llamadas opcionales.** Si una petición es accesoria y su pantalla ya tolera que falle (p. ej. la
+lista de personal para un desplegable, que un técnico no puede leer por no tener `view_staff`),
+márcala con `silentForbidden: true` en la config de axios —`api.staff.getAll({}, { silentForbidden: true })`—
+o el técnico verá el cartel en cada pantalla. **No** lo uses para esconder un permiso que la
+pantalla sí necesita: ahí el cartel es justo lo que se quiere.
+
+**Qué NO es un 403 de permisos** y por tanto no dispara el cartel: reglas de negocio con 403
+(«los tickets no se pueden eliminar», «no se puede eliminar un rol en uso»). Si añades un 403 de
+permisos con un texto nuevo que no encaje en la detección, incluye `required_permission` en la
+respuesta y se reconocerá solo.
+
 ## 12. Solución de problemas
 
 | Problema | Diagnóstico | Solución |

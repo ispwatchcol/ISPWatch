@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { reportServiceStatus, isServiceSuspendedError } from '../composables/useServiceSuspension.js'
+import { reportPermissionDenied, isPermissionDeniedError } from '../composables/usePermissionDenied.js'
 
 // =========================
 // AXIOS INSTANCE
@@ -55,6 +56,15 @@ apiClient.interceptors.response.use(
     // no llegó.
     if (isServiceSuspendedError(error)) {
       reportServiceStatus(error.response.data.data)
+    }
+
+    // 403 por PERMISOS: cartel grande y global (`PermissionDeniedAlert`). Sin
+    // esto cada pantalla lo mostraba como un «Error al cargar…» genérico y el
+    // usuario no sabía que le faltaba un permiso. Las llamadas cuyo fallo la
+    // pantalla ya tolera se marcan con `silentForbidden: true`. La promesa se
+    // rechaza igual: el cartel avisa, no reemplaza el manejo de cada pantalla.
+    if (isPermissionDeniedError(error)) {
+      reportPermissionDenied(error)
     }
 
     return Promise.reject(error)
