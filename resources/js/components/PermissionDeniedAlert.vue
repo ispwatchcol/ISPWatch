@@ -60,8 +60,10 @@
               >
                 <div v-if="d.required.length" class="text-sm text-gray-700 dark:text-gray-300">
                   <span class="font-semibold">Permiso que falta:</span>
-                  <span v-for="p in d.required" :key="p"
-                        class="ml-2 inline-block px-2 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 font-mono text-sm font-bold">{{ p }}</span>
+                  <span v-for="p in d.required" :key="p" class="ml-2 inline-block">
+                    <span v-if="d.labels[p]" class="font-semibold text-red-800 dark:text-red-200">{{ d.labels[p] }}</span>
+                    <span class="ml-1 px-2 py-0.5 rounded bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200 font-mono text-sm font-bold">{{ p }}</span>
+                  </span>
                   <span v-if="d.required.length > 1" class="block mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Basta con tener cualquiera de ellos.
                   </span>
@@ -72,6 +74,12 @@
                 </div>
               </li>
             </ul>
+
+            <p v-if="roleName" class="text-sm text-gray-700 dark:text-gray-300">
+              Tu rol actual es <strong>«{{ roleName }}»</strong>. El permiso tiene que estar
+              marcado en <strong>ese</strong> rol; si lo marcaste en otro, no cuenta.
+              Después de guardarlo, recarga la página.
+            </p>
 
             <p class="text-xs text-gray-500 dark:text-gray-400">
               Si se lo comentas a soporte, dile el permiso y la acción de arriba.
@@ -101,6 +109,7 @@ const { denials, dismiss } = usePermissionDenied()
 const panel = ref(null)
 
 const noRole = computed(() => denials.value.some(d => d.noRole))
+const roleName = computed(() => denials.value.find(d => d.roleName)?.roleName || '')
 
 // Foco al cartel al aparecer: así Esc lo cierra y un lector de pantalla lo anuncia.
 watch(() => denials.value.length > 0, async (open) => {

@@ -78,6 +78,12 @@ export function reportPermissionDenied(error) {
             key,
             request,
             required,
+            // Nombre en español de cada permiso (el de la pantalla de Roles) y
+            // el rol con que el servidor evaluó la petición. Ambos opcionales:
+            // los 403 que no vienen de CheckPermission no los traen.
+            labels: data.permission_labels && typeof data.permission_labels === 'object'
+                ? data.permission_labels : {},
+            roleName: typeof data.role?.name === 'string' ? data.role.name : '',
             // Texto del backend sólo como dato secundario: viene en inglés en los
             // middleware («Forbidden - …») y el cartel ya explica el caso en español.
             serverMessage: typeof data.message === 'string' ? data.message : '',

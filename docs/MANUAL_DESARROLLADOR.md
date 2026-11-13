@@ -2231,7 +2231,7 @@ técnico, § 125 de la bitácora). Ahora hay **un solo punto**:
 |---|---|---|
 | Detección + estado | `composables/usePermissionDenied.js` | `isPermissionDeniedError` (403 con `required_permission`, o mensaje «Forbidden…»/«Unauthorized…»/«…permiso…») y la lista de avisos, deduplicada por petición+permiso, máx. 5 |
 | Interceptor | `services/api.js` | Anota todo 403 de permisos; **la promesa se rechaza igual**, el cartel avisa y no reemplaza el manejo de la pantalla |
-| Cartel | `components/PermissionDeniedAlert.vue` | Diálogo centrado, rojo, con el permiso que falta y la acción bloqueada. Se monta **una sola vez** en `App.vue`; no montes otro ni pintes un aviso propio para un 403 de permisos |
+| Cartel | `components/PermissionDeniedAlert.vue` | Diálogo centrado, rojo, con el permiso que falta (su nombre de la pantalla de Roles + la clave), la acción bloqueada y **el rol con que se evaluó** («Tu rol actual es «Técnico»…»). Se monta **una sola vez** en `App.vue`; no montes otro ni pintes un aviso propio para un 403 de permisos |
 
 **Llamadas opcionales.** Si una petición es accesoria y su pantalla ya tolera que falle (p. ej. la
 lista de personal para un desplegable, que un técnico no puede leer por no tener `view_staff`),
@@ -2243,6 +2243,10 @@ pantalla sí necesita: ahí el cartel es justo lo que se quiere.
 («los tickets no se pueden eliminar», «no se puede eliminar un rol en uso»). Si añades un 403 de
 permisos con un texto nuevo que no encaje en la detección, incluye `required_permission` en la
 respuesta y se reconocerá solo.
+
+**Rol y nombres de permiso (2026-11-13).** `CheckPermission` responde también `permission_labels`
+(sale de `Permissions::getAllPermissions()`) y `role: { id, name }`. El composable los guarda como
+`labels` y `roleName`, ambos opcionales: un 403 sin esos campos se sigue mostrando como antes.
 
 ## 12. Solución de problemas
 

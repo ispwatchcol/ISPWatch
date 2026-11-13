@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Constants\Permissions;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -60,11 +61,25 @@ class CheckPermission
             }
         }
 
+        // Con qué rol se evaluó la petición y cómo se llama cada permiso en la
+        // pantalla de Roles. Sin esto el cartel sólo decía «falta view_billing» y
+        // quien acababa de concederlo no tenía forma de ver que lo había puesto
+        // en OTRO rol (o en un rol global, que es de sólo lectura): el 403 es
+        // correcto, pero parecía un fallo del sistema.
+        $etiquetas = [];
+        foreach (Permissions::getAllPermissions() as $grupo) {
+            foreach ($grupo as $clave => $etiqueta) {
+                $etiquetas[$clave] = $etiqueta;
+            }
+        }
+
         return response()->json([
             'message' => 'Forbidden - You do not have permission to perform this action',
             'required_permission' => count($permissions) === 1
                 ? $permissions[0]
                 : $permissions,
+            'permission_labels' => (object) array_intersect_key($etiquetas, array_flip($permissions)),
+            'role' => ['id' => (int) $user->role_id, 'name' => $user->role->name],
         ], 403);
     }
 }

@@ -314,4 +314,23 @@ class ApiAuthorizationTest extends TestCase
     {
         $this->getJson('/api/customers')->assertStatus(401);
     }
+
+    /**
+     * El cartel del front necesita decir QUÉ falta y EN QUÉ ROL se evaluó: quien
+     * acaba de conceder un permiso lo suele haber puesto en otro rol, y sin ese
+     * dato el 403 parecía un fallo del sistema.
+     */
+    #[Test]
+    public function el_403_nombra_el_rol_evaluado_y_el_permiso_en_espanol(): void
+    {
+        $user = $this->userWithPermissions(['view_clients']);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/tenants/' . $this->tenant->id)
+            ->assertStatus(403)
+            ->assertJsonPath('required_permission', 'manage_tenant')
+            ->assertJsonPath('permission_labels.manage_tenant', 'Gestionar Configuración de Empresa')
+            ->assertJsonPath('role.id', $user->role_id)
+            ->assertJsonPath('role.name', $user->role->name);
+    }
 }
