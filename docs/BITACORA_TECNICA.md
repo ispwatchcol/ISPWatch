@@ -10894,6 +10894,15 @@ Decisiones:
 - El mensaje de los middleware llega en inglés («Forbidden - …»); el cartel muestra como dato
   principal el permiso (`required_permission`) y la acción (`GET /staff`), no ese texto.
 
+### Seguimiento: el cartel dice en qué rol se evaluó
+
+Tras desplegar el cartel, un administrador concedió el permiso que pedía y el 403 siguió: lo había
+marcado en **otro** rol (o en uno global, que es de sólo lectura). El 403 era correcto, pero el
+cartel sólo decía «falta `view_billing`» y no había forma de verlo. Ahora `CheckPermission` añade
+`permission_labels` (el nombre del permiso en la pantalla de Roles) y `role` (`id`, `name`), y el
+cartel muestra «Tu rol actual es «X». El permiso tiene que estar marcado en ese rol». No expone
+nada nuevo: el usuario ya conoce su rol, y los nombres de permiso son los de su propia pantalla.
+Prueba: `ApiAuthorizationTest::el_403_nombra_el_rol_evaluado_y_el_permiso_en_espanol`.
 ## 126. Inventario en instalaciones: buscador, lo que faltó tras la firma y unidades de medida — 2026-11-13
 
 **Reporte de un cliente** (tres puntos):

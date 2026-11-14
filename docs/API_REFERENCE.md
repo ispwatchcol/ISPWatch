@@ -125,9 +125,17 @@ Dos mecanismos encadenados:
 ```json
 {
   "message": "Forbidden - You do not have permission to perform this action",
-  "required_permission": "manage_routers"
+  "required_permission": "manage_routers",
+  "permission_labels": { "manage_routers": "Gestionar Routers" },
+  "role": { "id": 7, "name": "Técnico" }
 }
 ```
+
+`required_permission` es un string si la ruta pide un solo permiso, o un arreglo si acepta
+cualquiera de varios (OR). Desde 2026-11-13 el 403 de `CheckPermission` añade
+**`permission_labels`** (nombre de cada permiso tal como sale en la pantalla de Roles; objeto
+vacío si no tiene etiqueta) y **`role`** (el rol con el que se evaluó la petición). Los 403 que no
+vienen de ese middleware (reglas de negocio) no traen estos campos.
 
 ### Límites de peticiones
 
