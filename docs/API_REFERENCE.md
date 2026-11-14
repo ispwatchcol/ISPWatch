@@ -2021,6 +2021,9 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 | `GET` | `/api/inventory-stock` | `view_inventory` ∪ `view_support` | Modelos / stock |
 | `POST`, `PUT` | `/api/inventory-stock[/{id}]` | `view_inventory` | |
 | `DELETE` | `/api/inventory-stock/{id}` | **`delete_inventory`** | |
+| `GET` | `/api/inventory-units` | `view_inventory` ∪ `view_support` | Unidades de medida: básicas (`built_in: true`, `id: null`) + las de la empresa, con `decimals` y `products_count` (2026-11-13) |
+| `POST`, `PUT` | `/api/inventory-units[/{id}]` | `view_inventory` | `{ name (≤20), decimals (0–2) }`. `422` si el nombre es básico o ya existe (sin distinguir mayúsculas). `PUT` renombra también la unidad de los productos que la usan y responde `{ unit, products_renamed }` |
+| `DELETE` | `/api/inventory-units/{id}` | **`delete_inventory`** | `409 { message, products_count }` si algún producto la usa |
 | `GET` | `/api/inventory-providers` | `view_inventory` ∪ `view_support` | Proveedores |
 | `POST`, `PUT` | `/api/inventory-providers[/{id}]` | `view_inventory` | |
 | `DELETE` | `/api/inventory-providers/{id}` | **`delete_inventory`** | |
@@ -2168,6 +2171,19 @@ y el kardex reconoce las filas nuevas por rango de `id`— y el candado cierra l
 | `POST` | `/api/installations/{id}/equipment` | `view_support` | Descarga un equipo (`device_id`) o un material (`stock_id` + `quantity` + `source_*`) |
 | `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Quita una línea **capturada por error** y devuelve la existencia a quien la aportó. No es la devolución de material gastado |
 
+**Orden firmada: registrar lo que faltó (2026-11-13).** `POST …/equipment` sobre una orden firmada
+ya no se rechaza siempre: si quien llama administra inventario (`role_id = 1` o `view_inventory`) y
+manda **`late_reason`** (≥ 5 caracteres, ≤ 255), la línea se registra con las reglas de siempre del
+ledger y queda con `after_signature: true` y su motivo; la nota del kardex empieza por
+«Registrado después de la firma: …». Sin ese permiso, o sin motivo, sigue siendo `422` en
+`installation`. `DELETE` sobre una orden firmada sólo acepta líneas con `after_signature: true` y
+sólo de quien administra inventario; lo que el cliente firmó sigue en `422`. Una orden cancelada no
+admite líneas de ninguna forma.
+
+`locked` de `available` añade **`late_allowed`** (bool): la orden está firmada y este usuario puede
+registrar lo que faltó. Cada línea (`index`, `store`, `destroy`) trae además `after_signature`,
+`late_reason` y `registered_at` (ISO 8601).
+
 `available` responde `{ sources, devices, materials, materials_status, locked }`, ya filtrado por
 custodia: lo del propio usuario, lo del técnico asignado a la orden, y las bodegas sólo si tiene
 `view_inventory`. Cada equipo trae `source_type`/`source_id`/`source_label` para que la UI agrupe
@@ -2224,6 +2240,10 @@ reenvío. El retiro (`direction: in`) no la usa: el estado del equipo ya impide 
 | `GET /api/inventory-stock` | `available` | Existencia total del producto (equipos disponibles o suma de saldos). **Sólo** para quien administra inventario (`role_id = 1` o `view_inventory`); a quien sólo ve soporte no se le envía |
 | `GET /api/inventory/movements` | `support_ticket_id` | Ticket del movimiento, junto a `installation_id` |
 | `GET /api/inventory/holdings` | `materials[].decimals` | Precisión, para la entrega |
+
+`POST`/`PUT /api/inventory-stock`: la `unit` de un producto «por cantidad» debe existir en
+`/api/inventory-units` (`422` en `unit` si no). Un producto que ya tenía una unidad fuera del
+catálogo la conserva mientras el `PUT` no la cambie (2026-11-13, P-92).
 
 `POST`/`PUT /api/inventory-stock` aceptan `quantity_decimals` (`0`–`2`). Bajarla con saldos que
 tienen más decimales responde `422` en `quantity_decimals`.

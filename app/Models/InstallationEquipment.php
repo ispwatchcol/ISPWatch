@@ -30,9 +30,12 @@ class InstallationEquipment extends Model
         'client_request_id',
     ];
 
+    // after_signature / late_reason NO van en $fillable: sólo los escribe el
+    // registro posterior a la firma (InstallationEquipmentController), con forceFill.
     protected $casts = [
-        'quantity'   => 'decimal:2',
-        'unit_price' => 'decimal:2',
+        'quantity'        => 'decimal:2',
+        'unit_price'      => 'decimal:2',
+        'after_signature' => 'boolean',
     ];
 
     public function installation()

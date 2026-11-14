@@ -563,10 +563,13 @@ Un **prospecto** es alguien interesado que todavía no es cliente.
 2. Pulsa **Nueva instalación**.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
 4. Elige **fecha** y **técnico**.
-5. En **Equipo / Materiales previstos** elige del inventario lo que el técnico debe llevar y
-   cuánto: «30 m de cable UTP», «1 router». Al lado de cada producto ves cuánto hay **en toda la
-   empresa, para planificar** —no lo que tú o el técnico pueden registrar—. Lo que no esté en el
-   inventario va en **Notas de equipo (texto libre)**.
+5. En **Equipo / Materiales previstos** pulsa **Buscar producto del inventario…**: se abre un
+   buscador donde escribes parte del nombre («amarr», «cable», «LDF») o el sitio donde está
+   («chaguani»), y puedes filtrar por *Materiales* o *Equipos con serial*. Al elegir uno ves
+   cuánto hay y dónde (por ejemplo «Disponible: 1.400 unidad en la empresa · Chaguaní: 1.400
+   unidad»), escribes la **Cantidad a llevar** y pulsas **Agregar al plan**. Esas cifras son lo
+   que hay **en toda la empresa, para planificar** —no lo que tú o el técnico pueden
+   registrar—. Lo que no esté en el inventario va en **Notas de equipo (texto libre)**.
    > **Equipos por serial (LDF, routers, ONU…):** aquí sólo se elige el **modelo y la cantidad**.
    > La unidad concreta —con su serial y su MAC— se elige el día de la instalación, al registrar
    > la entrega en la hoja de la orden. Consumibles como amarres o RJ45 van por unidades y el
@@ -641,13 +644,14 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
    > técnico llenaba la IP local creyendo que era la del abonado y esa parte se perdía.
 2. **Carga los equipos y materiales** que usó, en *Equipos y materiales usados*. Puedes cargar
    **todos los que hagan falta**: la LDF, el router, los amarres y el cable.
-   - **Equipos con serial (una unidad concreta).** Eliges la unidad exacta: cada opción muestra
-     *modelo · serial · MAC*, y si falta alguno lo dice («MAC sin informar»). Puedes filtrar por
-     modelo y **buscar por serial o MAC** (sin importar mayúsculas ni los «:»). Elegir en la lista
+   - **Equipos con serial (una unidad concreta).** Pulsa **Buscar por serial, MAC o modelo** y
+     escribe cualquiera de los tres (sin importar mayúsculas ni los «:»). Cada resultado muestra
+     *modelo · serial · MAC* y de quién es; si falta un dato lo dice («MAC sin informar»). Elegir
      no descuenta nada: la unidad se registra al pulsar **Agregar**, y en la línea queda su serial
      y su MAC.
-   - **Materiales por cantidad** (amarres y RJ45 por unidades, cable por metros): eliges el
-     material y de quién sale, escribes la cantidad y pulsas **Agregar**. Junto a la cantidad ves
+   - **Materiales por cantidad** (amarres y RJ45 por unidades, cable por metros): pulsa **Buscar
+     material**, escribe el nombre, elígelo (cada resultado dice de quién sale y cuánto hay),
+     escribe la **Cantidad usada** y pulsa **Agregar**. Junto a la cantidad ves
      la **unidad** del producto y cuánto hay disponible en esa fuente. Si escribes más de lo
      disponible, o decimales en un producto que se cuenta entero (un conector), el botón se
      desactiva y te dice por qué. Si la señal se cae y pulsas **Agregar** otra vez, el sistema
@@ -2208,6 +2212,23 @@ Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificació
 | **Entregas y traspasos** | Pasar equipos y material de la bodega a un técnico y recibirlos de vuelta; abajo, **Entrada de material** (donde nace la existencia de un material) |
 | **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
 
+### 15.0 Unidades de medida
+
+En **Inventarios → Stock / Modelos** pulsa **Unidades de medida**. Ahí está la lista de unidades
+con que se miden los materiales:
+
+- Las **básicas** —unidad, metro, rollo, caja, paquete— vienen en todas las empresas y no se
+  pueden cambiar.
+- Puedes **agregar las tuyas** («bolsa x100», «kilo», «par») y decir si se cuentan en enteros o
+  con decimales; eso es lo que se propone al crear un material con esa unidad.
+- **Renombrar** una unidad la cambia en todos los productos que la usan: sirve para unificar
+  «mts» y «metro».
+- Una unidad que usa algún producto **no se puede eliminar**: cámbiale primero la unidad a esos
+  productos.
+
+Al crear o editar un material eliges la unidad de esta lista (ya no se escribe a mano). Un
+producto antiguo con una unidad escrita a mano la conserva mientras no se la cambies.
+
 ### 15.1 Por serial o por cantidad
 
 Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
@@ -2215,7 +2236,8 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
 - **Por serial** — antenas, routers, ONU. Cada unidad se registra aparte con su serial y su MAC,
   y el sistema sabe en todo momento quién la tiene.
 - **Por cantidad** — RJ45, cable, platos, cinta. No se registra uno por uno: se lleva un saldo
-  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida (unidad, metro, rollo) y
+  ("a Juan le quedan 37 RJ45"). Ahí eliges también la unidad de medida de la lista de
+  *Unidades de medida* (ver 15.0) y
   la **precisión**: *sólo enteros* para piezas que no se parten (conectores, amarres) o *hasta 2
   decimales* para lo que se mide (cable, fibra: 12,5 m). Al escribir una unidad de longitud se
   sugiere 2 decimales. La precisión se exige en entradas, entregas, órdenes y tickets.
