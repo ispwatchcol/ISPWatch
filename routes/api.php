@@ -58,6 +58,7 @@ use App\Http\Controllers\Api\Partner\PartnerBillingController;
 use App\Http\Controllers\Api\Partner\PartnerCustomerController;
 use App\Http\Controllers\Api\Partner\PartnerEventController;
 use App\Http\Controllers\Api\Partner\PartnerMetaController;
+use App\Http\Controllers\Api\Partner\PartnerRouterController;
 use App\Http\Controllers\Api\Partner\PartnerServiceController;
 use App\Http\Controllers\Api\Partner\PartnerSupportController;
 
@@ -959,6 +960,14 @@ Route::prefix('v1/partner')
             Route::get('/services', [PartnerServiceController::class, 'index']);
             Route::get('/services/{service}', [PartnerServiceController::class, 'show'])
                 ->whereNumber('service');
+
+            // Inventario de routers: misma ability que servicios, porque es la
+            // misma área (red) y quien sincroniza servicios por `router_id`
+            // necesita conocer los routers, incluidos los que aún no tienen
+            // abonados. No expone IP, puerto ni credenciales.
+            Route::get('/routers', [PartnerRouterController::class, 'index']);
+            Route::get('/routers/{router}', [PartnerRouterController::class, 'show'])
+                ->whereNumber('router');
         });
 
         // Feed de cambios comerciales por cursor. Ver PartnerEventController

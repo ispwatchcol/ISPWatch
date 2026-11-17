@@ -35,12 +35,33 @@ info:
   # con tipo, obligatoriedad y nulabilidad los `changes` de `CUSTOMER_DELETED` y
   # `ROUTER_CHANGED` (`EventChangesCustomerDeleted`, `EventChangesRouterChanged`),
   # con ejemplos, a petición del integrador AAA.
-  version: "1.2.1"
+  # 1.3.0 (2026-11-17): decisión de acceso `access` en /customers y /services,
+  # inventario `GET /routers` y `GET /routers/{id}`, cabeza del feed
+  # `meta.head` en /events y cabeceras `X-RateLimit-*` documentadas. Todo
+  # aditivo: ningún campo existente cambió de forma ni de significado.
+  version: "1.3.0"
   description: |
     API de **solo lectura** para integradores externos (CRM, facturación
     electrónica, orquestadores AAA). Expone la autoridad comercial de ISPWatch
     —clientes, servicios contratados, cartera, soporte— y un feed de cambios
     para sincronizar sin re-consultar todo.
+
+    ## Quién decide
+
+    **ISPWatch decide quién tiene servicio; el AAA externo lo ejecuta.** La
+    decisión viaja ya tomada en el campo `access` de `/customers` y
+    `/services` (`granted` + `reason`). El AAA no la recalcula ni la
+    reinterpreta: si `access.granted` es `false`, no concede la sesión.
+
+    - Un router en modo AAA externo (`managed_by_external_aaa = true`) sólo
+      significa que ISPWatch dejó de escribir en ese equipo. **No transfiere
+      la autoridad**: quién navega lo sigue decidiendo ISPWatch.
+    - Ante un conflicto entre el estado del AAA y el de ISPWatch, prevalece
+      ISPWatch. La reconciliación periódica existe para corregir al AAA, no al
+      revés.
+    - Si el AAA no puede consultar ISPWatch, aplica la **última decisión
+      conocida** dentro de su edad máxima. Nunca concede acceso a quien
+      ISPWatch le negó, y no inventa decisiones para abonados que no conoce.
 
     ## Autenticación
 
@@ -71,7 +92,20 @@ info:
     ## Límites de uso
 
     60 peticiones por minuto y 5.000 por hora, por llave. Al superarlos:
-    `429`, con `Retry-After`.
+    `429`, con `Retry-After` y `X-RateLimit-Reset`.
+
+    - **Cada respuesta** trae `X-RateLimit-Limit` y `X-RateLimit-Remaining`
+      del límite **más cercano a agotarse**. En uso normal es el de 60/min;
+      el saldo de la hora sólo aparece ahí cuando baja de lo que queda en el
+      minuto.
+    - **Las ventanas no van con el reloj**: cada una empieza con la primera
+      petición después de que venció la anterior. No hay una hora fija de
+      inicio ni de fin.
+    - **El contador es por llave.** Dos integraciones con la misma llave
+      comparten el cupo y la API no puede separar su consumo. Para medirlas
+      por separado, pida al ISP una llave por integración: cada una tiene su
+      propio cupo y su propia bitácora.
+    - No hay un endpoint de consumo: las cabeceras de arriba son la fuente.
 
     ## Empezar
 
@@ -105,21 +139,31 @@ info:
 
     Procedimiento recomendado:
 
-    1. Recorrer `/events` hasta `has_more: false` y guardar `next_since`.
-    2. Barrer `/customers` y `/services` completos con `after_id`.
-    3. Reproducir `/events` desde el cursor del paso 1: lo que cambió durante
-       el barrido llega ahí.
+    1. Pedir `GET /events?limit=1` y guardar `meta.head`: es el último
+       `event_id` publicado del tenant en ese instante. No hace falta recorrer
+       el historial.
+    2. Barrer `/customers` y `/services` completos con `after_id` (y
+       `/routers` si se necesita el inventario).
+    3. Reproducir `/events` con `since` = el cursor del paso 1, sin filtros de
+       `event_type` ni `customer_id`: lo que cambió durante el barrido llega
+       ahí.
     4. Seguir `/events` en ciclo. Ante cada evento, re-consultar el recurso y
        decidir con su estado **actual**.
     5. Repetir el barrido completo periódicamente como reconciliación.
 
     Si se pierde el cursor, se repite desde el paso 1.
 
-    **Decisión de acceso.** `service_status` es la autoridad (`activo` y
-    `gratis` = hay servicio; `suspendido`, `cancelado` y `retirado` = no).
-    Una integración fail-closed debe exigir además `is_enabled = true`, que
-    sale en `/customers`: ambos se mueven juntos, pero hay datos anteriores a
-    `service_status` donde pueden no coincidir.
+    Sirve como cursor de arranque **cualquier** valor devuelto por `/events`
+    (`meta.head` o `meta.next_since`) siempre que se haya leído **antes** de
+    empezar el barrido: uno más viejo sólo implica reproducir más eventos. Lo
+    que no sirve es un número estimado o inventado: la numeración se comparte
+    entre ISPs y tiene huecos.
+
+    **Decisión de acceso.** Use `access.granted`. ISPWatch la calcula así, y
+    se publica sólo como referencia (el AAA no debe reimplementarla):
+    `service_status` en `activo` o `gratis` **y** `is_enabled = true`.
+    Cualquier otro caso —incluido un estado nulo o desconocido— niega
+    (fail-closed). Ver el esquema `Access`.
 
     ## Formato de fechas
 
@@ -158,6 +202,8 @@ tags:
     description: Abonados y su estado comercial.
   - name: Servicios
     description: Servicios contratados por abonado.
+  - name: Routers
+    description: Inventario de routers del ISP (sin datos de acceso al equipo).
   - name: Eventos
     description: Feed de cambios por cursor.
   - name: Cartera
@@ -393,6 +439,88 @@ paths:
                 type: object
                 properties:
                   data: { $ref: "#/components/schemas/Service" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # --------------------------------------------------------------------------
+  #  Routers
+  # --------------------------------------------------------------------------
+  /routers:
+    get:
+      tags: [Routers]
+      operationId: listRouters
+      summary: Listar routers del ISP
+      description: |
+        Inventario de routers/grupos lógicos del tenant, **incluidos los que
+        todavía no tienen abonados** (`customers_count = 0`), que no aparecen
+        en ningún barrido de `/customers` ni `/services`.
+
+        Identifique cada router por `router_id`. El `name` es editable y no
+        sirve como llave.
+
+        `managed_by_external_aaa` dice si ISPWatch dejó de escribir en ese
+        equipo. **No** dice quién decide el acceso: eso es siempre ISPWatch,
+        vía `access` (ver «Quién decide»).
+
+        No expone IP, puerto, usuario ni contraseña del equipo.
+      x-ability: read:services
+      security:
+        - bearerAuth: [read:services]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/AfterId"
+        - name: managed_by_external_aaa
+          in: query
+          description: Filtra por modo de gestión (`true` / `false`).
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: |
+            Página de routers. `meta` es `PageMeta` si se pidió por `page`,
+            y `KeysetMeta` si se pidió por `after_id`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Router" }
+                  meta:
+                    oneOf:
+                      - { $ref: "#/components/schemas/PageMeta" }
+                      - { $ref: "#/components/schemas/KeysetMeta" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /routers/{id}:
+    get:
+      tags: [Routers]
+      operationId: getRouter
+      summary: Obtener un router
+      x-ability: read:services
+      security:
+        - bearerAuth: [read:services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "`router_id`."
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Router.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Router" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -774,8 +902,9 @@ components:
     ServiceStatus:
       type: string
       description: |
-        **Autoridad comercial de conectividad.** Es el campo que decide si hay
-        servicio, y el que un integrador debe mirar.
+        **Estado comercial de conectividad.** Es el ingrediente principal de
+        la decisión de acceso, pero la decisión ya viene tomada en `access`:
+        decida por `access.granted`, no por este campo.
 
         - `activo`, `gratis`, `suspendido` → siguen facturando;
         - `retirado`, `cancelado` → bajas definitivas.
@@ -952,6 +1081,75 @@ components:
           description: |
             `true` = quedan eventos **ahora mismo**; se puede seguir pidiendo
             sin esperar al próximo ciclo.
+        head:
+          type: integer
+          description: |
+            Último `event_id` publicado del tenant en el momento de la
+            respuesta, sin aplicar `event_type` ni `customer_id`. `0` = el
+            tenant aún no tiene eventos.
+
+            Es el cursor de arranque de una sincronización inicial: léalo
+            **antes** de barrer `/customers` y `/services`, y reproduzca
+            `/events?since=<head>` después. No sirve como `next_since` de un
+            recorrido en curso: para eso está `next_since`.
+          example: 20733
+
+    Access:
+      type: object
+      required: [granted, reason]
+      description: |
+        **Decisión de acceso tomada por ISPWatch.** El AAA externo la aplica tal
+        cual: `granted = false` → no concede la sesión.
+
+        Regla (sólo como referencia; no la reimplemente): concede si
+        `service_status` es `activo` o `gratis` **y** la ficha está habilitada
+        (`is_enabled`). Cualquier otro caso niega, incluido un estado nulo o uno
+        que esta versión del contrato no conozca (fail-closed).
+      properties:
+        granted:
+          type: boolean
+          description: "`true` = hay servicio. Es el único campo que decide."
+        reason:
+          type: string
+          description: |
+            Por qué. Para mostrar y diagnosticar, no para decidir.
+
+            - `active` — al día.
+            - `courtesy` — servicio de cortesía (`gratis`).
+            - `suspended` — cortado por mora; sigue facturando.
+            - `cancelled` / `retired` — baja.
+            - `disabled` — estado que da servicio pero la ficha está
+              deshabilitada (datos anteriores a `service_status`).
+            - `unknown_status` — sin estado comercial reconocible.
+
+            Pueden aparecer motivos nuevos en versiones menores: trate uno
+            desconocido como informativo y decida siempre por `granted`.
+          enum: [active, courtesy, suspended, cancelled, retired, disabled, unknown_status]
+      example:
+        granted: false
+        reason: suspended
+
+    Router:
+      type: object
+      properties:
+        router_id: { type: integer, description: Identificador estable. }
+        name:
+          type: string
+          description: Nombre del router. **Editable**; no sirve como llave.
+          example: PILOTO-AAA
+        status:
+          type: string
+          nullable: true
+          description: Estado operativo registrado en ISPWatch.
+          enum: [active, inactive, maintenance]
+        managed_by_external_aaa:
+          type: boolean
+          description: |
+            `true` = ISPWatch no escribe en este equipo: el AAA externo ejecuta
+            altas, cortes y reconexiones. No cambia quién decide (ver `Access`).
+        customers_count:
+          type: integer
+          description: Abonados asignados. `0` = router sin clientes todavía.
 
     # ---- Recursos ----------------------------------------------------------
 
@@ -1024,12 +1222,11 @@ components:
             `service_status`, pero hoy los dos se mueven juntos: el corte (por
             mora o manual) lo pone en `false` y la reconexión en `true`.
 
-            Una integración fail-closed debe exigir **ambos**
-            (`service_status` en `activo`/`gratis` **y** `is_enabled = true`):
-            puede haber datos anteriores a `service_status` donde no
-            coinciden. Si cambia sin que cambie `service_status`, el feed
-            emite `CUSTOMER_UPDATED` con `is_enabled` en `fields`.
+            Para decidir acceso use `access`, que ya combina este campo con
+            `service_status`. Si cambia sin que cambie `service_status`, el
+            feed emite `CUSTOMER_UPDATED` con `is_enabled` en `fields`.
         service_status: { $ref: "#/components/schemas/ServiceStatus" }
+        access: { $ref: "#/components/schemas/Access" }
         credit_balance:
           allOf: [{ $ref: "#/components/schemas/Decimal" }]
           description: Saldo a favor del cliente.
@@ -1095,8 +1292,9 @@ components:
         service_status:
           allOf: [{ $ref: "#/components/schemas/ServiceStatus" }]
           description: |
-            Estado comercial del cliente dueño. **Es el que decide si hay
-            servicio**, por encima de `status`.
+            Estado comercial del cliente dueño. Pesa por encima de `status`,
+            pero para decidir acceso use `access`.
+        access: { $ref: "#/components/schemas/Access" }
         technology:
           type: string
           enum: [FIBER, RADIO]

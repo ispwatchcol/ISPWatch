@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-10-11 · Rama: `feat/hoja-instalacion-solo-inventario`
+**Última actualización:** 2026-11-17 · Rama: `feat/partner-routers-and-access-authority`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
@@ -10971,3 +10971,49 @@ Prueba: `ApiAuthorizationTest::el_403_nombra_el_rol_evaluado_y_el_permiso_en_esp
   registro tardío como admin (línea marcada) y panel ausente para el técnico, gestor de unidades
   (alta, duplicado rechazado con mensaje, selector del producto) y modal a pantalla completa en 390 px
   sin scroll horizontal.
+
+## 127. Partner API 1.3.0: ISPWatch decide el acceso, `/routers` y cabeza del feed — 2026-11-17
+
+### Contexto
+
+CNO (tenant #19) valida su AAA externo contra la Partner API y preguntó tres cosas: cómo
+listar routers (buscaba el router lógico `PILOTO-AAA`), cómo fijar el primer cursor de
+`/events` sin recorrer el historial y cómo medir el consumo de la llave.
+
+Al responder apareció un problema de fondo: el contrato 1.2.x entregaba los ingredientes
+(`service_status`, `is_enabled`) y le explicaba al integrador cómo combinarlos. La regla
+quedaba escrita dos veces y, cuando difieren, manda la del AAA, que es la que está frente
+al abonado. **Decisión del producto:** ISPWatch es el sistema principal; el AAA ejecuta.
+
+### Qué cambió
+
+- `access: {granted, reason}` en `/customers` y `/services`, calculado por
+  `App\Support\PartnerAccessDecision` (una sola clase para ambos endpoints). Fail-closed:
+  concede sólo con `activo`/`gratis` **y** ficha habilitada.
+- `GET /routers` y `GET /routers/{id}` (`PartnerRouterController`, ability `read:services`):
+  `router_id`, `name`, `status`, `managed_by_external_aaa`, `customers_count`.
+- `meta.head` en `/events`: `MAX(seq)` publicado del tenant, sin filtros.
+- Contrato `docs/openapi/ispwatch-partner-v1.yaml` → **1.3.0** (aditivo): sección
+  «Quién decide», esquemas `Access` y `Router`, procedimiento de arranque con `head` y
+  cabeceras `X-RateLimit-*`.
+
+### Decisiones
+
+- **`granted` decide; `reason` informa.** Así se pueden agregar motivos en una versión
+  menor sin romper a nadie, y el AAA nunca tiene que mapear estados de ISPWatch.
+- **`/routers` bajo `read:services` y no una ability nueva.** Es la misma área (red), quien
+  filtra servicios por `router_id` necesita los routers, y una ability nueva obligaría a
+  re-emitir llaves. Sale por query builder con columnas explícitas, no por el modelo.
+- **Qué NO se hizo, a propósito:** endpoint de consumo de la llave (las cabeceras bastan y
+  la separación por integración se logra con una llave por integración); autorización por
+  `Access-Request` en línea (`rlm_rest`): exige disponibilidad de ISPWatch en cada inicio de
+  sesión y el límite de 60/min por llave no lo soporta; si se retoma, es un contrato aparte.
+  Tampoco escritura: la API sigue siendo sólo `GET`.
+
+### Verificación
+
+- `PartnerAccessAuthorityTest` (19 pruebas): matriz fail-closed, misma decisión en
+  `/customers` y `/services`, modo RADIUS que no cambia la decisión, `/routers` sin
+  credenciales ni routers ajenos, 403 sin `read:services`, `head` sin filtros y cursor de
+  arranque correcto. `PartnerOpenApiContractTest` sigue verde con las rutas nuevas.
+

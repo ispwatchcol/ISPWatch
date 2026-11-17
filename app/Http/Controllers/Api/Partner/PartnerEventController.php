@@ -78,6 +78,16 @@ class PartnerEventController extends PartnerController
 
         $last = $events->last();
 
+        // Último `event_id` publicado del tenant AHORA, sin los filtros de
+        // tipo ni de cliente. Es el cursor de arranque de una sincronización
+        // inicial: leído ANTES del barrido de /customers y /services, todo lo
+        // que cambie durante el barrido llega después de él. Sin este campo,
+        // conocer la cabeza exigía recorrer el historial entero desde 0.
+        $head = (int) (PartnerEvent::query()
+            ->published()
+            ->where('tenant_id', $tenantId)
+            ->max('seq') ?? 0);
+
         return response()->json([
             'data' => $events->map(fn (PartnerEvent $e) => [
                 'event_id'    => (int) $e->seq,
@@ -100,6 +110,8 @@ class PartnerEventController extends PartnerController
                 // true = quedan más ahora mismo; el integrador puede seguir
                 // pidiendo sin esperar al próximo ciclo.
                 'has_more'   => $events->count() === $limit,
+                // Cabeza del feed del tenant; ver arriba.
+                'head'       => $head,
             ],
         ]);
     }
