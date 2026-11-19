@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Partner;
 
 use App\Models\CustomerProfile;
+use App\Support\PartnerAccessDecision;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -186,6 +187,9 @@ class PartnerCustomerController extends PartnerController
             'installation_date'    => $row->installation_date,
             'is_enabled'           => (bool) $row->status,
             'service_status'       => $row->service_status,
+            // La decisión de acceso, ya tomada por ISPWatch. El AAA externo la
+            // aplica; no la recalcula con `service_status` + `is_enabled`.
+            'access'               => PartnerAccessDecision::for($row->service_status, $row->status),
             'credit_balance'       => $row->credit_balance,
             'excluded_from_billing' => (bool) $row->exclude_from_billing,
             'is_fiber'             => (bool) $row->is_fiber,

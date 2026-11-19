@@ -5,7 +5,7 @@
 > validación reales de cada `FormRequest` o `$request->validate()`.
 > Cuando un endpoint no declara validación explícita se indica así en lugar de inventar campos.
 
-**Última actualización:** 2026-07-30 (post-remediación) · Prefijo base: `/api`
+**Última actualización:** 2026-11-17 (Partner API 1.3.0) · Prefijo base: `/api`
 
 ---
 
@@ -3279,7 +3279,7 @@ Catálogo en `config/api_keys.php`. No existe comodín `*` a propósito.
 | Ability | Da acceso a |
 |---|---|
 | `read:customers` | `/customers`, `/customers/{id}` |
-| `read:services` | `/services`, `/services/{id}` |
+| `read:services` | `/services`, `/services/{id}`, `/routers`, `/routers/{id}` |
 | `read:events` | `/events` |
 | `read:billing` | `/invoices`, `/payments` |
 | `read:support` | `/tickets`, `/installations` |
@@ -3298,6 +3298,8 @@ red de cada punto.
 | `GET` | `/api/v1/partner/customers/{id}` | `read:customers` | — |
 | `GET` | `/api/v1/partner/services` | `read:services` | `customer_id`, `router_id`, `status`, `service_status`, `updated_since`, `page` **o** `after_id`, `per_page` |
 | `GET` | `/api/v1/partner/services/{id}` | `read:services` | — |
+| `GET` | `/api/v1/partner/routers` | `read:services` | `managed_by_external_aaa`, `page` **o** `after_id`, `per_page` |
+| `GET` | `/api/v1/partner/routers/{id}` | `read:services` | — |
 | `GET` | `/api/v1/partner/events` | `read:events` | `since`, `limit` (máx. 500), `event_type`, `customer_id` |
 | `GET` | `/api/v1/partner/invoices` | `read:billing` | `status`, `customer_id`, `from`, `to`, `updated_since`, `page`, `per_page` |
 | `GET` | `/api/v1/partner/payments` | `read:billing` | `customer_id`, `status`, `from`, `to`, `page`, `per_page` |
@@ -3433,6 +3435,38 @@ RADIUS en el router (`from` = `to`, un evento por cliente del router). Ejemplos 
 **Retención:** hoy los eventos no se podan. Compromiso con los integradores: si se
 introduce retención, se avisa antes y un cursor más viejo que lo conservado recibe
 un error explícito, nunca un lote silenciosamente incompleto.
+
+#### ISPWatch decide, el AAA ejecuta (OpenAPI 1.3.0, 2026-11-17)
+
+Principio del contrato: **la decisión de quién tiene servicio la toma ISPWatch** y viaja
+ya tomada; el AAA externo (p. ej. el FreeRADIUS de CNO) la aplica, no la recalcula.
+
+- **`access`** en `/customers` y `/services`: `{granted: boolean, reason: string}`. Lo
+  calcula `App\Support\PartnerAccessDecision`, la misma clase para los dos endpoints.
+  Concede sólo con `service_status` ∈ {`activo`, `gratis`} **y** `is_enabled = true`;
+  cualquier otro caso niega (fail-closed), incluido un estado nulo o desconocido.
+  `reason` ∈ `active`, `courtesy`, `suspended`, `cancelled`, `retired`, `disabled`,
+  `unknown_status`. Se decide por `granted`; `reason` es para diagnóstico.
+- **`managed_by_external_aaa` no transfiere autoridad.** Sólo dice que ISPWatch no escribe
+  en ese equipo. Un abonado suspendido en un router RADIUS sale con `granted: false`.
+- **Si el AAA no puede consultar**, aplica la última decisión conocida dentro de su edad
+  máxima; nunca concede a quien ISPWatch le negó.
+
+**`/routers`** (`read:services`): `router_id`, `name`, `status`, `managed_by_external_aaa`,
+`customers_count`. Incluye routers **sin** abonados (un piloto recién creado), que no
+aparecen en ningún barrido. **No** expone IP, puerto, usuario, contraseña ni interfaz:
+la tabla `router` guarda credenciales y la lista blanca de columnas es el control.
+
+**`meta.head`** en `/events`: último `event_id` publicado del tenant al responder, sin
+los filtros `event_type`/`customer_id`. Es el cursor de arranque: leído **antes** del
+barrido, se reproduce `/events?since=<head>` después, sin recorrer el historial desde 0.
+Cualquier `next_since` leído antes del barrido sirve igual; un número inventado no.
+
+**Límites (cabeceras):** cada respuesta trae `X-RateLimit-Limit`/`X-RateLimit-Remaining`
+del límite **más cercano a agotarse** (normalmente el de 60/min; el de 5.000/h sólo
+aparece cuando su saldo es menor). Las ventanas empiezan con la primera petición tras
+vencer la anterior, no con el reloj. El cupo es **por llave**: dos integraciones con la
+misma llave no se pueden distinguir; se separan emitiendo una llave para cada una.
 
 #### `revision`
 

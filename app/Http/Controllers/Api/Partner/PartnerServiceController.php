@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Partner;
 
 use App\Models\UserService;
+use App\Support\PartnerAccessDecision;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -155,6 +156,9 @@ class PartnerServiceController extends PartnerController
             'user_services.end_date',
             'user_services.updated_at',
             'customer_profile.service_status',
+            // `status` de la ficha = `is_enabled` en /customers. Entra sólo para
+            // calcular `access`; no se publica suelto en el servicio.
+            'customer_profile.status as profile_enabled',
             'customer_profile.ip_user',
             'customer_profile.pppoe_username',
             'customer_profile.is_fiber',
@@ -183,6 +187,10 @@ class PartnerServiceController extends PartnerController
             // Son cosas distintas: el segundo es el que decide si hay servicio.
             'status'         => $row->status,
             'service_status' => $row->service_status,
+
+            // La decisión de acceso, ya tomada por ISPWatch: misma regla que
+            // en /customers (ver PartnerAccessDecision). El AAA la aplica.
+            'access' => PartnerAccessDecision::for($row->service_status, $row->profile_enabled),
 
             'technology'          => $row->is_fiber ? 'FIBER' : 'RADIO',
             'excluded_from_billing' => (bool) $row->exclude_from_billing,
