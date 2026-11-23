@@ -286,6 +286,12 @@ existencias sin registrar el movimiento y el historial dejaría de explicar el s
 se leen con `lockForUpdate()` (salvo en SQLite, donde corre la suite y no hay concurrencia real)
 para que dos técnicos descargando material a la vez no lo dejen en negativo.
 
+Una **petición** con varias líneas también es una unidad: `POST /inventory/transfers` envuelve
+todo su ciclo en una transacción exterior (las del ledger quedan como puntos de guardado), así
+que un `422` en cualquier línea no deja grabadas las anteriores; y `POST /inventory` crea el
+equipo y su entrada de kardex juntos. Hasta 2026-11-23 sólo cada línea era atómica (§ 128 de la
+bitácora).
+
 **3. Cada quien descarga lo suyo.** `canTakeFrom()` decide qué puede tomar un usuario:
 
 | Origen | Quién puede tomarlo |
@@ -320,7 +326,9 @@ ajenas en silencio.
 existencia. Un material la obtiene sólo por una entrada del ledger (saldo en
 `inventory_balances`), y un equipo con serial, sólo como fila de `inventory_device` de un modelo
 **por serial**: desde 2026-10-11 el alta de equipos y la carga masiva rechazan un modelo por
-cantidad, y la disponibilidad ignora las filas antiguas que lo hicieron.
+cantidad, y la disponibilidad ignora las filas antiguas que lo hicieron. En pantalla los dos pasos
+viven juntos desde 2026-11-23: *Ingresar al inventario* (`InventoryIntake.vue`) crea el producto si
+hace falta y registra la entrada, sin endpoint propio (usa los de catálogo, alta y entrada).
 
 **Sin fuentes paralelas.** El consumo de material sólo existe como línea de
 `installation_equipment`/`ticket_equipment`. El antiguo «Cable utilizado (metros)» de la hoja

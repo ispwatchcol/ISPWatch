@@ -254,7 +254,7 @@ class InventoryAvailability
             return [
                 'code'    => 'no_consumable_products',
                 'message' => 'No hay productos configurados «por cantidad» en el inventario. Los consumibles '
-                    . '(cable, conectores…) se crean en Inventarios → Agregar material («Por cantidad»); un producto '
+                    . '(cable, conectores…) se crean en Inventarios → Ingresar al inventario → Material por cantidad; un producto '
                     . 'creado «por serial» sólo aparece en la lista de equipos con serial.',
                 'inaccessible_products' => 0,
             ];
@@ -271,7 +271,7 @@ class InventoryAvailability
             return [
                 'code'    => 'no_stock',
                 'message' => 'Ningún producto por cantidad tiene saldo registrado. La existencia entra por '
-                    . 'Inventarios → Entregas y traspasos → Entrada de material, a una bodega o a una persona.',
+                    . 'Inventarios → Ingresar al inventario, a una bodega o a una persona.',
                 'inaccessible_products' => 0,
             ];
         }

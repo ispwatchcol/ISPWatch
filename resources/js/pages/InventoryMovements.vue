@@ -20,13 +20,9 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Persona o bodega</label>
-            <select v-model="filters.holder" @change="reload"
-              class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl
-                     bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm
-                     focus:ring-2 focus:ring-purple-500 outline-none">
-              <option value="">Todas</option>
-              <option v-for="opt in holderOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-            </select>
+            <SearchableSelect v-model="filters.holder" :items="holderOptions" item-key="key" item-label="label"
+              item-sublabel="kind" item-icon="md-storemalldirectory" placeholder="Todas"
+              search-placeholder="Buscar bodega o persona…" clearable clear-label="Todas" size="sm" />
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipo</label>
@@ -122,13 +118,9 @@
           </p>
 
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nuevo custodio</label>
-          <select v-model="rescateDestino"
-            class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl
-                   bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm mb-4
-                   focus:ring-2 focus:ring-purple-500 outline-none">
-            <option value="">Selecciona…</option>
-            <option v-for="opt in holderOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
-          </select>
+          <SearchableSelect v-model="rescateDestino" :items="holderOptions" item-key="key" item-label="label"
+            item-sublabel="kind" item-icon="md-storemalldirectory" placeholder="Selecciona…"
+            search-placeholder="Buscar bodega o persona…" size="sm" class="mb-4" />
 
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cantidad</label>
           <input v-model.number="rescateCantidad" type="number" min="0.01" :max="rescate.quantity" step="0.01"
@@ -238,12 +230,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import inventoryApi from '@/services/api/inventory'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import catalogsApi from '@/services/api/catalogs'
 import NotificationToast from '@/components/NotificationToast.vue'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const toast = ref(null)
 const loading = ref(false)
@@ -310,10 +303,13 @@ const confirmarRescate = async () => {
 
 const holderOptions = computed(() => {
   const options = []
-  for (const b of branches.value) options.push({ key: `branch:${b.id}`, label: b.name || `Sucursal #${b.id}` })
-  for (const u of staff.value) options.push({ key: `user:${u.id}`, label: u.name })
+  for (const b of branches.value) options.push({ key: `branch:${b.id}`, label: b.name || `Sucursal #${b.id}`, kind: 'Sucursal / bodega' })
+  for (const u of staff.value) options.push({ key: `user:${u.id}`, label: u.name, kind: 'Persona' })
   return options
 })
+
+// El desplegable con buscador no tiene @change: el filtro recarga al cambiar.
+watch(() => filters.value.holder, (value, old) => { if (value !== old) reload() })
 
 const fmtQty = (n) => {
   const value = Number(n) || 0

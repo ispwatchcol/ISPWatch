@@ -86,20 +86,23 @@
                     </p>
                 </div>
 
-                <!-- Asignar Staff -->
+                <!-- Asignar Staff (con buscador por nombre o correo) -->
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Asignado a
                     </label>
-                    <select
+                    <SearchableSelect
                         v-model="form.staff_id"
-                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        <option value="">Sin asignar</option>
-                        <option v-for="member in staffList" :key="member.id" :value="member.id">
-                            {{ member.user_name }} {{ member.user_lastname }} ({{ member.email }})
-                        </option>
-                    </select>
+                        :items="staffList"
+                        :item-label="nombreDelTecnico"
+                        item-sublabel="email"
+                        placeholder="Sin asignar"
+                        search-placeholder="Buscar técnico por nombre o correo…"
+                        empty-text="No hay técnicos para asignar."
+                        clearable
+                        clear-label="Sin asignar"
+                        size="lg"
+                    />
                 </div>
 
                 <!-- Diagnóstico técnico (PR #2) -->
@@ -165,6 +168,7 @@ import api from '../services/api'
 import NotificationToast from '../components/NotificationToast.vue'
 import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
 import TicketSubjectField from '../components/TicketSubjectField.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import { useAuthStore } from '../stores/auth'
 
@@ -209,6 +213,7 @@ const diagnostico = ref({
 })
 
 const staffList = ref([])
+const nombreDelTecnico = (m) => `${m.user_name ?? ''} ${m.user_lastname ?? ''}`.trim() || m.name || m.email || `#${m.id}`
 const loading = ref(true)
 const errors = ref({})
 const submitting = ref(false)

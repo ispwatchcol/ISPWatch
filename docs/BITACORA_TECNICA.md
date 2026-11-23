@@ -11017,3 +11017,83 @@ al abonado. **Decisión del producto:** ISPWatch es el sistema principal; el AAA
   credenciales ni routers ajenos, 403 sin `read:services`, `head` sin filtros y cursor de
   arranque correcto. `PartnerOpenApiContractTest` sigue verde con las rutas nuevas.
 
+
+---
+
+## 128. Buscador en los «asignar a» y un solo sitio para ingresar al inventario — 2026-11-23
+
+### Pedido
+
+Dos cosas del mismo operador. (1) Todos los «Asignado a» y «agregar material» de tickets e
+instalaciones —y el «Asignado a» del alta de un equipo con serial— eran `<select>` nativos: con
+cien usuarios o diecisiete síntomas había que bajar a ojo. (2) El menú de *Inventarios* tenía
+ocho entradas y tres «agregar» distintos; dar de alta un material eran dos pantallas (crearlo en
+*Stock / Modelos* sin existencia y luego buscar la *Entrada de material* al pie de *Entregas y
+traspasos*), y los equipos con serial se cargaban de a uno.
+
+### Qué se hizo
+
+- **`SearchableSelect` como reemplazo del `<select>`** en: *Editar ticket* (asignado y los cinco
+  campos de diagnóstico vía `TicketDiagnosisFields`), intervenciones (técnico y acompañante),
+  *Equipos de la visita* (material y equipo a retirar con su destino), *Agendar / Editar
+  instalación* (técnico), la ficha del equipo (modelo, proveedor, sucursal, asignado), *Entregas
+  y traspasos* (origen, destino) y *Movimientos* (filtro de custodio, destino del rescate). La
+  hoja de instalación ya tenía buscador en ventana para serial y material (§ 126); *Nuevo
+  ticket* ya usaba `SearchableSelect`.
+- El componente ganó `disabled`, `invalid`, `clear-value` (emite `null` donde el backend lo
+  espera), `item-sublabel`/`item-search`, tamaños, teclado con desplazamiento, y la búsqueda del
+  buscador en ventana: sin tildes ni mayúsculas, sin separadores, todas las palabras.
+- **Menú de 8 a 5 entradas**: *Equipos y existencias*, **Ingresar al inventario**, *Entregas y
+  traspasos*, *Movimientos* y *Catálogo* (Stock / Proveedores / Sucursales con una barra de
+  pestañas, `InventoryCatalogNav`).
+- **`InventoryIntake.vue`** (`/inventory/ingreso`): material por cantidad con varias líneas a un
+  destino en una sola llamada, y equipos con serial con una fila por unidad (Enter del lector de
+  código de barras salta de serial a MAC y abre la fila siguiente). Si el material o el modelo
+  no existe se crea ahí mismo. Los enlaces viejos redirigen (`/inventory/create`,
+  `transfers?entrada=`). *Stock / Modelos* deja un solo «Nuevo producto».
+- **Entregas y traspasos**: sin la entrada de material; filtro por serial/MAC/modelo, «Todos» los
+  filtrados, «Todo» por material y botón ⇄ para recibir de vuelta.
+
+### Bug encontrado: la entrega de varias líneas no era atómica
+
+`InventoryMovementController::store` llamaba al ledger línea por línea; cada línea tenía su
+`DB::transaction`, el ciclo no. Con un `422` en la segunda línea (2,5 conectores en un producto de
+enteros), la primera ya estaba grabada y la pantalla decía «error»: el usuario reintentaba y la
+duplicaba. Ya pasaba en *Entregas* con equipos y materiales mezclados; el ingreso de varias
+líneas lo volvía cotidiano. Ahora el ciclo entero va en una transacción (el gasto automático de
+la entrada escribe en la misma BD y se revierte con ella). Igual en `InventoryDeviceController::
+store`: equipo y su entrada de kardex juntos.
+
+Prueba: `MaterialCatalogEntryFlowTest::a_multi_line_entry_is_all_or_nothing`. Sin el arreglo falla
+con «La primera línea no debe quedar grabada — 100.0 ≠ 0».
+
+### Otros dos hallazgos al verificar en navegador
+
+- La lista de un `SearchableSelect` va teletransportada a `<body>` con `z-app-dropdown` (1000),
+  **debajo** de los modales `z-app-modal` (2000): en el modal de intervenciones se habría abierto
+  detrás. Capa nueva `z-app-modal-dropdown` (2500), elegida con `closest('.z-app-modal')`, y fijada
+  en `NotificationLayeringTest`.
+- «wifi» no encontraba «Wi-Fi» en el síntoma: se añadió la comparación sin separadores.
+
+### Decisiones y deuda aceptada
+
+- **Una sola casilla «Queda en»** al ingresar equipos (persona o sucursal), no las dos de la ficha:
+  la custodia es una sola (el ledger pone `user_id` o `branch_id`). La ficha conserva ambas.
+- **Ingreso de equipos por lotes = una llamada por unidad** (P-117): reusa la validación de serial
+  único y la entrada de kardex del alta individual sin endpoint nuevo.
+- **No se filtró a personal el «Asignado a» de la ficha** (P-118) para no des-asignar equipos que
+  hoy tengan un cliente en `user_id`.
+- Sectorial / Core / Plan de la hoja siguen nativos (P-119): no son «asignar a» y usan grupos.
+- Los mensajes del backend que mandaban a «Agregar material» o a «Entregas y traspasos → Entrada
+  de material» (alta de equipo, carga masiva, disponibilidad de la orden) apuntan ahora a
+  *Ingresar al inventario*. El artículo del Centro de ayuda queda para una migración de contenido
+  aparte (P-120).
+- El recorrido `tests/Browser/material-por-cantidad.mjs` ya estaba desfasado (buscaba un input de
+  unidad que es `<select>` desde P-92 y un `<select>` de material en la orden que es ventana desde
+  § 126); se reescribió para el flujo nuevo con `choose()` para los desplegables y `WAIT_MS` para
+  `php -S`, que atiende una petición a la vez. 12 pasos en verde.
+
+### Verificación
+
+Suite completa por carpetas en verde (Inventario 197, Soporte 514, UI 18 y el resto). Recorrido de
+navegador contra backend aislado en SQLite: 12/12.

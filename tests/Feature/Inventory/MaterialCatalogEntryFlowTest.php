@@ -275,24 +275,80 @@ class MaterialCatalogEntryFlowTest extends TestCase
     // ── Pantallas (no hay navegador en la suite: se fija la fuente) ──────
 
     #[Test]
+    public function a_multi_line_entry_is_all_or_nothing(): void
+    {
+        // «Ingresar al inventario» manda varias líneas de una compra en una sola
+        // llamada. Antes cada línea se grababa por su cuenta: si la segunda
+        // fallaba, la primera quedaba dentro y el reintento la duplicaba.
+        $fibra = $this->createFibraDrop();
+        $rj45 = InventoryStock::findOrFail($this->postJson('/api/inventory-stock', [
+            'brand' => 'GENÉRICO', 'model' => 'RJ45', 'price' => 300,
+            'is_serialized' => false, 'unit' => 'unidad', 'quantity_decimals' => 0,
+        ])->assertCreated()->json('id'));
+
+        $this->postJson('/api/inventory/transfers', [
+            'to_type' => 'branch', 'to_id' => $this->bodega->id,
+            'materials' => [
+                ['stock_id' => $fibra->id, 'quantity' => 100],
+                ['stock_id' => $rj45->id, 'quantity' => 2.5], // piezas: no admite decimales
+            ],
+            'notes' => 'Entrada de material',
+        ])->assertStatus(422);
+
+        $this->assertEquals(0, $this->balance($fibra, 'branch', $this->bodega->id), 'La primera línea no debe quedar grabada.');
+        $this->assertSame(0, InventoryMovement::withoutTenantScope()->count(), 'Ni un movimiento de la llamada fallida.');
+
+        // Corregida la línea, entran las dos en la misma llamada.
+        $this->postJson('/api/inventory/transfers', [
+            'to_type' => 'branch', 'to_id' => $this->bodega->id,
+            'materials' => [
+                ['stock_id' => $fibra->id, 'quantity' => 100],
+                ['stock_id' => $rj45->id, 'quantity' => 50],
+            ],
+            'notes' => 'Entrada de material',
+        ])->assertCreated();
+
+        $this->assertEquals(100, $this->balance($fibra, 'branch', $this->bodega->id));
+        $this->assertEquals(50, $this->balance($rj45, 'branch', $this->bodega->id));
+        $this->assertSame(2, InventoryMovement::withoutTenantScope()->where('type', 'entrada')->count());
+    }
+
+    #[Test]
     public function the_screens_lead_to_the_material_flow(): void
     {
+        // Un solo sitio por donde entra mercancía; ya no hay tres «agregar» en el menú.
         $sidebar = file_get_contents(resource_path('js/components/Sidebar.vue'));
-        $this->assertStringContainsString("name: 'Agregar material', to: '/inventory/stocks?nuevo=material'", $sidebar);
-        $this->assertStringContainsString("name: 'Agregar equipo con serial'", $sidebar);
+        $this->assertStringContainsString("name: 'Ingresar al inventario', to: '/inventory/ingreso'", $sidebar);
+        $this->assertStringNotContainsString("name: 'Agregar material'", $sidebar);
+        $this->assertStringNotContainsString("name: 'Agregar equipo con serial'", $sidebar);
 
+        $router = file_get_contents(resource_path('js/router/index.js'));
+        $this->assertStringContainsString("name: 'InventoryIntake'", $router);
+        // Marcadores viejos: el alta de equipo y la entrada de material llegan al ingreso.
+        $this->assertStringContainsString("redirect: { name: 'InventoryIntake', query: { tipo: 'equipo' } }", $router);
+        $this->assertStringContainsString('to.query.entrada', $router);
+
+        // El ingreso de material: sólo productos por cantidad, alta en línea y
+        // la misma llamada de entrada (transfer sin origen).
+        $intake = file_get_contents(resource_path('js/pages/InventoryIntake.vue'));
+        $this->assertStringContainsString('s.is_serialized === false', $intake);
+        $this->assertStringContainsString('is_serialized: false', $intake);
+        $this->assertStringContainsString('inventoryApi.transfer(', $intake);
+        $this->assertStringContainsString('route.query.material', $intake);
+        // Y el de equipos sólo ofrece modelos por serial.
+        $this->assertStringContainsString('s.is_serialized !== false', $intake);
+
+        // La ficha del equipo sigue sin ofrecer materiales.
         $form = file_get_contents(resource_path('js/pages/InventoryForm.vue'));
-        $this->assertStringContainsString('v-for="stock in serialStocks"', $form);
-        $this->assertStringContainsString('data-testid="material-hint"', $form);
+        $this->assertStringContainsString(':items="serialStocks"', $form);
 
         $stock = file_get_contents(resource_path('js/pages/StockList.vue'));
-        $this->assertStringContainsString('data-testid="add-material"', $stock);
         $this->assertStringContainsString('data-testid="price-help"', $stock);
-        $this->assertStringContainsString("query: { entrada: item.id }", $stock);
+        $this->assertStringContainsString("name: 'InventoryIntake', query: { tipo: 'material', material: item.id }", $stock);
 
+        // Entregas ya no registra entradas: sólo mueve lo que existe.
         $transfers = file_get_contents(resource_path('js/pages/InventoryTransfers.vue'));
-        $this->assertStringContainsString('id="entrada"', $transfers);
-        $this->assertStringContainsString('route.query.entrada', $transfers);
+        $this->assertStringNotContainsString('id="entrada"', $transfers);
     }
 
     private function installation(): CustomerInstallation

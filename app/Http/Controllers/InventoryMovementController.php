@@ -201,6 +201,13 @@ class InventoryMovementController extends Controller
     /**
      * Entrega/traspaso: mueve equipos y/o material a un custodio.
      * Sin origen en un material, el movimiento es una ENTRADA (compra o ajuste).
+     *
+     * Todo o nada. Cada línea ya iba en su propia transacción dentro del
+     * ledger, pero el ciclo no: si la tercera línea fallaba (decimales, saldo
+     * insuficiente, equipo instalado) las dos primeras quedaban grabadas y la
+     * pantalla decía «error», así que el usuario reintentaba y las duplicaba.
+     * Con «Ingresar al inventario» mandando varias líneas por compra, eso
+     * pasaba a ser fácil de provocar.
      */
     public function store(Request $request)
     {
@@ -226,48 +233,53 @@ class InventoryMovementController extends Controller
         }
 
         $actor = $request->user();
-        $moved = 0;
 
-        foreach ($data['device_ids'] ?? [] as $deviceId) {
-            $device = InventoryDevice::with('stock')->findOrFail($deviceId);
-            $this->ledger->transferDevice(
-                $device,
-                $data['to_type'],
-                (int) $data['to_id'],
-                $actor,
-                $data['notes'] ?? null
-            );
-            $moved++;
-        }
+        $moved = DB::transaction(function () use ($data, $actor) {
+            $moved = 0;
 
-        foreach ($data['materials'] ?? [] as $material) {
-            $stock = InventoryStock::findOrFail($material['stock_id']);
-
-            if ($stock->is_serialized) {
-                throw ValidationException::withMessages([
-                    'materials' => "{$stock->label()} se maneja por serial: entrégalo eligiendo sus equipos, no por cantidad.",
-                ]);
+            foreach ($data['device_ids'] ?? [] as $deviceId) {
+                $device = InventoryDevice::with('stock')->findOrFail($deviceId);
+                $this->ledger->transferDevice(
+                    $device,
+                    $data['to_type'],
+                    (int) $data['to_id'],
+                    $actor,
+                    $data['notes'] ?? null
+                );
+                $moved++;
             }
 
-            $sourceType = $material['source_type'] ?? null;
-            $sourceId   = $material['source_id'] ?? null;
+            foreach ($data['materials'] ?? [] as $material) {
+                $stock = InventoryStock::findOrFail($material['stock_id']);
 
-            if ($sourceType !== null) {
-                $this->assertOrigenUtilizable($sourceType, (int) $sourceId, $stock);
+                if ($stock->is_serialized) {
+                    throw ValidationException::withMessages([
+                        'materials' => "{$stock->label()} se maneja por serial: entrégalo eligiendo sus equipos, no por cantidad.",
+                    ]);
+                }
+
+                $sourceType = $material['source_type'] ?? null;
+                $sourceId   = $material['source_id'] ?? null;
+
+                if ($sourceType !== null) {
+                    $this->assertOrigenUtilizable($sourceType, (int) $sourceId, $stock);
+                }
+
+                $this->ledger->transferQuantity(
+                    $stock,
+                    $sourceType,
+                    $sourceId === null ? null : (int) $sourceId,
+                    $data['to_type'],
+                    (int) $data['to_id'],
+                    (float) $material['quantity'],
+                    $actor,
+                    $data['notes'] ?? null
+                );
+                $moved++;
             }
 
-            $this->ledger->transferQuantity(
-                $stock,
-                $sourceType,
-                $sourceId === null ? null : (int) $sourceId,
-                $data['to_type'],
-                (int) $data['to_id'],
-                (float) $material['quantity'],
-                $actor,
-                $data['notes'] ?? null
-            );
-            $moved++;
-        }
+            return $moved;
+        });
 
         return response()->json([
             'message' => $moved === 1

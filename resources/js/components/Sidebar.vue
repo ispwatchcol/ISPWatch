@@ -311,24 +311,22 @@ const gestionItems = computed(() => {
 // ─── Submenú: Inventarios ───
 const inventariosItems = computed(() => {
     const items = [];
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Lista de equipos', to: '/inventory', icon: 'bi-hdd-network' });
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Agregar equipo con serial', to: '/inventory/create', icon: 'oi-diff-added' });
-    // Los materiales (cable, fibra, conectores) no llevan serial: se crean en el
-    // catálogo «por cantidad» y su existencia entra por Entrada de material.
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Agregar material', to: '/inventory/stocks?nuevo=material', icon: 'oi-diff-added' });
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Stock / Modelos', to: '/inventory/stocks', icon: 'md-inventory-round' });
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Proveedores', to: '/inventory/providers', icon: 'bi-building' });
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Sucursales', to: '/inventory/branches', icon: 'md-storemalldirectory' });
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Entregas y traspasos', to: '/inventory/transfers', icon: 'bi-arrow-left-right' });
-    if (authStore.hasPermission('view_inventory'))
-        items.push({ name: 'Movimientos', to: '/inventory/movements', icon: 'bi-clock-history' });
+    // Cinco entradas en vez de ocho. Antes había tres «agregar» (equipo con
+    // serial, material, y la entrada de material escondida en Entregas): ahora
+    // todo lo que entra va por «Ingresar al inventario». Stock / Modelos,
+    // Proveedores y Sucursales —que se tocan poco— van juntos en «Catálogo»,
+    // con su propia barra de pestañas arriba de cada página.
+    if (!authStore.hasPermission('view_inventory')) return items;
+    items.push({ name: 'Equipos y existencias', to: '/inventory', icon: 'bi-hdd-network' });
+    items.push({ name: 'Ingresar al inventario', to: '/inventory/ingreso', icon: 'oi-diff-added' });
+    items.push({ name: 'Entregas y traspasos', to: '/inventory/transfers', icon: 'bi-arrow-left-right' });
+    items.push({ name: 'Movimientos', to: '/inventory/movements', icon: 'bi-clock-history' });
+    items.push({
+        name: 'Catálogo',
+        to: '/inventory/stocks',
+        icon: 'md-inventory-round',
+        match: ['/inventory/stocks', '/inventory/providers', '/inventory/branches'],
+    });
     return items;
 });
 

@@ -2119,6 +2119,18 @@ Cuerpo de `POST /api/inventory/transfers`:
 }
 ```
 
+**Todo o nada (desde 2026-11-23).** La llamada entera va en una transacción: si cualquier línea
+falla (precisión del producto, saldo insuficiente del origen, equipo instalado, producto por serial
+mandado como material), responde `422` y **no se graba ninguna** —ni saldos, ni movimientos, ni el
+gasto automático de las entradas—. Antes cada línea se confirmaba por su cuenta y un `422` en la
+tercera dejaba grabadas las dos primeras; el cliente reintentaba y las duplicaba. *Ingresar al
+inventario* manda así las varias líneas de una compra (todas sin `source_*`, es decir, entradas).
+
+Del mismo modo, `POST /api/inventory` (alta de un equipo con serial) crea el equipo y su primer
+movimiento de kardex (`entrada`) en la misma transacción. La pantalla de ingreso por lotes llama a
+este endpoint **una vez por unidad**: cada unidad es atómica, el lote no (ver P-117 en
+MEJORAS_RECOMENDADAS).
+
 Filtrar el kardex por custodio devuelve **las dos direcciones**: lo que entró y lo que salió de
 esa persona o bodega. Es lo que hace que "todo lo de Juan" signifique algo.
 

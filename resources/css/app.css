@@ -96,6 +96,12 @@ input[type="month"] {
     z-index: 2000;
 }
 
+/* Desplegable abierto DESDE un modal (SearchableSelect dentro de un
+   z-app-modal). Con z-app-dropdown se pintaba detrás del modal que lo abrió. */
+.z-app-modal-dropdown {
+    z-index: 2500;
+}
+
 /* Notificaciones: por encima de TODO lo anterior, sin excepción. */
 .z-app-toast {
     z-index: 3000;

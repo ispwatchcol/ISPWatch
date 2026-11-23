@@ -1,7 +1,8 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
     <main class="flex-1 p-4 md:p-8">
-      
+      <InventoryCatalogNav />
+
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
@@ -26,36 +27,29 @@
             <v-icon name="md-list" class="w-5 h-5 fill-current" />
             <span>Unidades de medida</span>
           </button>
-          <button
-            v-if="can('view_inventory')"
-            @click="openAddModal({ material: true })"
-            data-testid="add-material"
-            class="border border-purple-600 text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20
-                   px-5 py-2.5 rounded-xl flex items-center gap-2 font-medium w-full sm:w-auto justify-center transition-all"
-          >
-            <v-icon name="md-add" class="w-5 h-5 fill-current" />
-            <span>Agregar material</span>
-          </button>
+          <!-- Un solo «nuevo»: la ventana pregunta si es por serial o por
+               cantidad. Antes había «Agregar material» y «Nuevo Stock». -->
           <button
             v-if="can('view_inventory')"
             @click="openAddModal()"
+            data-testid="add-product"
             class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800
                    text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-lg hover:shadow-xl
                    transition-all transform hover:-translate-y-0.5
                    font-medium w-full sm:w-auto justify-center"
           >
             <v-icon name="md-add" class="w-5 h-5 fill-current" />
-            <span>Nuevo Stock</span>
+            <span>Nuevo producto</span>
           </button>
         </div>
       </div>
 
-      <!-- Los dos pasos del material, a la vista: el catálogo no crea existencia. -->
+      <!-- El catálogo no crea existencia: eso lo hace el ingreso. -->
       <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 mb-6 text-sm text-blue-900 dark:text-blue-200">
-        <p><strong>Materiales (cable, fibra, conectores):</strong> 1. créalos aquí con <em>Agregar material</em>
-          («Por cantidad», unidad y precisión); 2. registra cuánto hay con <em>Registrar entrada</em>
-          (Entregas y traspasos → Entrada de material). Crear el producto no le da existencia.
-          Los equipos con serial se registran uno por uno en <em>Agregar equipo con serial</em>.</p>
+        <p>Aquí se definen los productos (nombre, precio, si van por serial o por cantidad). Crear un producto
+          <strong>no le da existencia</strong>: lo que llega a la empresa se carga en
+          <RouterLink :to="{ name: 'InventoryIntake' }" class="underline font-medium">Ingresar al inventario</RouterLink>,
+          que además deja crear el material o el modelo ahí mismo si todavía no existe.</p>
       </div>
 
       <!-- Search -->
@@ -305,7 +299,7 @@
           <!-- Modal Header -->
           <div class="bg-gradient-to-r from-purple-600 to-purple-700 p-5 text-white sticky top-0 z-10">
             <div class="flex items-center justify-between">
-              <h3 class="text-lg font-semibold">{{ isEditing ? 'Editar Stock' : 'Nuevo Stock' }}</h3>
+              <h3 class="text-lg font-semibold">{{ isEditing ? 'Editar producto' : 'Nuevo producto' }}</h3>
               <button @click="closeFormModal" class="p-1 hover:bg-white/20 rounded-lg transition-colors">
                 <v-icon name="md-close" class="w-5 h-5" />
               </button>
@@ -527,6 +521,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import inventoryStockApi from '@/services/api/inventory-stock'
 import inventoryUnitApi from '@/services/api/inventory-unit'
 import InventoryUnitsModal from '@/components/InventoryUnitsModal.vue'
+import InventoryCatalogNav from '@/components/InventoryCatalogNav.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
@@ -666,11 +661,12 @@ const priceLabel = computed(() => form.value.is_serialized === false
   ? `Precio por ${form.value.unit || 'unidad'} (COP)`
   : 'Precio por unidad (COP)')
 
-/** Entrada de material con el producto ya elegido. */
-const entryLink = (item) => ({ path: '/inventory/transfers', query: { entrada: item.id }, hash: '#entrada' })
+/** Ingreso de material con el producto ya elegido. */
+const entryLink = (item) => ({ name: 'InventoryIntake', query: { tipo: 'material', material: item.id } })
 
-// ?nuevo=material (menú «Agregar material»): abre el alta y limpia la URL para
-// que recargar la página no la vuelva a abrir.
+// ?nuevo=material (enlace del antiguo menú «Agregar material», que pudo quedar
+// en marcadores): abre el alta ya en «Por cantidad» y limpia la URL para que
+// recargar la página no la vuelva a abrir.
 const openFromQuery = () => {
   if (route.query.nuevo !== 'material') return
   openAddModal({ material: true })

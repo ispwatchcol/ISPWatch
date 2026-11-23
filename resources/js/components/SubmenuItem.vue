@@ -27,7 +27,7 @@
           :to="item.to"
           class="group flex items-center gap-3 p-2 rounded-lg text-sm font-medium transition-all duration-200"
           :class="[
-            $route.path === item.to
+            isItemActive(item)
               ? 'bg-indigo-50 dark:bg-indigo-900/10 text-indigo-600 dark:text-indigo-400'
               : 'text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
           ]"
@@ -42,6 +42,7 @@
 
 <script setup>
 import { ref } from "vue";
+import { useRoute } from "vue-router";
 
 defineProps({
   icon: String,
@@ -50,4 +51,12 @@ defineProps({
 });
 
 const isOpen = ref(false);
+const route = useRoute();
+
+// Un ítem que agrupa varias páginas (p. ej. «Catálogo» de inventario) declara
+// `match` con los prefijos que lo encienden; el resto, la ruta exacta.
+const isItemActive = (item) => {
+  if (Array.isArray(item.match)) return item.match.some((prefix) => route.path.startsWith(prefix));
+  return route.path === item.to;
+};
 </script>
