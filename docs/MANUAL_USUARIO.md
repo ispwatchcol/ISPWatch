@@ -661,8 +661,8 @@ El técnico abre la instalación desde **Soporte → Instalaciones** y allí:
      esos datos son los del equipo y los materiales que registras aquí, que sí descuentan del
      inventario. El **cable** se ve sumado debajo de la lista (por ejemplo «Cable: 120 m ·
      FIBRA ÓPTICA 120 m»), y la hoja firmada imprime cada equipo con su **serial y su MAC**.
-     Si algo que usaste no está en el inventario, hay que crearlo allí primero (*Inventarios →
-     Agregar material* o *Agregar equipo con serial*).
+     Si algo que usaste no está en el inventario, hay que ingresarlo allí primero (*Inventarios →
+     Ingresar al inventario*, ver 15.1).
    - En órdenes **anteriores** que tenían esos datos escritos a mano, se siguen viendo en un
      recuadro **Registro manual anterior**, sólo de lectura: no se borran, pero tampoco cuentan
      como consumo de inventario.
@@ -1855,6 +1855,13 @@ Dos opciones importantes:
    *Cargo Asociado*. Con eso el ticket no podrá generar cargos — ni hoy ni dentro de un mes.
 7. Guarda.
 
+> **Los desplegables largos tienen buscador** (desde 2026-11): el técnico asignado —al crear, en
+> *Editar ticket* y en las intervenciones—, los cinco campos del **Diagnóstico técnico** (síntoma,
+> causas, acción, resultado) y, en *Equipos de la visita*, el material y el equipo a retirar. Se
+> abre el desplegable y se escribe parte del nombre, del correo o del código: «S07», «wifi»,
+> «perez». No importan tildes, mayúsculas ni guiones. Lo mismo vale para el **Técnico** al agendar
+> o editar una instalación.
+
 ### 14.1.1 Asuntos frecuentes (la lista del desplegable)
 
 **Soporte → botón Asuntos** (arriba, junto a *Nuevo Ticket*). Lo ve quien tiene el permiso
@@ -1913,6 +1920,8 @@ Ahora el ticket tiene su propio bloque, y funciona en los dos sentidos:
   > la papelera deshace el movimiento y el equipo vuelve a figurar en casa del cliente.
 - **Agregar material** (amarres y RJ45 por unidades, cable por metros) con su cantidad, igual que
   en la instalación. En la misma visita puedes entregar una unidad con serial y gastar materiales.
+  El desplegable del material y el del equipo a retirar tienen **buscador**: lo abres y escribes
+  «cable», «rj45» o parte del serial en vez de bajar por la lista.
 
 > Sólo ves lo que **tú** tienes asignado, más lo del técnico asignado al ticket. Las bodegas sólo
 > si administras inventario. Si no ves nada, pide que te entreguen equipos en
@@ -2200,21 +2209,26 @@ Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificació
 
 ## 15. Inventario
 
-**Inventarios.** Se organiza en seis secciones:
+**Inventarios.** El menú tiene cinco entradas (antes eran ocho, con tres «agregar» distintos):
 
-| Sección | Qué guarda |
+| Entrada del menú | Para qué |
 |---|---|
-| **Stock / Modelos** | El catálogo: modelos de equipo con serial **y** materiales por cantidad (marca, modelo, precio por unidad, cómo se cuenta) |
-| **Proveedores** | A quién le compras, con datos del asesor comercial |
-| **Sucursales** | Dónde están físicamente los equipos. El campo **Número** admite tanto un consecutivo (`2`) como el teléfono de la sucursal, con indicativo si lo necesitas (`+57 601 123 4567`) |
-| **Lista de equipos** | **Cada equipo individual**, con su serial y su MAC. Se agregan con **Agregar equipo con serial** |
-| **Agregar material** | Atajo al alta de un material por cantidad en Stock / Modelos |
-| **Entregas y traspasos** | Pasar equipos y material de la bodega a un técnico y recibirlos de vuelta; abajo, **Entrada de material** (donde nace la existencia de un material) |
+| **Equipos y existencias** | **Cada equipo individual**, con su serial y su MAC |
+| **Ingresar al inventario** | **Todo lo que entra a la empresa**: material por cantidad (cable, fibra, conectores) y equipos con serial (ONU, routers, antenas), varios a la vez. Si el producto no existe, se crea ahí mismo. Ver 15.1 |
+| **Entregas y traspasos** | Pasar equipos y material de la bodega a un técnico y recibirlos de vuelta. Ver 15.3 |
 | **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
+| **Catálogo** | Tres listas que se tocan poco, con una barra de pestañas arriba para pasar de una a otra: **Stock / Modelos** (marca, modelo, precio por unidad, cómo se cuenta), **Proveedores** (a quién le compras) y **Sucursales** (dónde están físicamente los equipos; el campo **Número** admite un consecutivo, `2`, o el teléfono de la sucursal, `+57 601 123 4567`) |
+
+> **¿Tenías guardado un enlace viejo?** *Agregar equipo con serial* (`/inventory/create`) y la
+> *Entrada de material* de Entregas y traspasos te llevan ahora a **Ingresar al inventario**.
+>
+> **Todos los desplegables largos tienen buscador**: técnico, persona o bodega, material, modelo,
+> proveedor. Se abren y se escribe; no importan las tildes ni las mayúsculas («tecnico» encuentra
+> «Técnico») ni los guiones («wifi» encuentra «Wi-Fi»).
 
 ### 15.0 Unidades de medida
 
-En **Inventarios → Stock / Modelos** pulsa **Unidades de medida**. Ahí está la lista de unidades
+En **Inventarios → Catálogo → Stock / Modelos** pulsa **Unidades de medida**. Ahí está la lista de unidades
 con que se miden los materiales:
 
 - Las **básicas** —unidad, metro, rollo, caja, paquete— vienen en todas las empresas y no se
@@ -2231,7 +2245,9 @@ producto antiguo con una unidad escrita a mano la conserva mientras no se la cam
 
 ### 15.1 Por serial o por cantidad
 
-Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
+Cada producto del catálogo se controla de una de dos formas (en **Ingresar al inventario** lo
+decide la pestaña que eliges; en **Catálogo → Stock / Modelos → Nuevo producto**, la ventana te
+lo pregunta):
 
 - **Por serial** — antenas, routers, ONU. Cada unidad se registra aparte con su serial y su MAC,
   y el sistema sabe en todo momento quién la tiene.
@@ -2242,28 +2258,51 @@ Al crear un modelo en **Stock / Modelos** eliges cómo se controla:
   decimales* para lo que se mide (cable, fibra: 12,5 m). Al escribir una unidad de longitud se
   sugiere 2 decimales. La precisión se exige en entradas, entregas, órdenes y tickets.
 
-#### Dar de alta un material paso a paso (ej. «Fibra drop», 100 metros)
+#### Ingresar material paso a paso (ej. «Fibra drop», 100 metros, y conectores en la misma compra)
 
 Todo esto lo hace un usuario con permiso **Ver inventario** (`view_inventory`), que es el que abre
 el menú *Inventarios*.
 
-> **No uses «Agregar equipo con serial» para un material.** Ese formulario es sólo para aparatos
-> con serial y MAC. Antes también mostraba los materiales y dejaba guardarlos con un serial: el
-> material quedaba como un «equipo», no sumaba metros y no aparecía en órdenes ni tickets. Ahora
-> ese formulario sólo lista modelos por serial y te indica el camino correcto.
-
-1. **Crear el material.** *Inventarios → Agregar material* (o el botón **Agregar material** en
-   *Stock / Modelos*). La ventana ya viene en **Por cantidad**, con unidad *metro* y *hasta 2
-   decimales*. Escribe marca (`GENÉRICO`) y modelo (`Fibra drop`), ajusta la unidad si hace
-   falta (*unidad* y *sólo enteros* para conectores) y el **precio por metro**. Pulsa **Crear**.
-   No pide serial ni MAC.
-2. **Registrar la existencia.** En la fila del material verás *Existencia: 0 metro* y el enlace
-   **Registrar entrada**. Te lleva a *Entregas y traspasos → Entrada de material* con el material
-   ya elegido: escribe **100**, elige en *Entra a* la bodega y pulsa **Registrar entrada**. Crear el
-   material en el paso 1 **no** le da existencia; este paso sí.
-3. **Comprobar.** De vuelta en *Stock / Modelos*, el material muestra *Existencia: 100 metro*.
-4. **Entregar al técnico.** En *Entregas y traspasos*: *Sale de* = la bodega, *Entra a* = el
+1. **Abrir el ingreso.** *Inventarios → Ingresar al inventario* y elige **Material por cantidad**.
+2. **¿A dónde entra?** En *Entra a* busca la bodega (o la persona) y elígela. Si tu empresa tiene
+   una sola sucursal, ya viene elegida.
+3. **Si el material todavía no existe**, pulsa **¿No está en la lista? Crear material**. Escribe
+   el nombre (`Fibra drop`), la marca (`GENÉRICO` si la dejas vacía), la unidad (*metro*, que
+   propone *hasta 2 decimales*; para conectores, *unidad* y *sólo enteros*) y el **precio por
+   metro**. Pulsa **Crear y usar en el ingreso**: queda elegido en la línea. No pide serial ni MAC.
+4. **Las cantidades.** Escribe **100** en la línea. Si en la misma compra llegaron RJ45, pulsa
+   **Otra línea**, busca «rj45» y escribe cuántos. Puedes agregar una nota («factura 1234»).
+5. Pulsa **Registrar ingreso**. **Entra todo o nada**: si una línea tiene un error (por ejemplo
+   2,5 conectores), no entra ninguna y la línea se marca en rojo; la corriges y vuelves a pulsar.
+   Abajo, en **Últimos ingresos**, ves lo que acaba de entrar.
+6. **Comprobar.** En *Catálogo → Stock / Modelos* el material muestra *Existencia: 100 metro*.
+   Desde esa lista, el enlace **Registrar entrada** de un material te trae al ingreso con ese
+   material ya elegido.
+7. **Entregar al técnico.** En *Entregas y traspasos*: *Sale de* = la bodega, *Entra a* = el
    técnico, escribe los metros en la fila del material y pulsa **Registrar entrega**.
+
+> **Crear un producto en el catálogo no le da existencia.** Si lo creas desde *Catálogo → Stock /
+> Modelos → Nuevo producto*, queda con *Existencia: 0* hasta que lo ingreses.
+
+#### Ingresar equipos con serial (ej. diez ONU de la misma compra)
+
+En *Ingresar al inventario* elige **Equipos con serial**:
+
+1. **Modelo** (con buscador; si no existe, **¿No está? Crear modelo**: marca, modelo y precio).
+   Aquí sólo aparecen los modelos *por serial*: un material por cantidad no se puede ingresar
+   como equipo.
+2. **Queda en**: la bodega o la persona que lo recibe (vacío = bodega sin sucursal), y el
+   **proveedor** si quieres.
+3. **Una fila por unidad**, con su serial y su MAC (la MAC se escribe sola con los dos puntos).
+   Con lector de código de barras: **Enter** en el serial salta a la MAC, y **Enter** en la MAC
+   abre la fila siguiente.
+4. Pulsa **Registrar N equipos**. Cada unidad se registra aparte: si una falla —por ejemplo, ese
+   serial ya existe en tu inventario— las demás entran, y la que falló se queda en pantalla con el
+   motivo para que la corrijas. Un serial o una MAC repetidos **dentro de la misma carga** se
+   marcan antes de enviar.
+
+Para **corregir** un equipo ya registrado (serial mal escrito, otro proveedor) usa el lápiz en
+*Equipos y existencias*: la ficha tiene los mismos campos, también con buscador.
 5. **Consumir.** El técnico lo ve en *Equipos y materiales usados* de su orden y de su ticket
    («Fibra drop — 30 metro en Mis equipos»), escribe los metros y pulsa **Agregar**. Cada consumo
    se descuenta una vez y queda en *Movimientos* con su orden o su ticket.
@@ -2282,11 +2321,13 @@ de venta según cuál de esos dos usos te importe; el sistema no lleva hoy dos p
 
 Si un material muestra «*N registro(s) con serial sobre este material*», alguien lo guardó por el
 formulario de equipos antes de este cambio. Esos registros **no cuentan** como existencia: revisa
-en *Lista de equipos* y dalos de baja; la existencia real se registra con *Entrada de material*.
+en *Equipos y existencias* y dalos de baja; la existencia real se registra en *Ingresar al
+inventario*.
 
 Quien administra inventario ve además la **Existencia** de cada modelo. Un material *por
 cantidad* que muestra **0** está creado en el catálogo pero **no tiene entrada registrada**: por
-eso no aparece en órdenes ni tickets. Regístrala en *Entregas y traspasos → Entrada de material*.
+eso no aparece en órdenes ni tickets. Regístrala en *Ingresar al inventario* (o con el enlace
+**Registrar entrada** de esa fila, que te lleva allí con el material elegido).
 
 **Ejemplo: fibra óptica para los técnicos.** Creas «Fibra óptica», por cantidad, unidad *metro*,
 hasta 2 decimales. Registras la entrada de 9830 m a la *Bodega principal*. Un técnico sin permiso
@@ -2317,11 +2358,19 @@ Vale la pena revisar ese aviso después de borrar una sucursal o dar de baja a u
 ### 15.3 Entregar equipos a un técnico
 
 **Inventarios → Entregas y traspasos.** Eliges de dónde sale (una bodega o una persona), marcas
-los equipos y escribes las cantidades de material, eliges a quién entra y registras.
+los equipos y escribes las cantidades de material, eliges a quién entra y registras. *Sale de* y
+*Entra a* tienen buscador.
 
-Sirve en los dos sentidos: entregar a un técnico el lunes y recibirle los sobrantes el viernes es
-el mismo formulario, cambiando origen por destino. Abajo hay además una **Entrada de material**
-para dar de alta consumibles comprados.
+- Con muchos equipos en la bodega, el **filtro** de arriba de la lista busca por serial, MAC o
+  modelo (también sin los dos puntos: «aabb» encuentra «AA:BB»), y la casilla **Todos** marca de
+  una vez los que se ven.
+- En cada material, **Todo** pone la cantidad completa disponible.
+- Sirve en los dos sentidos: recibirle los sobrantes al técnico el viernes es la entrega del lunes
+  al revés. El botón **⇄** entre *Sale de* y *Entra a* los intercambia.
+- **Se registra todo o nada**: si una de las líneas no se puede mover (un equipo que ya quedó
+  instalado, más metros de los disponibles), no se mueve ninguna y el aviso dice por qué.
+
+Esta página ya no da de alta mercancía: lo que llega nuevo va por **Ingresar al inventario**.
 
 **Nada se borra nunca.** Un movimiento equivocado se corrige con el movimiento contrario, y los
 dos quedan en el historial.
@@ -2348,8 +2397,8 @@ Para sacarlo del inventario tienes dos caminos, según lo que haya pasado de ver
 
 - **Se dañó, se perdió o se lo devolviste al proveedor** → dale de **baja**. El equipo sale de
   circulación y la baja queda escrita en Movimientos, con quién y cuándo.
-- **Volvió a la bodega** → regístralo en **Entregas y traspasos** como una entrada. Cuando ya
-  no esté instalado, se puede borrar.
+- **Volvió a la bodega** → regístralo en **Entregas y traspasos** (sale de quien lo tenía, entra a
+  la bodega). Cuando ya no esté instalado, se puede borrar.
 
 Borrar está pensado para lo que se cargó por error —un serial mal escrito, un equipo duplicado—,
 no para dar de baja lo que ya se usó.
@@ -2365,7 +2414,7 @@ distintos, y esas dos filas hacían fallar después la importación masiva sin q
 por qué. El serial se guarda **tal como lo escribes**, para que coincida con la etiqueta del
 equipo; lo único que cambia es cómo se compara.
 
-Las cuatro tarjetas de arriba en **Lista de equipos** cuentan cada catálogo por separado:
+Las cuatro tarjetas de arriba en **Equipos y existencias** cuentan cada catálogo por separado:
 *Total dispositivos* son los equipos registrados, y *En stock*, *Proveedores* y *Sucursales*
 son cuántos modelos, proveedores y sucursales tienes creados — se ven aunque todavía no hayas
 registrado ningún equipo.

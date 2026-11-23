@@ -70,11 +70,17 @@ class InventoryDeviceController extends Controller
             ? InventoryDevice::STATUS_ASSIGNED
             : InventoryDevice::STATUS_STOCK;
 
-        $device = InventoryDevice::create($data);
-
         // El alta es el primer movimiento del kardex: sin él, el historial de un
         // equipo empezaría en su primer traspaso y no se sabría de dónde salió.
-        $this->ledger->recordInitialEntry($device, $request->user());
+        // Van juntos: un equipo sin su entrada (o una entrada sin equipo) era
+        // posible si el segundo paso fallaba, y el ingreso por lotes llama esto
+        // una vez por unidad.
+        $device = DB::transaction(function () use ($data, $request) {
+            $device = InventoryDevice::create($data);
+            $this->ledger->recordInitialEntry($device, $request->user());
+
+            return $device;
+        });
 
         return response()->json([
             'message' => 'Equipo añadido correctamente. ✅',
@@ -311,7 +317,7 @@ class InventoryDeviceController extends Controller
 
             if ($stock && !$stock->is_serialized) {
                 $fail("«{$stock->label()}» es un material por cantidad: no lleva serial ni MAC. "
-                    . 'Su existencia se registra en Inventarios → Entregas y traspasos → Entrada de material.');
+                    . 'Su existencia se registra en Inventarios → Ingresar al inventario → Material por cantidad.');
             }
         };
     }

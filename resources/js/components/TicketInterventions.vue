@@ -168,10 +168,9 @@
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                     Técnico responsable <span class="text-red-500">*</span>
                                 </label>
-                                <select v-model="form.technician_id" :class="claseCampo(errores.technician_id)">
-                                    <option :value="null">— Seleccionar —</option>
-                                    <option v-for="t in tecnicos" :key="t.id" :value="t.id">{{ nombreDe(t) }}</option>
-                                </select>
+                                <SearchableSelect v-model="form.technician_id" :items="tecnicos" :item-label="nombreDe"
+                                    placeholder="— Seleccionar —" search-placeholder="Buscar técnico…"
+                                    empty-text="No hay técnicos." :invalid="!!errores.technician_id" />
                                 <p v-if="errores.technician_id" class="mt-1 text-sm text-red-500">
                                     {{ errores.technician_id[0] }}
                                 </p>
@@ -181,10 +180,10 @@
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                     Acompañante
                                 </label>
-                                <select v-model="form.assistant_id" :class="claseCampo(errores.assistant_id)">
-                                    <option :value="null">— Ninguno —</option>
-                                    <option v-for="t in tecnicos" :key="t.id" :value="t.id">{{ nombreDe(t) }}</option>
-                                </select>
+                                <SearchableSelect v-model="form.assistant_id" :items="tecnicos" :item-label="nombreDe"
+                                    placeholder="— Ninguno —" search-placeholder="Buscar técnico…"
+                                    empty-text="No hay técnicos." clearable clear-label="— Ninguno —"
+                                    :clear-value="null" :invalid="!!errores.assistant_id" />
                                 <p v-if="errores.assistant_id" class="mt-1 text-sm text-red-500">
                                     {{ errores.assistant_id[0] }}
                                 </p>
@@ -273,6 +272,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '../services/api'
+import SearchableSelect from './SearchableSelect.vue'
 
 /**
  * PR F1 · Intervenciones técnicas del ticket (§ 14 de la Solicitud Maestra).

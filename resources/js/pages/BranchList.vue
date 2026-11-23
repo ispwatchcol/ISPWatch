@@ -1,6 +1,7 @@
 <template>
   <div class="flex min-h-screen bg-gray-50 dark:bg-gray-900">
     <main class="flex-1 p-4 md:p-8">
+      <InventoryCatalogNav />
       
       <!-- Header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
@@ -370,6 +371,7 @@
 import { ref, computed, onMounted } from 'vue'
 import inventoryBranchApi from '@/services/api/inventory-branch'
 import NotificationToast from '@/components/NotificationToast.vue'
+import InventoryCatalogNav from '@/components/InventoryCatalogNav.vue'
 import { usePermissions } from '@/composables/usePermissions'
 
 const { can } = usePermissions()

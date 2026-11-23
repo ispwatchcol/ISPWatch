@@ -16,14 +16,14 @@
         
         <button
           v-if="can('view_inventory')"
-          @click="$router.push('/inventory/create')"
-          class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 
-                 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 
+          @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
+          class="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800
+                 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2
                  transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5
                  font-medium w-full sm:w-auto"
         >
           <v-icon name="md-add" class="w-5 h-5 fill-current" />
-          <span>Nuevo Dispositivo</span>
+          <span>Ingresar equipos</span>
         </button>
       </div>
 
@@ -253,7 +253,7 @@
               Intenta ajustar los filtros o agrega un nuevo dispositivo
             </p>
             <button
-              @click="$router.push('/inventory/create')"
+              @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
               class="mt-6 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
                      transition-colors text-sm font-medium inline-flex items-center gap-2"
             >
@@ -372,7 +372,7 @@
             No hay dispositivos en el inventario
           </p>
           <button
-            @click="$router.push('/inventory/create')"
+            @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
             class="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
                    transition-colors text-sm font-medium flex items-center justify-center gap-2"
           >

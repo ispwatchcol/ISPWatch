@@ -43,25 +43,20 @@
 
         <form @submit.prevent="handleSubmit" class="p-6 md:p-8">
 
-          <!-- Este formulario es SÓLO para equipos con serial. Antes listaba
-               también los materiales y aceptaba darles un serial: el material
-               quedaba como «equipo» y no sumaba metros. -->
+          <!-- Este formulario es SÓLO para equipos con serial, y desde la
+               unificación del menú sólo se abre para EDITAR: el alta (de equipos
+               y de materiales) vive en «Ingresar al inventario». Si alguien
+               llega aquí sin id, se le manda allá. -->
           <div v-if="!isEdit" data-testid="material-hint"
             class="mb-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-900 dark:text-amber-200">
-            <p class="font-medium">¿Vas a registrar un material por cantidad (cable, fibra, conectores)?</p>
+            <p class="font-medium">Los equipos y materiales nuevos se cargan en un solo sitio.</p>
             <p class="mt-1">
-              No se registra aquí: no lleva serial ni MAC. Son dos pasos:
-              <strong>1.</strong> créalo en
-              <RouterLink to="/inventory/stocks?nuevo=material" class="underline font-medium">Stock / Modelos → Agregar material</RouterLink>
-              eligiendo «Por cantidad» y su unidad;
-              <strong>2.</strong> registra cuánto hay en
-              <RouterLink to="/inventory/transfers#entrada" class="underline font-medium">Entregas y traspasos → Entrada de material</RouterLink>.
-            </p>
-            <p v-if="hiddenMaterials" class="mt-1 text-xs">
-              {{ hiddenMaterials }} material(es) por cantidad del catálogo no aparecen en la lista de modelos de abajo por eso.
+              Usa
+              <RouterLink :to="{ name: 'InventoryIntake', query: { tipo: 'equipo' } }" class="underline font-medium">Inventarios → Ingresar al inventario</RouterLink>:
+              ahí eliges «Equipos con serial» o «Material por cantidad» y puedes cargar varios de una vez.
             </p>
           </div>
-          
+
           <!-- Section: Información del Producto -->
           <div class="mb-8">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -78,27 +73,20 @@
                   <v-icon name="md-inventory-round" class="w-4 h-4 mr-1 inline" />
                   Stock / Modelo *
                 </label>
-                <div class="relative">
-                  <select
-                    v-model="form.stock_id"
-                    required
-                    class="input appearance-none"
-                    :disabled="loading"
-                  >
-                    <option value="">Selecciona un stock...</option>
-                    <option
-                      v-for="stock in serialStocks"
-                      :key="stock.id"
-                      :value="stock.id"
-                    >
-                      {{ stock.brand || 'Sin marca' }} - {{ stock.model || 'Sin modelo' }} (Precio: {{ formatCurrency(stock.price) }})
-                    </option>
-                  </select>
-                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
-                  </div>
-                </div>
-                <p class="hint">Sólo modelos «por serial». ¿No está el modelo? Créalo en Stock / Modelos.</p>
+                <SearchableSelect
+                  v-model="form.stock_id"
+                  :items="serialStocks"
+                  :item-label="stockLabel"
+                  :item-sublabel="(s) => `Precio: ${formatCurrency(s.price)}`"
+                  item-icon="md-inventory-round"
+                  placeholder="Selecciona un modelo..."
+                  search-placeholder="Buscar por marca o modelo…"
+                  empty-text="No hay modelos por serial."
+                  size="lg"
+                  :disabled="loading"
+                  :invalid="submitted && !form.stock_id"
+                />
+                <p class="hint">Sólo modelos «por serial». ¿No está el modelo? Créalo en Catálogo → Stock / Modelos.</p>
               </div>
             </div>
           </div>
@@ -164,25 +152,19 @@
                   <v-icon name="bi-building" class="w-4 h-4 mr-1 inline" />
                   Proveedor
                 </label>
-                <div class="relative">
-                  <select
-                    v-model="form.provider_id"
-                    class="input appearance-none"
-                    :disabled="loading"
-                  >
-                    <option value="">Sin proveedor</option>
-                    <option
-                      v-for="provider in providers"
-                      :key="provider.id"
-                      :value="provider.id"
-                    >
-                      {{ provider.name }}
-                    </option>
-                  </select>
-                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
-                  </div>
-                </div>
+                <SearchableSelect
+                  v-model="form.provider_id"
+                  :items="providers"
+                  item-icon="bi-building"
+                  placeholder="Sin proveedor"
+                  search-placeholder="Buscar proveedor…"
+                  empty-text="No hay proveedores."
+                  clearable
+                  clear-label="Sin proveedor"
+                  :clear-value="null"
+                  size="lg"
+                  :disabled="loading"
+                />
                 <p class="hint">Proveedor del dispositivo</p>
               </div>
 
@@ -192,25 +174,19 @@
                   <v-icon name="md-storemalldirectory" class="w-4 h-4 mr-1 inline" />
                   Sucursal
                 </label>
-                <div class="relative">
-                  <select
-                    v-model="form.branch_id"
-                    class="input appearance-none"
-                    :disabled="loading"
-                  >
-                    <option value="">Sin sucursal</option>
-                    <option
-                      v-for="branch in branches"
-                      :key="branch.id"
-                      :value="branch.id"
-                    >
-                      {{ branch.name }}
-                    </option>
-                  </select>
-                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
-                  </div>
-                </div>
+                <SearchableSelect
+                  v-model="form.branch_id"
+                  :items="branches"
+                  item-icon="md-storemalldirectory"
+                  placeholder="Sin sucursal"
+                  search-placeholder="Buscar sucursal…"
+                  empty-text="No hay sucursales."
+                  clearable
+                  clear-label="Sin sucursal"
+                  :clear-value="null"
+                  size="lg"
+                  :disabled="loading"
+                />
                 <p class="hint">Sucursal donde está ubicado</p>
               </div>
 
@@ -220,25 +196,20 @@
                   <v-icon name="bi-person" class="w-4 h-4 mr-1 inline" />
                   Asignado a
                 </label>
-                <div class="relative">
-                  <select
-                    v-model="form.user_id"
-                    class="input appearance-none"
-                    :disabled="loading"
-                  >
-                    <option value="">Sin asignar</option>
-                    <option
-                      v-for="user in users"
-                      :key="user.id"
-                      :value="user.id"
-                    >
-                      {{ user.name }}
-                    </option>
-                  </select>
-                  <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">
-                    <v-icon name="md-keyboardarrowdown" />
-                  </div>
-                </div>
+                <!-- Con buscador: la lista de usuarios de un ISP pasa de cien. -->
+                <SearchableSelect
+                  v-model="form.user_id"
+                  :items="users"
+                  placeholder="Sin asignar"
+                  search-placeholder="Buscar persona por nombre…"
+                  empty-text="No hay usuarios."
+                  clearable
+                  clear-label="Sin asignar"
+                  :clear-value="null"
+                  size="lg"
+                  :disabled="loading"
+                  data-testid="device-assignee"
+                />
                 <p class="hint">Usuario responsable del dispositivo</p>
               </div>
             </div>
@@ -323,6 +294,7 @@ import inventoryBranchApi from '@/services/api/inventory-branch'
 import catalogsApi from '@/services/api/catalogs'
 import { firstError } from '@/utils/apiError'
 import NotificationToast from '@/components/NotificationToast.vue'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -363,7 +335,11 @@ const form = ref({
 // un material: una fila vieja creada así tiene que poder abrirse y corregirse.
 const serialStocks = computed(() => stocks.value.filter(s =>
   s.is_serialized !== false || (isEdit && s.id === form.value.stock_id)))
-const hiddenMaterials = computed(() => stocks.value.filter(s => s.is_serialized === false).length)
+const stockLabel = (s) => `${s.brand || 'Sin marca'} - ${s.model || 'Sin modelo'}`
+
+// El modelo es obligatorio en pantalla (el <select> nativo lo exigía con
+// `required`; el desplegable con buscador no tiene validación del navegador).
+const submitted = ref(false)
 
 const selectedStock = computed(() => {
   return stocks.value.find(s => s.id === form.value.stock_id)
@@ -452,6 +428,11 @@ const formatMacAddress = (event) => {
 }
 
 const handleSubmit = async () => {
+  submitted.value = true
+  if (!form.value.stock_id) {
+    toast.value?.error('Falta el modelo', 'Elige el modelo del equipo.')
+    return
+  }
   loading.value = true
   try {
     const payload = {

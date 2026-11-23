@@ -49,19 +49,26 @@
                     {{ campo.etiqueta }}
                 </label>
 
-                <select
-                    :value="modelValue[campo.clave] ?? ''"
+                <!-- Con buscador: el síntoma tiene más de quince códigos y se
+                     encuentra escribiendo parte del texto o del código en vez
+                     de bajar a ojo por la lista. -->
+                <SearchableSelect
+                    :model-value="modelValue[campo.clave] ?? null"
+                    @update:model-value="actualizar(campo.clave, $event)"
+                    :items="campo.opciones"
+                    item-key="code"
+                    :item-label="etiquetaDe"
+                    item-icon=""
+                    placeholder="— Sin definir —"
+                    search-placeholder="Buscar por código o texto…"
+                    clearable
+                    clear-label="— Sin definir —"
+                    :clear-value="null"
+                    size="lg"
                     :disabled="bloqueados.includes(campo.clave)"
-                    :title="bloqueados.includes(campo.clave) ? 'Tu rol no puede cambiar este campo' : null"
-                    @change="actualizar(campo.clave, $event.target.value)"
-                    class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
-                    :class="{ 'border-red-500': errores[campo.clave] }"
-                >
-                    <option value="">— Sin definir —</option>
-                    <option v-for="fila in campo.opciones" :key="fila.code" :value="fila.code">
-                        {{ fila.code }} · {{ fila.label }}
-                    </option>
-                </select>
+                    :title="bloqueados.includes(campo.clave) ? 'Tu rol no puede cambiar este campo' : ''"
+                    :invalid="!!errores[campo.clave]"
+                />
 
                 <p v-if="errores[campo.clave]" class="mt-1 text-sm text-red-500">
                     {{ Array.isArray(errores[campo.clave]) ? errores[campo.clave][0] : errores[campo.clave] }}
@@ -85,6 +92,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 
 /**
  * Los cinco campos de diagnóstico del Anexo A, en un solo sitio.
@@ -132,6 +140,9 @@ const sinVocabulario = computed(
         && actions.value.length === 0 && results.value.length === 0,
 )
 
+/** «código · etiqueta»: el código sigue a la vista y también se puede buscar. */
+const etiquetaDe = (fila) => `${fila.code} · ${fila.label}`
+
 /** Texto de subcausas de la familia elegida, si lo trae el catálogo. */
 function referenciaDe(code) {
     if (!code) return ''
@@ -139,10 +150,12 @@ function referenciaDe(code) {
 }
 
 /**
- * La cadena vacía del `<select>` se manda como null, no como ''.
+ * «Sin definir» se manda como null, no como ''.
  *
  * El backend distingue «no lo mandó» de «mándalo a null»: '' no es un código
  * válido y sería un 422, mientras que null es la orden explícita de borrar.
+ * El desplegable ya emite null (`clear-value`); la conversión se queda por si
+ * algún día vuelve a llegar la cadena vacía.
  */
 function actualizar(clave, valor) {
     emit('update:modelValue', {

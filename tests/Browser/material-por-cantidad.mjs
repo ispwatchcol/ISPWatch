@@ -2,11 +2,15 @@
 /**
  * Recorrido de navegador: alta de un material por cantidad, sólo por pantalla.
  *
- *   Stock → Agregar material («Fibra drop», metro, 2 decimales, precio por metro)
- *   → Registrar entrada de 100 m en una bodega → Stock muestra 100 metro
- *   → «Agregar equipo con serial» ya no ofrece el material
+ *   Ingresar al inventario → crear «Fibra drop» ahí mismo (metro, 2 decimales,
+ *   precio por metro) y registrar 100 m en una bodega → Stock muestra 100 metro
+ *   → en «Equipos con serial» el material no se ofrece; se crea un modelo y se
+ *     ingresan dos unidades de una vez → /inventory/create redirige al ingreso
  *   → entrega de 30 m al técnico → el técnico consume 12,5 m en la orden y 7,5 m
  *     en el ticket → Stock muestra 80 metro y Movimientos enlaza orden y ticket.
+ *
+ * Los desplegables con buscador (SearchableSelect) se manejan con `choose()`:
+ * abrir, escribir en el buscador y pulsar la opción, como el usuario.
  *
  * Sin dependencias: Node ≥ 22 (WebSocket y fetch globales) maneja Edge o Chrome
  * por el protocolo DevTools. La suite de PHPUnit no tiene navegador; esto se
@@ -20,6 +24,7 @@
  *   BASE_URL         http://127.0.0.1:5186
  *   ADMIN_USER/PASS  usuario que administra inventario (view_inventory)
  *   TECH_USER/PASS   técnico sin view_inventory, asignado a la orden y al ticket
+ *   TECH_NAME        su nombre tal como sale en el desplegable (por defecto «Técnico Demo»)
  *   INSTALLATION_ID  orden de instalación pendiente del técnico
  *   TICKET_ID        ticket abierto del técnico
  *   BROWSER          ruta de msedge/chrome (por defecto la de Edge en Windows)
@@ -49,6 +54,10 @@ mkdirSync(OUT, { recursive: true })
 const suffix = Date.now().toString(36).slice(-5).toUpperCase()
 const BODEGA = `Bodega E2E ${suffix}`
 const MODELO = `Fibra drop ${suffix}`
+const ONU = `ONU E2E ${suffix}`
+const TECH_NAME = env('TECH_NAME', 'Técnico Demo')
+// Espera máxima por paso. Con `php -S` (una petición a la vez) conviene subirla: WAIT_MS=30000.
+const WAIT_MS = Number(env('WAIT_MS', 10000))
 const PORT = 9300 + Math.floor(Math.random() * 400)
 
 // ── CDP mínimo ───────────────────────────────────────────────────────────
@@ -100,7 +109,7 @@ async function page(fn, ...args) {
   return r.result.value
 }
 
-async function waitFor(fn, args = [], what = 'condición', timeout = 10000) {
+async function waitFor(fn, args = [], what = 'condición', timeout = WAIT_MS) {
   const end = Date.now() + timeout
   let last
   while (Date.now() < end) {
@@ -149,6 +158,63 @@ const pick = (selectMatcher, optText) => page((m, optText) => {
   return true
 }, selectMatcher, optText)
 
+/**
+ * SearchableSelect: abre el de `rootSel` (su contenedor lleva el data-testid),
+ * escribe `query` en el buscador y pulsa la opción cuyo texto incluye `optText`.
+ * La lista va teletransportada a <body>, por eso se busca fuera del contenedor.
+ */
+const LIST = '.z-app-dropdown, .z-app-modal-dropdown'
+async function choose(rootSel, optText, query = optText) {
+  await page((sel) => {
+    const b = document.querySelector(`${sel} button`)
+    if (!b) throw new Error(`No hay desplegable ${sel}`)
+    if (b.disabled) throw new Error(`El desplegable ${sel} está deshabilitado`)
+    b.click()
+    return true
+  }, rootSel)
+  await waitFor((l) => !!document.querySelector(l)?.querySelector('input'), [LIST], `lista de ${rootSel} abierta`)
+  await page((l, q) => {
+    const i = document.querySelector(l).querySelector('input')
+    i.value = q
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  }, LIST, query)
+  // La lista se llena cuando llega el catálogo (el servidor de pruebas atiende
+  // de a una petición): se espera la opción en vez de fallar a la primera.
+  await waitFor((l, t) => {
+    const items = [...document.querySelector(l).querySelectorAll('li[data-item-id]')]
+    const li = items.find(x => x.innerText.includes(t))
+    if (!li) return `sin «${t}» en: ${items.map(x => x.innerText.replace(/\s+/g, ' ')).join(' | ') || '(vacía)'}`
+    li.click()
+    return true
+  }, [LIST, optText], `opción «${optText}» en ${rootSel}`)
+  await waitFor((l) => !document.querySelector(l), [LIST], 'lista cerrada')
+}
+
+/** Opciones que ofrece un SearchableSelect al buscar `query` (y lo deja cerrado). */
+async function optionsFor(rootSel, query) {
+  await page((sel) => { document.querySelector(`${sel} button`).click(); return true }, rootSel)
+  await waitFor((l) => !!document.querySelector(l)?.querySelector('input'), [LIST], `lista de ${rootSel} abierta`)
+  await page((l, q) => {
+    const i = document.querySelector(l).querySelector('input')
+    i.value = q
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  }, LIST, query)
+  await sleep(200)
+  const texts = await page((l) => [...document.querySelector(l).querySelectorAll('li[data-item-id]')].map(x => x.innerText.trim()), LIST)
+  await page(() => { document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); return true })
+  return texts
+}
+
+const clickTestId = (id) => page((id) => {
+  const b = document.querySelector(`[data-testid="${id}"]`)
+  if (!b) throw new Error(`No existe [data-testid=${id}]`)
+  if (b.disabled) throw new Error(`[data-testid=${id}] está deshabilitado`)
+  b.click()
+  return true
+}, id)
+
 const clickText = (label, scopeSel = 'body') => page((label, scopeSel) => {
   const b = [...document.querySelector(scopeSel).querySelectorAll('button, a')]
     .filter(e => e.offsetParent !== null)
@@ -167,19 +233,6 @@ async function login([user, pass]) {
   await fill('#password', pass)
   await clickText('ENTRAR AL SISTEMA')
   await waitFor(() => location.pathname === '/dashboard', [], `entrar como ${user}`)
-}
-
-/** Fila de material de orden/ticket: elige el material, escribe la cantidad y pulsa Agregar. */
-async function consume(selectHint, qty) {
-  await pick(selectHint, MODELO)
-  await fill('[data-testid=material-qty]', qty)
-  await page(() => {
-    const row = document.querySelector('[data-testid=material-qty]').closest('div').parentElement
-    const b = [...row.querySelectorAll('button')].find(b => b.innerText.trim() === 'Agregar')
-    if (!b || b.disabled) throw new Error('Agregar no disponible: ' + (document.querySelector('[data-testid=material-qty-error]')?.innerText ?? ''))
-    b.click()
-    return true
-  })
 }
 
 const steps = []
@@ -208,83 +261,94 @@ try {
     await waitText(BODEGA)
   })
 
-  await step('Abrir «Agregar material» desde el menú: viene en «Por cantidad»', async () => {
-    await go('/inventory/stocks?nuevo=material')
-    await waitFor(() => !!document.querySelector('[data-testid=stock-decimals]'), [], 'modal abierto en «Por cantidad»')
-    const state = await page(() => ({
-      porCantidad: document.querySelector('label input[type=radio]:checked')?.closest('label').innerText.includes('Por cantidad'),
-      unit: document.querySelector("input[placeholder^='unidad, metro']").value,
-      decimals: document.querySelector('[data-testid=stock-decimals]').value,
-      priceLabel: document.querySelector('[data-testid=stock-price]').closest('div').querySelector('label').innerText,
-      help: document.querySelector('[data-testid=price-help]').innerText,
-    }))
-    if (!state.porCantidad || state.unit !== 'metro' || state.decimals !== '2') throw new Error(JSON.stringify(state))
-    if (!state.priceLabel.includes('Precio por metro')) throw new Error(`Etiqueta de precio: ${state.priceLabel}`)
-    if (!state.help.includes('no un total')) throw new Error(`Ayuda del precio: ${state.help}`)
+  await step('El menú de Inventarios tiene cinco entradas y un solo «ingresar»', async () => {
+    // Sólo el menú lateral: la barra del Catálogo (otro <nav>) sí enlaza Proveedores y Sucursales.
+    const items = await page(() => [...document.querySelectorAll('aside a')]
+      .map(a => a.getAttribute('href')).filter(h => h && h.startsWith('/inventory')))
+    for (const href of ['/inventory', '/inventory/ingreso', '/inventory/transfers', '/inventory/movements', '/inventory/stocks']) {
+      if (!items.includes(href)) throw new Error(`Falta ${href} en el menú: ${items.join(', ')}`)
+    }
+    for (const viejo of ['/inventory/create', '/inventory/providers', '/inventory/branches']) {
+      if (items.includes(viejo)) throw new Error(`El menú todavía enlaza ${viejo}`)
+    }
   })
 
-  await step(`Crear «${MODELO}» sin serial, metro, 2 decimales, 1.500 por metro`, async () => {
-    await fill("input[placeholder^='Ej: TP-Link']", 'GENÉRICO')
-    await fill("input[placeholder^='Ej: hAP']", MODELO)
-    await fill('[data-testid=stock-price]', 1500)
-    await shot('01-alta-material')
-    await clickText('Crear')
-    await waitText(MODELO)
-    await waitFor((m) => [...document.querySelectorAll('[data-testid=stock-available],[data-testid=stock-available-card]')]
-      .filter(e => e.offsetParent).some(e => e.closest('tr, .rounded-xl').innerText.includes(m) && new RegExp('(^|[^0-9,])0 metro').test(e.innerText)),
-    [MODELO], 'existencia 0 metro')
-    await shot('02-stock-sin-existencia')
+  await step('Ingresar al inventario: crear «Fibra drop» ahí mismo, metro y 2 decimales', async () => {
+    await go('/inventory/ingreso?tipo=material')
+    await waitFor(() => !!document.querySelector('[data-testid=intake-material]'), [], 'modo material')
+    await clickTestId('intake-new-material')
+    await fill("input[placeholder^='Fibra drop']", MODELO)
+    await fill("input[placeholder='GENÉRICO']", 'GENÉRICO')
+    const state = await page(() => {
+      const box = document.querySelector("input[placeholder^='Fibra drop']").closest('.rounded-xl')
+      const selects = box.querySelectorAll('select')
+      return { unit: selects[0].value, decimals: selects[1].value }
+    })
+    if (state.unit !== 'metro' || state.decimals !== '2') throw new Error(JSON.stringify(state))
+    await fill("input[placeholder='0'][step='any']", 1500)
+    await shot('01-ingreso-crear-material')
+    await clickText('Crear y usar en el ingreso')
+    await waitFor((m) => document.querySelector('[data-testid=intake-material-line] button')?.innerText.includes(m),
+      [MODELO], 'material nuevo elegido en la línea')
   })
 
-  await step('«Registrar entrada» abre Entrada de material con el producto elegido', async () => {
-    await page((m) => {
-      // La fila MÁS PEQUEÑA que nombra el modelo: los contenedores de la lista
-      // también lo contienen, y su primer enlace es el de otro producto.
-      const card = [...document.querySelectorAll('tr, .rounded-xl')]
-        .filter(e => e.offsetParent && e.innerText.includes(m) && e.querySelector('a'))
-        .sort((a, b) => a.innerText.length - b.innerText.length)[0]
-      const link = [...card.querySelectorAll('a')].find(a => a.innerText.trim() === 'Registrar entrada')
-      link.click()
-      return true
-    }, MODELO)
-    await waitFor(() => location.pathname === '/inventory/transfers', [], 'ir a Entregas y traspasos')
-    await waitFor((m) => {
-      const s = [...document.querySelectorAll('select')].find(x => [...x.options].some(o => o.text.includes('— Material —')))
-      return !!s && s.options[s.selectedIndex]?.text.includes(m)
-    }, [MODELO], 'material preseleccionado')
+  await step('Registrar 100 m en la bodega (y el destino se elige con buscador)', async () => {
+    await fill('[data-testid=intake-material-qty]', 100)
+    await choose('[data-testid=intake-material-dest]', BODEGA, 'e2e')
+    await shot('02-ingreso-100m')
+    await clickTestId('intake-material-submit')
+    await waitFor((m) => [...document.querySelectorAll('li')].some(l => l.innerText.includes(m) && l.innerText.includes('100 metro')),
+      [MODELO], '«Últimos ingresos» con 100 metro')
   })
 
-  await step('Registrar 100 m de existencia en la bodega', async () => {
-    await fill('input[placeholder=Cantidad]', 100)
-    await pick('— Entra a —', BODEGA)
-    await shot('03-entrada-100m')
-    await clickText('Registrar entrada')
-    await sleep(1200)
-  })
-
-  await step('Stock muestra 100 metro', async () => {
+  await step('Stock muestra 100 metro, con la barra del catálogo', async () => {
     await go('/inventory/stocks')
+    await waitFor(() => !!document.querySelector('[data-testid=inventory-catalog-nav]'), [], 'barra Stock · Proveedores · Sucursales')
     await waitFor((m) => [...document.querySelectorAll('[data-testid=stock-available],[data-testid=stock-available-card]')]
       .filter(e => e.offsetParent).some(e => e.closest('tr, .rounded-xl').innerText.includes(m) && new RegExp('(^|[^0-9,])100 metro').test(e.innerText)),
     [MODELO], 'existencia 100 metro')
-    await shot('04-stock-100m')
+    await shot('03-stock-100m')
   })
 
-  await step('«Agregar equipo con serial» no ofrece el material y explica dónde va', async () => {
+  await step('/inventory/create lleva al ingreso de equipos, que no ofrece el material', async () => {
     await go('/inventory/create')
-    const r = await page((m) => ({
-      ofrecido: [...document.querySelector('select').options].some(o => o.text.includes(m)),
-      hint: !!document.querySelector('[data-testid=material-hint]'),
-    }), MODELO)
-    if (r.ofrecido || !r.hint) throw new Error(JSON.stringify(r))
-    await shot('05-equipo-serial-sin-material')
+    await waitFor(() => location.pathname === '/inventory/ingreso' && new URLSearchParams(location.search).get('tipo') === 'equipo',
+      [], 'redirección al ingreso de equipos')
+    await waitFor(() => !!document.querySelector('[data-testid=intake-devices]'), [], 'modo equipos')
+    const ofrecidas = await optionsFor('[data-testid=intake-device-model]', MODELO)
+    if (ofrecidas.some(t => t.includes(MODELO))) throw new Error(`El material aparece como modelo con serial: ${ofrecidas.join(' | ')}`)
   })
 
-  await step('Entregar 30 m de la bodega al técnico', async () => {
+  await step(`Crear el modelo «${ONU}» y ingresar dos unidades de una vez`, async () => {
+    await clickTestId('intake-new-model')
+    await fill("input[placeholder^='Huawei']", 'HUAWEI')
+    await fill("input[placeholder^='HG8145V5']", ONU)
+    await clickText('Crear y usar')
+    await waitFor((m) => document.querySelector('[data-testid=intake-device-model] button')?.innerText.includes(m), [ONU], 'modelo elegido')
+    await choose('[data-testid=intake-device-dest]', BODEGA, 'e2e')
+    // Lector de código de barras: Enter en el serial salta a la MAC, y en la MAC abre la fila siguiente.
+    const typeRow = (i, serial, mac) => page((i, serial, mac) => {
+      const row = document.querySelectorAll('[data-testid=intake-device-row]')[i]
+      const [s, m] = row.querySelectorAll('input')
+      s.value = serial; s.dispatchEvent(new Event('input', { bubbles: true }))
+      m.value = mac; m.dispatchEvent(new Event('input', { bubbles: true }))
+      m.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      return true
+    }, i, serial, mac)
+    await typeRow(0, `SN-${suffix}-1`, 'aabbcc000001')
+    await waitFor(() => document.querySelectorAll('[data-testid=intake-device-row]').length === 2, [], 'Enter abre la fila 2')
+    await typeRow(1, `SN-${suffix}-2`, 'aabbcc000002')
+    await shot('04-ingreso-dos-onu')
+    await clickTestId('intake-device-submit')
+    await waitFor((s) => [...document.querySelectorAll('li')].filter(l => l.innerText.includes(`S/N SN-${s}-`)).length === 2,
+      [suffix], 'las dos ONU en «Últimos ingresos»')
+  })
+
+  await step('Entregar 30 m de la bodega al técnico (origen y destino con buscador)', async () => {
     await go('/inventory/transfers')
-    await pick(0, BODEGA)
-    await sleep(800)
-    await pick(1, 'Técnico')
+    await choose('[data-testid=transfer-from]', BODEGA, 'e2e')
+    await waitText('Disponible: 100 metro')
+    await choose('[data-testid=transfer-to]', TECH_NAME, TECH_NAME.split(' ')[0].toLowerCase())
     await page((m) => {
       const row = [...document.querySelectorAll('input[type=number]')].map(i => i.closest('div').parentElement)
         .find(r => r.innerText.includes(m))
@@ -293,23 +357,48 @@ try {
       i.dispatchEvent(new Event('input', { bubbles: true }))
       return true
     }, MODELO)
-    await clickText('Registrar entrega')
+    await shot('05-entrega-30m')
+    await clickTestId('transfer-submit')
     await waitText('Disponible: 70 metro')
   })
 
   await step('Técnico: consumir 12,5 m en la orden', async () => {
     await login(TECH)
     await go(`/installations/${INSTALLATION_ID}`)
-    await waitFor((m) => [...document.querySelectorAll('select option')].some(o => o.text.includes(m) && o.text.includes('30 metro en Mis equipos')), [MODELO], 'material del técnico en la orden')
-    await consume('+ Agregar material por cantidad', 12.5)
+    await waitFor(() => !!document.querySelector('[data-testid=material-search]'), [], 'buscador de material en la orden')
+    await clickTestId('material-search')
+    await waitFor(() => !!document.querySelector('[data-testid=search-picker-input]'), [], 'ventana de material')
+    await fill('[data-testid=search-picker-input]', MODELO)
+    await page((m) => {
+      const opt = [...document.querySelectorAll('[data-testid=search-picker-option] button')].find(b => b.innerText.includes(m))
+      if (!opt) throw new Error('Sin opción de material en la ventana')
+      if (!opt.innerText.includes('30 metro')) throw new Error(`Saldo inesperado: ${opt.innerText}`)
+      opt.click()
+      return true
+    }, MODELO)
+    await fill('[data-testid=material-qty]', 12.5)
+    await page(() => {
+      const b = [...document.querySelector('[data-testid=material-picked]').querySelectorAll('button')].find(b => b.innerText.trim() === 'Agregar')
+      if (!b || b.disabled) throw new Error('Agregar no disponible: ' + (document.querySelector('[data-testid=material-qty-error]')?.innerText ?? ''))
+      b.click()
+      return true
+    })
     await waitFor(() => document.querySelector('[data-testid=cable-summary]')?.innerText.includes('12,5 m'), [], 'cable calculado 12,5 m')
     await shot('06-orden-12_5m')
   })
 
-  await step('Técnico: consumir 7,5 m en el ticket', async () => {
+  await step('Técnico: consumir 7,5 m en el ticket (material con buscador)', async () => {
     await go(`/support/${TICKET_ID}`)
-    await waitFor((m) => [...document.querySelectorAll('select option')].some(o => o.text.includes(m) && o.text.includes('17,5 metro')), [MODELO], 'saldo 17,5 en el ticket')
-    await consume('+ Agregar material…', 7.5)
+    await waitFor(() => !!document.querySelector('[data-testid=material-search]'), [], 'desplegable de material en el ticket')
+    await choose('[data-testid=material-search]', '17,5 metro', MODELO)
+    await fill('[data-testid=material-qty]', 7.5)
+    await page(() => {
+      const row = document.querySelector('[data-testid=material-qty]').closest('div').parentElement
+      const b = [...row.querySelectorAll('button')].find(b => b.innerText.trim() === 'Agregar')
+      if (!b || b.disabled) throw new Error('Agregar no disponible: ' + (document.querySelector('[data-testid=material-qty-error]')?.innerText ?? ''))
+      b.click()
+      return true
+    })
     await waitFor(() => [...document.querySelectorAll('li')].some(l => l.innerText.includes('Material usado') && l.innerText.includes('7,5 metro')), [], 'línea 7,5 metro')
     await shot('07-ticket-7_5m')
   })

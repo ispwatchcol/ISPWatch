@@ -218,11 +218,9 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Técnico</label>
-            <select v-model="createForm.technician_id"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
-              <option :value="null">— Sin asignar —</option>
-              <option v-for="t in technicians" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
+            <SearchableSelect v-model="createForm.technician_id" :items="technicians"
+              placeholder="— Sin asignar —" search-placeholder="Buscar técnico…"
+              empty-text="No hay técnicos." clearable clear-label="— Sin asignar —" :clear-value="null" size="sm" />
             <p v-if="!technicians.length" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
               No hay usuarios con rol Técnico en el tenant.
             </p>
@@ -337,11 +335,9 @@
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Técnico</label>
-            <select v-model="editForm.technician_id"
-              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-800 dark:text-white text-sm">
-              <option :value="null">— Sin asignar —</option>
-              <option v-for="t in technicians" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
+            <SearchableSelect v-model="editForm.technician_id" :items="technicians"
+              placeholder="— Sin asignar —" search-placeholder="Buscar técnico…"
+              empty-text="No hay técnicos." clearable clear-label="— Sin asignar —" :clear-value="null" size="sm" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Dirección</label>
@@ -419,6 +415,7 @@ import api from '@/services/api'
 import NotificationToast from '@/components/NotificationToast.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import InstallationPlanEditor from '@/components/InstallationPlanEditor.vue'
+import SearchableSelect from '@/components/SearchableSelect.vue'
 import {
   equipmentSummary,
   deleteBlockedReason,

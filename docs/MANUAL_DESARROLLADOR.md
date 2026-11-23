@@ -1384,6 +1384,42 @@ resultados. Lo usan el plan (`InstallationPlanEditor`), los materiales de la hoj
 `utils/materialQuantity.js`, que ahora usa separador de miles (`1.400`); no dupliques otro
 formateador.
 
+**Desplegable con buscador: `SearchableSelect` (2026-11-23).** Para un campo de formulario que
+hoy sería un `<select>` largo (técnico asignado, custodio, material, modelo, proveedor, códigos de
+diagnóstico) se usa `components/SearchableSelect.vue`, el reemplazo directo con `v-model`. La
+ventana `SearchPickerModal` queda para catálogos de cientos de filas con varias líneas de detalle.
+
+| Prop | Para qué |
+|---|---|
+| `items`, `item-key` (`id`), `item-label` (clave o función) | Las opciones. Si el valor del formulario no es un id (custodios `"branch:3"`), arma los items con un campo `key` y pasa `item-key="key"`: el componente trabaja con valores primitivos, no con objetos |
+| `item-sublabel`, `item-search` | Segunda línea («Sucursal / bodega», el correo) y texto extra por el que también se encuentra |
+| `clearable`, `clear-label`, `clear-value` | Opción «Sin asignar». `clear-value` es lo que se emite: `''` por compatibilidad; pasa `:clear-value="null"` donde el backend espera null (técnico de una orden, diagnóstico) |
+| `disabled`, `invalid`, `error`, `size` (`sm`/`md`/`lg`), `title` | Estado y tamaño; `invalid` pinta el borde rojo cuando el mensaje lo pinta la pantalla |
+
+Reglas que ya costaron un fallo:
+
+- **No hay `@change`.** Si una pantalla recargaba algo en el `change` del `<select>`, usa un
+  `watch` sobre el valor (ver `InventoryTransfers` y `InventoryMovements`).
+- **La lista va teletransportada a `<body>`.** Dentro de un modal `z-app-modal`, la capa normal
+  `z-app-dropdown` (1000) queda **detrás** del modal (2000); el componente lo detecta con
+  `closest('.z-app-modal')` y usa `z-app-modal-dropdown` (2500). Un modal nuevo con un `z-50`
+  suelto no necesita nada, pero no lo hagas: usa la escala de `app.css`.
+- **Sin validación del navegador.** `required` de un `<select>` no existe aquí: valida al enviar
+  (ver `InventoryForm`, que exige el modelo).
+- En los recorridos de navegador se maneja con `choose()` de `tests/Browser/material-por-cantidad.mjs`
+  (abrir, escribir, pulsar la opción), no con `selectedIndex`.
+
+**Ingresar al inventario (2026-11-23).** `pages/InventoryIntake.vue` (`/inventory/ingreso`,
+`name: 'InventoryIntake'`) es la única pantalla de alta de mercancía y no tiene endpoint propio:
+material → un `POST /inventory/transfers` sin origen con todas las líneas (atómico en el backend);
+equipos → un `POST /inventory` por unidad (cada uno atómico con su entrada de kardex; el lote no,
+P-117); producto inexistente → `POST /inventory-stock` en línea. `/inventory/create` redirige ahí
+con `?tipo=equipo`, y `/inventory/transfers?entrada=<id>` (o `#entrada`) con
+`?tipo=material&material=<id>` (`beforeEnter` de la ruta). `InventoryForm.vue` queda para editar.
+El menú usa `match` en el ítem «Catálogo» de `Sidebar.vue` para encenderse en tres rutas
+(`SubmenuItem.isItemActive`), y `components/InventoryCatalogNav.vue` es la barra de pestañas de
+Stock / Proveedores / Sucursales.
+
 **Catálogo de unidades (2026-11-13, P-92).** `App\Models\InventoryUnit` + `InventoryUnitController`.
 Las básicas viven en `InventoryUnit::BUILT_IN` (no en BD). `InventoryStockController` valida la
 unidad con `InventoryUnit::existsNamed()` sólo si el producto es «por cantidad» y la unidad cambió.
@@ -1471,8 +1507,9 @@ orden y ticket, precisión, saldo, tenants, reenvío, cable) y `QuantityDecimals
   agregues un tercer significado sin separar el campo (P-93).
 
 **Recorrido de navegador del material por cantidad.** `tests/Browser/material-por-cantidad.mjs`
-recorre por pantalla el alta de «Fibra drop», la entrada de 100 m, la entrega y el consumo en orden
-y ticket, y guarda capturas. La suite de PHPUnit no tiene navegador y el CI tampoco: se corre a
+recorre por pantalla *Ingresar al inventario* (crea «Fibra drop» ahí mismo, entran 100 m, y un
+modelo con dos ONU de una vez), la redirección de `/inventory/create`, la entrega con origen y
+destino con buscador, y el consumo en orden y ticket, y guarda capturas. La suite de PHPUnit no tiene navegador y el CI tampoco: se corre a
 mano contra un backend de pruebas (nunca producción; el script se niega a usar otro host que
 127.0.0.1/localhost porque crea datos):
 
@@ -1487,15 +1524,21 @@ mano contra un backend de pruebas (nunca producción; el script se niega a usar 
 # esto el bundle pide los chunks al dominio de PRODUCCIÓN (la pantalla sale en blanco o,
 # peor, con el código viejo desplegado).
 ASSET_URL= VITE_API_URL= npx vite build
-BASE_URL=http://127.0.0.1:5186 ADMIN_USER=admin_demo ADMIN_PASS=... \
-TECH_USER=tecnico_demo TECH_PASS=... INSTALLATION_ID=2 TICKET_ID=1 \
+WAIT_MS=30000 BASE_URL=http://127.0.0.1:5186 ADMIN_USER=admin_demo ADMIN_PASS=... \
+TECH_USER=tecnico_demo TECH_PASS=... TECH_NAME="Técnico Demo" INSTALLATION_ID=2 TICKET_ID=1 \
 node tests/Browser/material-por-cantidad.mjs
 ```
 
 Necesita Node ≥ 22 y Edge o Chrome (`BROWSER=`). El técnico no debe tener `view_inventory`; la
-orden y el ticket deben estar asignados a él. Cada corrida usa nombres únicos, así que se puede
-repetir sobre la misma base. Ojo al escribir pasos nuevos: las opciones de material en Vue llevan
-un objeto como valor; se eligen por `selectedIndex`, no por `value`.
+orden y el ticket deben estar asignados a él, y `TECH_NAME` es su nombre tal como sale en el
+desplegable de *Entregas*. Cada corrida usa nombres únicos, así que se puede repetir sobre la misma
+base. `php -S` atiende **una petición a la vez** (~1 s cada una con SQLite): con la espera por
+defecto de 10 s los pasos fallan por lentitud, no por la pantalla; de ahí `WAIT_MS=30000`.
+
+Ojo al escribir pasos nuevos: los desplegables con buscador (`SearchableSelect`) se manejan con
+`choose(selectorDelContenedor, textoDeLaOpción, búsqueda)` y `optionsFor()`, no tocando
+`<select>`; la lista va teletransportada a `<body>` y su mensaje «Nada coincide con «X»» contiene
+lo buscado, así que se leen sólo los `li[data-item-id]`.
 
 **Dos cosas que no deben volver a mezclarse.** Cargar un equipo **no** lo cobra: la línea guarda
 `unit_price` congelado del catálogo y la interfaz lo precarga editable en el cargo, pero facturar

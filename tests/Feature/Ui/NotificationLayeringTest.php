@@ -67,6 +67,16 @@ class NotificationLayeringTest extends TestCase
         );
 
         $this->assertGreaterThan($this->escalon('z-app-dropdown'), $modal);
+
+        // Un desplegable abierto DESDE un modal (SearchableSelect en el modal de
+        // intervenciones) va encima del modal, pero nunca encima de un aviso.
+        $desplegableDeModal = $this->escalon('z-app-modal-dropdown');
+        $this->assertGreaterThan($modal, $desplegableDeModal, 'La lista quedaría detrás del modal que la abrió.');
+        $this->assertGreaterThan($desplegableDeModal, $toast);
+
+        $select = $this->lee('js/components/SearchableSelect.vue');
+        $this->assertStringContainsString("closest('.z-app-modal')", $select);
+        $this->assertStringContainsString('z-app-modal-dropdown', $select);
     }
 
     #[Test]

@@ -377,11 +377,20 @@ const routes = [
         component: () => import('@/pages/Inventory.vue'),
         meta: { title: 'Inventario', permission: 'view_inventory' },
       },
+      // Un solo sitio por donde entra mercancía: equipos con serial y material
+      // por cantidad, varios a la vez. Reemplaza «Agregar equipo con serial»,
+      // «Agregar material» y la «Entrada de material» de Entregas y traspasos.
+      {
+        path: 'ingreso',
+        name: 'InventoryIntake',
+        component: () => import('@/pages/InventoryIntake.vue'),
+        meta: { title: 'Ingresar al inventario', permission: 'view_inventory' },
+      },
+      // Enlaces y marcadores viejos del alta de un equipo.
       {
         path: 'create',
         name: 'InventoryCreate',
-        component: () => import('@/pages/InventoryForm.vue'),
-        meta: { title: 'Agregar equipo con serial', permission: 'view_inventory' },
+        redirect: { name: 'InventoryIntake', query: { tipo: 'equipo' } },
       },
       {
         path: ':id/edit',
@@ -412,6 +421,17 @@ const routes = [
         name: 'InventoryTransfers',
         component: () => import('@/pages/InventoryTransfers.vue'),
         meta: { title: 'Entregas y traspasos', permission: 'view_inventory' },
+        // La «Entrada de material» se mudó a Ingresar al inventario: los enlaces
+        // viejos (?entrada=<id> o #entrada) llegan allá con el material elegido.
+        beforeEnter: (to) => {
+          if (to.query.entrada || to.hash === '#entrada') {
+            return {
+              name: 'InventoryIntake',
+              query: { tipo: 'material', ...(to.query.entrada ? { material: to.query.entrada } : {}) },
+            }
+          }
+          return true
+        },
       },
       {
         path: 'movements',

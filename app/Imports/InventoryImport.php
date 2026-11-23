@@ -169,7 +169,7 @@ class InventoryImport implements ToCollection, WithHeadingRow, WithTitle
             if ($stockId !== null && isset($this->consumableStocks[$stockId])) {
                 $this->errors[] = $this->err($rowNumber, 'modelo',
                     "«{$brand} {$model}» es un material por cantidad: no se carga con serial. "
-                    . 'Registra su existencia en Inventarios → Entregas y traspasos → Entrada de material.');
+                    . 'Registra su existencia en Inventarios → Ingresar al inventario → Material por cantidad.');
                 continue;
             }
 

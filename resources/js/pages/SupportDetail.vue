@@ -591,17 +591,13 @@
 
                             <!-- Retirar un equipo que el cliente ya tiene -->
                             <div v-if="installedDevices.length" class="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
-                                <select v-model.number="returnPick" :disabled="equipmentBusy"
-                                    class="px-3 py-2 text-sm rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
-                                    <option :value="null">− Retirar equipo del cliente…</option>
-                                    <option v-for="d in installedDevices" :key="d.id" :value="d.id">{{ deviceFullLabel(d) }}</option>
-                                </select>
-                                <select v-model="returnTarget" :disabled="equipmentBusy"
-                                    class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50">
-                                    <option v-for="s in returnTargets" :key="`${s.type}-${s.id}`" :value="`${s.type}:${s.id ?? ''}`">
-                                        {{ s.label }}
-                                    </option>
-                                </select>
+                                <SearchableSelect v-model="returnPick" :items="installedDevices" :item-label="deviceFullLabel"
+                                    item-icon="" placeholder="− Retirar equipo del cliente…"
+                                    search-placeholder="Serial, MAC o modelo…" :disabled="equipmentBusy"
+                                    clearable clear-label="Ninguno" :clear-value="null" size="sm" />
+                                <SearchableSelect v-model="returnTarget" :items="returnTargetOptions" item-key="key"
+                                    item-label="label" item-icon="" placeholder="¿A dónde vuelve?"
+                                    search-placeholder="Buscar bodega o persona…" :disabled="equipmentBusy" size="sm" />
                                 <button @click="retireDevice" type="button" :disabled="!returnPick || equipmentBusy"
                                     class="px-4 py-2 text-sm text-white rounded-lg transition disabled:opacity-50"
                                     :class="vaADarDeBaja ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'">
@@ -622,13 +618,11 @@
                                 {{ materialsStatus.message || '' }}
                             </p>
                             <div v-if="availableMaterials.length" class="grid grid-cols-1 sm:grid-cols-[1fr_6rem_auto] gap-2">
-                                <select v-model="materialPick" :disabled="equipmentBusy"
-                                    class="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50">
-                                    <option :value="null">+ Agregar material…</option>
-                                    <option v-for="m in availableMaterials" :key="`${m.stock_id}-${m.source_type}-${m.source_id}`" :value="m">
-                                        {{ materialLabel(m) }}
-                                    </option>
-                                </select>
+                                <SearchableSelect v-model="materialPickKey" :items="materialOptions" item-key="key"
+                                    :item-label="materialLabel" item-icon="" placeholder="+ Agregar material…"
+                                    search-placeholder="Buscar material: cable, RJ45, amarres…"
+                                    :disabled="equipmentBusy" data-testid="material-search"
+                                    clearable clear-label="Ninguno" :clear-value="null" size="sm" />
                                 <div class="flex items-center gap-1">
                                     <input v-model.number="materialQty" type="number" :min="quantityStep(materialPick)" :step="quantityStep(materialPick)"
                                         :max="materialPick ? materialPick.quantity : null" onwheel="this.blur()"
@@ -1249,6 +1243,7 @@ import TicketDiagnosisFields from '../components/TicketDiagnosisFields.vue'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import ticketEquipmentApi from '@/services/api/ticket-equipment'
 import SerialDevicePicker from '../components/SerialDevicePicker.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 import { fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
@@ -1529,6 +1524,21 @@ const materialLabel = (m) => {
     const nombre = `${m.brand ?? ''} ${m.model ?? ''}`.trim() || 'Material'
     return `${nombre} — ${fmtQty(m.quantity)}${m.unit ? ' ' + m.unit : ''} en ${m.source_label}`
 }
+
+// El desplegable con buscador trabaja con claves, no con objetos: el mismo
+// material puede venir de dos custodios (mis equipos y la bodega), así que la
+// clave lleva los tres datos. `materialPick` sigue siendo la fila elegida.
+const materialOptionKey = (m) => `${m.stock_id}:${m.source_type}:${m.source_id ?? ''}`
+const materialOptions = computed(() => availableMaterials.value.map(m => ({ ...m, key: materialOptionKey(m) })))
+const materialPickKey = computed({
+    get: () => (materialPick.value ? materialOptionKey(materialPick.value) : null),
+    set: (key) => {
+        materialPick.value = key ? (availableMaterials.value.find(m => materialOptionKey(m) === key) ?? null) : null
+    },
+})
+
+// Destinos del retiro con la misma clave «tipo:id» que ya usaba retireDevice.
+const returnTargetOptions = computed(() => returnTargets.value.map(s => ({ ...s, key: `${s.type}:${s.id ?? ''}` })))
 
 // Clave del intento de registro: el reintento sin respuesta (doble clic, red
 // caída) reenvía la misma y el servidor no descuenta dos veces. Cambiar el
