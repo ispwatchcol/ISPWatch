@@ -542,16 +542,13 @@ const filteredTickets = computed(() => {
 
 const loadStaff = async () => {
     try {
-        // Opcional: sólo alimenta el filtro «Todos los técnicos». Un técnico no
-        // tiene `view_staff` y eso no debe disparar el cartel de permisos.
-        const response = await api.staff.getAll({}, { silentForbidden: true })
+        // Sólo alimenta el filtro «Todos los técnicos». Sale de
+        // `/support/staff-options` y no de `/staff` (que exige `view_staff`):
+        // técnico es quien puede registrar intervenciones, no quien tenga un
+        // rol llamado exactamente «Técnico» (P-56).
+        const response = await api.support.getStaffOptions()
         const allUsers = response.data.data || []
-        // Filtrar solo técnicos por NOMBRE de rol: los roles son por tenant y el id
-        // varía, por eso no se usa role_id fijo. Tolera acentos/mayúsculas.
-        staffList.value = allUsers.filter(user => {
-            const n = (user.role_name || '').trim().toLowerCase()
-            return n === 'técnico' || n === 'tecnico'
-        })
+        staffList.value = allUsers.filter(user => user.can_intervene)
     } catch (err) {
         console.error('Error loading staff:', err)
     }

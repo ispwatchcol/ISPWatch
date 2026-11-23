@@ -1858,9 +1858,17 @@ Dos opciones importantes:
 > **Los desplegables largos tienen buscador** (desde 2026-11): el técnico asignado —al crear, en
 > *Editar ticket* y en las intervenciones—, los cinco campos del **Diagnóstico técnico** (síntoma,
 > causas, acción, resultado) y, en *Equipos de la visita*, el material y el equipo a retirar. Se
-> abre el desplegable y se escribe parte del nombre, del correo o del código: «S07», «wifi»,
-> «perez». No importan tildes, mayúsculas ni guiones. Lo mismo vale para el **Técnico** al agendar
-> o editar una instalación.
+> abre el desplegable y se escribe parte del nombre o del código: «S07», «wifi», «perez». No
+> importan tildes, mayúsculas ni guiones. Lo mismo vale para el **Técnico** al agendar o editar
+> una instalación.
+>
+> **Quién sale como técnico** en *Asignado a* (al crear y editar) y en el filtro de la lista: quien
+> puede **registrar intervenciones** (permiso «Tickets · registrar intervenciones técnicas»), se
+> llame como se llame su rol. Si alguien falta, revisa ese permiso en *Roles*.
+>
+> **Un campo del diagnóstico en gris** dice debajo qué permiso falta: «Tickets · registrar
+> diagnóstico» para síntoma, causa sospechada, acción y resultado; «Tickets · confirmar causa» para
+> la causa confirmada. Se concede en *Roles*; el usuario tiene que volver a iniciar sesión.
 
 ### 14.1.1 Asuntos frecuentes (la lista del desplegable)
 
@@ -2025,7 +2033,7 @@ En el detalle del ticket, bloque **Intervenciones** → **+ Registrar intervenci
 |---|---|
 | **Tipo** | Presencial si hubo desplazamiento; Remota si se atendió desde la oficina |
 | **Inicio** | Cuándo empezó la atención |
-| **Técnico responsable** | Quien atendió. Sólo aparece personal de tu operador |
+| **Técnico responsable** | Quien atendió. Aparece el personal activo de tu operador (no los clientes). No hace falta poder ver la sección *Personal* para elegirlo |
 | **Acompañante** | Opcional, si fueron dos |
 | **Hallazgo** | Qué se encontró al llegar |
 | **Acción realizada** | Qué se hizo |

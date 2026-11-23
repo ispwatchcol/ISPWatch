@@ -1173,6 +1173,14 @@ aceptaba bodegas de otra empresa aunque `InventoryBranch` usa `BelongsToTenant` 
 `InventoryLedger::assertCustodioDelTenant()`: si agregas un método al ledger que deje
 existencias con una bodega o una persona, llámalo.
 
+**Al acotar una edición, deja pasar el valor que la fila ya tiene.** Las pantallas de edición
+reenvían el formulario entero, y una fila vieja con un id ajeno quedaría imposible de guardar
+por un campo que nadie tocó. `SupportTicketController::existeEnTenant($tabla, $tenant, $actual)`
+arma `exists` con `(tenant_id = X OR id = $actual)`. El closure va entre paréntesis
+(`DatabasePresenceVerifier` lo anida), así que el `OR` sólo deja pasar **ese** id, no
+cualquiera del otro tenant. Pon `bail` delante: sin él, un texto no numérico llega al `exists`
+y PostgreSQL responde 22P02 en vez de 422 (bitácora § 129, P-121).
+
 **3 · Si el servicio es quien escribe la fila, ponle su propia guarda.** El controlador es el
 único llamador *hoy*. Una comprobación de pertenencia dentro del servicio cuesta una consulta
 indexada y evita que un segundo llamador —un comando, un job, la API de socios— reabra el
@@ -2304,11 +2312,23 @@ técnico, § 125 de la bitácora). Ahora hay **un solo punto**:
 | Interceptor | `services/api.js` | Anota todo 403 de permisos; **la promesa se rechaza igual**, el cartel avisa y no reemplaza el manejo de la pantalla |
 | Cartel | `components/PermissionDeniedAlert.vue` | Diálogo centrado, rojo, con el permiso que falta (su nombre de la pantalla de Roles + la clave), la acción bloqueada y **el rol con que se evaluó** («Tu rol actual es «Técnico»…»). Se monta **una sola vez** en `App.vue`; no montes otro ni pintes un aviso propio para un 403 de permisos |
 
-**Llamadas opcionales.** Si una petición es accesoria y su pantalla ya tolera que falle (p. ej. la
-lista de personal para un desplegable, que un técnico no puede leer por no tener `view_staff`),
-márcala con `silentForbidden: true` en la config de axios —`api.staff.getAll({}, { silentForbidden: true })`—
-o el técnico verá el cartel en cada pantalla. **No** lo uses para esconder un permiso que la
+**Llamadas opcionales.** Si una petición es accesoria y su pantalla de verdad funciona sin ella,
+márcala con `silentForbidden: true` en la config de axios —`api.x.getAll({}, { silentForbidden: true })`—
+o el usuario verá el cartel en cada pantalla. **No** lo uses para esconder un permiso que la
 pantalla sí necesita: ahí el cartel es justo lo que se quiere.
+
+> **El ejemplo que había aquí era el error.** Este párrafo ponía como caso típico la lista de
+> personal de soporte (`api.staff.getAll` con el 403 silenciado). No era accesoria: en una
+> intervención el técnico es **obligatorio**, así que el técnico sin `view_staff` veía el
+> desplegable vacío y no podía registrar la visita, sin ningún aviso (§ 129 de la bitácora). Si una
+> pantalla necesita un dato que vive tras un permiso de administración, la salida es un endpoint
+> propio del módulo con sólo lo necesario, no silenciar el 403.
+
+**Personal en los desplegables de soporte → `api.support.getStaffOptions()`** (`GET
+/support/staff-options`, `ticket_view`). Nunca `api.staff.getAll()`. Trae personal activo sin
+abonados y la bandera `can_intervene`; **«técnico» es `can_intervene`**, no el nombre del rol (un
+rol «Técnico de campo» no casa con `'técnico'`). Para inventario y gastos sigue
+`catalogsApi.getUsers({ staff: 1 })`.
 
 **Qué NO es un 403 de permisos** y por tanto no dispara el cartel: reglas de negocio con 403
 («los tickets no se pueden eliminar», «no se puede eliminar un rol en uso»). Si añades un 403 de

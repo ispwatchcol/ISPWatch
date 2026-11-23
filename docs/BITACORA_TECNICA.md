@@ -11097,3 +11097,94 @@ con «La primera línea no debe quedar grabada — 100.0 ≠ 0».
 
 Suite completa por carpetas en verde (Inventario 197, Soporte 514, UI 18 y el resto). Recorrido de
 navegador contra backend aislado en SQLite: 12/12.
+
+---
+
+## 129. Soporte: el técnico sin `view_staff` no podía elegir técnico ni registrar la visita, y el ticket aceptaba ids de otro ISP (P-121) — 2026-11-23
+
+### Reporte
+
+Un operador escribió el 2026-11-20: «no me deja colocar acción y no despliega el listado para
+elegir al técnico y en registrar intervención no deja colocar qué se hizo». Son tres síntomas
+encadenados que vienen de dos causas.
+
+### Causa 1 — la lista de personal salía de `/staff`
+
+Las cuatro pantallas de soporte (lista, Crear, Editar, Detalle) llenaban sus desplegables de
+personal con `api.staff.getAll()`. `/staff` es la administración de personal y exige `view_staff`,
+que un técnico no tiene. Tres de las cuatro silenciaban el 403 (`silentForbidden`), así que el
+técnico veía el desplegable **vacío** sin ningún aviso. En *Registrar intervención* el técnico
+responsable es obligatorio (`TicketInterventionRequest`), y sin poder elegirlo no se guarda la
+visita: por eso «no deja colocar qué se hizo». El propio `MANUAL_DESARROLLADOR` ponía esta llamada
+como ejemplo de `silentForbidden` bien usado, y no lo era: la lista no era accesoria.
+
+Dos agravantes: `/staff` no excluye abonados (a un administrador le ofrecía la cartera entera como
+«técnico») y Crear, Editar y el filtro sólo admitían un rol llamado **exactamente** «Técnico» o
+«Tecnico» (P-56). Un rol «Técnico de campo» dejaba esas listas vacías incluso para un
+administrador.
+
+### Causa 2 — el bloqueo del diagnóstico era invisible
+
+«Acción realizada» es un campo del diagnóstico y exige `ticket_diagnose`. En la revisión al
+cerrar se deshabilitaba sin `ticket_diagnose`, pero el motivo sólo estaba en el atributo `title`,
+que en el celular no existe: el campo parecía roto. En *Editar ticket* ni siquiera se bloqueaba: el
+usuario elegía la acción y el `PUT` volvía con 403 (`PERMISO_POR_CAMPO`).
+
+### Qué se hizo
+
+- `GET /support/staff-options` (`SupportStaffOptionsController`, bajo `ticket_view`, declarado
+  antes del `apiResource` para que `support/{support}` no lo capture): personal **activo** del
+  tenant, sin abonados, con `id`, nombre, `role_name` y `can_intervene`. El rol se carga con
+  `withoutGlobalScope('tenant')`. No trae correo (`email` es el personal), teléfono ni permisos.
+- **«Técnico» = `can_intervene`** (`ticket_intervene` efectivo —rol ∪ usuario— o superadmin). Crear,
+  Editar y el filtro de la lista filtran por esa bandera; el detalle (técnico y acompañante de la
+  intervención) no filtra, porque en la visita puede figurar cualquiera del personal.
+- Editar ticket: el subtítulo del técnico pasa de correo a rol, y bloquea los campos del
+  diagnóstico igual que la revisión al cerrar.
+- `TicketDiagnosisFields`: bajo un campo bloqueado se lee «Tu rol no puede cambiar este campo.
+  Falta el permiso «Tickets · registrar diagnóstico»» (o «confirmar causa»).
+
+### P-121 — cliente, técnico y sectorial de otro ISP (corregido en el mismo PR)
+
+Al revisar «Asignado a» apareció que `store` y `update` validaban `user_id`, `staff_id` y
+`sectorial_id` con `exists:tabla,id` a secas: quien pudiera crear o asignar tickets mandaba a mano
+el id de un cliente, técnico o sectorial de otro operador y el ticket lo guardaba. Es el mismo
+patrón de P-62/P-65. Las intervenciones ya lo hacían bien. Primero se anotó como pendiente; el
+usuario pidió corregirlo en el mismo PR.
+
+- `existeEnTenant($tabla, $tenant, $actual)` arma el `exists` acotado. En el **alta** acota al
+  tenant donde se guarda el ticket: `$tenantDelTicket`, el mismo valor que se escribe en
+  `tenant_id`, con su respaldo `?? 1` incluido. Si validación y escritura usaran tenants
+  distintos, el acotado no protegería nada.
+- En la **edición** acota al tenant del ticket y deja pasar el valor que el ticket **ya tiene**
+  (`tenant_id = X OR id = actual`). La pantalla reenvía el formulario entero, y un ticket viejo con
+  un id ajeno no debe quedar imposible de guardar por un campo que nadie tocó. Por eso no hizo
+  falta revisar los datos de producción antes de desplegar. El `DatabasePresenceVerifier` anida
+  el closure entre paréntesis, así que el `OR` sólo deja pasar ese id.
+- `bail` delante: sin él, un texto no numérico llega al `exists` y PostgreSQL responde 22P02 en
+  vez de 422.
+- Mensajes propios: «El cliente / técnico / sectorial seleccionado no pertenece a este operador».
+
+### Lo que NO se hizo
+
+- No se cambiaron permisos de ningún rol. Si el rol del operador no tiene `ticket_diagnose`, la
+  acción realizada sigue bloqueada, ahora con el motivo a la vista. Concederlo es decisión del ISP
+  en *Roles*.
+- Los tickets que ya tengan un técnico o sectorial de otro ISP no se corrigen: se conservan
+  mientras nadie los cambie. No se midió si existe alguno (la consulta a producción no estuvo
+  disponible en esta sesión).
+
+### Verificación
+
+`SupportStaffOptionsTest` (5): el técnico sin `view_staff` recibe 403 en `/staff` y la lista en
+`/support/staff-options`; un rol «Técnico de campo» con la capacidad es técnico y un rol «Técnico»
+sin ella no lo es; el permiso individual cuenta; no salen abonados, inactivos ni personal de otro
+ISP; las claves de la respuesta son exactamente las seis previstas; sin `ticket_view` es 403.
+
+`TicketTenantScopedReferencesTest` (6): el alta con referencias propias pasa; el alta con
+cliente, técnico o sectorial ajeno da 422 en ese campo y no crea nada; la edición rechaza técnico
+y sectorial ajenos sin tocar el ticket y reasigna dentro del mismo ISP; un ticket con técnico
+ajeno heredado se guarda si se reenvía ese mismo valor, y ese valor no abre la puerta a otro id
+del mismo ISP ajeno.
+
+Carpeta `tests/Feature/Support` en verde (525) y el bundle compila.

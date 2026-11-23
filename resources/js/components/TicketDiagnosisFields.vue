@@ -70,6 +70,17 @@
                     :invalid="!!errores[campo.clave]"
                 />
 
+                <!-- El motivo del bloqueo, A LA VISTA. Antes sólo estaba en el
+                     `title`, que en el celular del técnico no existe: el campo
+                     parecía roto («no me deja colocar acción», 2026-11-20). -->
+                <p
+                    v-if="bloqueados.includes(campo.clave)"
+                    class="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                >
+                    Tu rol no puede cambiar este campo. Falta el permiso
+                    «{{ permisoDe(campo.clave) }}».
+                </p>
+
                 <p v-if="errores[campo.clave]" class="mt-1 text-sm text-red-500">
                     {{ Array.isArray(errores[campo.clave]) ? errores[campo.clave][0] : errores[campo.clave] }}
                 </p>
@@ -142,6 +153,17 @@ const sinVocabulario = computed(
 
 /** «código · etiqueta»: el código sigue a la vista y también se puede buscar. */
 const etiquetaDe = (fila) => `${fila.code} · ${fila.label}`
+
+/**
+ * Nombre visible (el de la pantalla de Roles) del permiso que desbloquea el
+ * campo. Espejo de PERMISO_POR_CAMPO en SupportTicketController: la causa
+ * confirmada es potestad aparte; el resto es «registrar diagnóstico».
+ */
+function permisoDe(clave) {
+    return clave === 'confirmed_cause'
+        ? 'Tickets · confirmar causa'
+        : 'Tickets · registrar diagnóstico'
+}
 
 /** Texto de subcausas de la familia elegida, si lo trae el catálogo. */
 function referenciaDe(code) {

@@ -86,7 +86,9 @@
                     </p>
                 </div>
 
-                <!-- Asignar Staff (con buscador por nombre o correo) -->
+                <!-- Asignar Staff (con buscador por nombre). El correo ya no
+                     viaja: `email` es el personal, y esta lista la lee
+                     cualquiera con `ticket_view`. -->
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Asignado a
@@ -95,9 +97,9 @@
                         v-model="form.staff_id"
                         :items="staffList"
                         :item-label="nombreDelTecnico"
-                        item-sublabel="email"
+                        item-sublabel="role_name"
                         placeholder="Sin asignar"
-                        search-placeholder="Buscar técnico por nombre o correo…"
+                        search-placeholder="Buscar técnico…"
                         empty-text="No hay técnicos para asignar."
                         clearable
                         clear-label="Sin asignar"
@@ -110,6 +112,7 @@
                     <TicketDiagnosisFields
                         v-model="diagnostico"
                         :errores="errors"
+                        :bloqueados="camposDeDiagnosticoBloqueados"
                         :cargando="!catalogosCargados && !catalogosConError"
                         @reintentar="cargarCatalogos(true)"
                     />
@@ -192,6 +195,14 @@ const asunto = ref({ subject_id: null, subject: '' })
 const authStore = useAuthStore()
 const canManageSubjects = computed(() => authStore.hasPermission('ticket_manage_catalogs'))
 
+// Mismo bloqueo que la revisión al cerrar en SupportDetail. El `PUT` autoriza
+// campo a campo (PERMISO_POR_CAMPO): sin esto el usuario elegía la acción
+// realizada y el guardado volvía con 403, sin que la pantalla avisara antes.
+const camposDeDiagnosticoBloqueados = computed(() => [
+    ...(authStore.hasPermission('ticket_diagnose') ? [] : ['symptom', 'suspected_cause', 'solution', 'result']),
+    ...(authStore.hasPermission('ticket_confirm_cause') ? [] : ['confirmed_cause']),
+])
+
 const form = ref({
     description: '',
     category: '',
@@ -222,24 +233,21 @@ const toast = ref(null)
 const loadTicket = async () => {
     try {
         loading.value = true
-        // Cargar ticket y staff en paralelo. La lista de personal es OPCIONAL:
-        // `/staff` exige `view_staff`, que un técnico no tiene (403). Antes un
-        // fallo ahí tumbaba la pantalla entera con «Error al cargar los detalles
-        // del ticket» aunque el ticket sí cargara. Ahora sólo deja el desplegable
-        // de asignación reducido; lo que importa —el ticket— no depende de él.
+        // Cargar ticket y personal en paralelo. La lista sigue siendo OPCIONAL:
+        // si falla, sólo queda reducido el desplegable de asignación; lo que
+        // importa —el ticket— no depende de ella. Sale de
+        // `/support/staff-options` y no de `/staff`, que exige `view_staff`.
         const [ticketRes, staffRes] = await Promise.all([
             api.support.getOne(ticketId),
-            api.staff.getAll({}, { silentForbidden: true }).catch(() => null)
+            api.support.getStaffOptions().catch(() => null)
         ])
 
         const ticket = ticketRes.data
-        // Filtrar solo técnicos por NOMBRE de rol: los roles son por tenant y el id
-        // varía, por eso no se usa role_id fijo. Tolera acentos/mayúsculas.
+        // Técnico = quien puede registrar intervenciones (`can_intervene`), no
+        // quien tenga un rol llamado exactamente «Técnico» (P-56): un rol
+        // «Técnico de campo» dejaba este desplegable vacío.
         const allUsers = staffRes?.data?.data || []
-        staffList.value = allUsers.filter(user => {
-            const n = (user.role_name || '').trim().toLowerCase()
-            return n === 'técnico' || n === 'tecnico'
-        })
+        staffList.value = allUsers.filter(user => user.can_intervene)
         // Sin lista (sin permiso), el desplegable debe al menos mostrar a quien
         // ya está asignado; si no, quedaría en «Sin asignar» y el guardado
         // reenviaría staff_id vacío, des-asignando al técnico sin querer.

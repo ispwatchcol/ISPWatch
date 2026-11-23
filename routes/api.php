@@ -21,6 +21,7 @@ use App\Http\Controllers\TicketInterventionController;
 use App\Http\Controllers\TicketMeasurementController;
 use App\Http\Controllers\TicketSubjectController;
 use App\Http\Controllers\SupportTicketController;
+use App\Http\Controllers\SupportStaffOptionsController;
 use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
@@ -663,6 +664,13 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         // filtra necesita la lista); administrarlos es `ticket_manage_catalogs`
         // (D-13, concedido a `admin` por la migración 2026_10_11_000002).
         Route::get('/support/subjects', [TicketSubjectController::class, 'index']);
+
+        // Personal para los desplegables de soporte (asignado a, técnico y
+        // acompañante de la intervención). Antes del apiResource por lo mismo
+        // que `subjects`. NO es `/staff`: ese exige `view_staff`, que un técnico
+        // no tiene, y le dejaba los desplegables vacíos sin aviso.
+        Route::get('/support/staff-options', [SupportStaffOptionsController::class, 'index']);
+
         Route::middleware('permission:ticket_manage_catalogs')->group(function () {
             Route::post('/support/subjects', [TicketSubjectController::class, 'store']);
             Route::put('/support/subjects/{subject}', [TicketSubjectController::class, 'update']);

@@ -486,20 +486,17 @@ const loadCustomers = async () => {
     }
 }
 
-// Identifica al rol "Técnico" por NOMBRE (no por id): los roles son por tenant y
-// el id del rol técnico varía entre tenants, por eso ya no sirve role_id === 5.
-// Tolera acentos/mayúsculas: "Técnico" / "Tecnico" / "TÉCNICO".
-const isTechnicianRole = (roleName) => {
-    const n = (roleName || '').trim().toLowerCase()
-    return n === 'técnico' || n === 'tecnico'
-}
-
+// Técnico = quien puede registrar intervenciones (`can_intervene`, lo calcula el
+// servidor con los permisos efectivos). Antes se buscaba un rol llamado
+// exactamente «Técnico»/«Tecnico» (P-56), y un ISP con «Técnico de campo» se
+// quedaba sin candidatos. La lista sale de `/support/staff-options` y no de
+// `/staff`, que exige `view_staff` y un técnico no lo tiene.
 const loadStaff = async () => {
     try {
         loadingStaff.value = true
-        const staffRes = await api.staff.getAll()
+        const staffRes = await api.support.getStaffOptions()
         const allUsers = staffRes.data.data || []
-        staff.value = allUsers.filter(user => isTechnicianRole(user.role_name))
+        staff.value = allUsers.filter(user => user.can_intervene)
     } catch (err) {
         console.error('Error al cargar personal:', err)
         toast.value?.error('Error', 'Error al cargar la lista del personal.')

@@ -2294,9 +2294,9 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | Método | Ruta | Requisito | Descripción |
 |---|---|---|---|
 | `GET` | `/api/support` | `ticket_view` | Lista |
-| `POST` | `/api/support` | `ticket_create` | Crea ticket |
+| `POST` | `/api/support` | `ticket_create` | Crea ticket. `user_id`, `staff_id` y `sectorial_id` tienen que ser **del mismo ISP**; si no, **422** con «… no pertenece a este operador» (P-121) |
 | `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
-| `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado** |
+| `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado**. `staff_id` y `sectorial_id` se acotan al ISP del ticket (**422** si son de otro); el valor que el ticket **ya tiene** pasa siempre, para que reenviar el formulario sin tocarlo no falle |
 | `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
 | `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Estadísticas |
 | `POST` | `/api/support/{id}/message` | `staff_profile` + `ticket_note` | Añade mensaje |
@@ -2368,6 +2368,7 @@ la visita.
 | `POST` | `/api/support/subjects` | `ticket_manage_catalogs` | Crea un asunto (`name` ≤ 120, `sort_order?`, `is_active?`). Duplicado sin importar mayúsculas → **422** |
 | `PUT` | `/api/support/subjects/{subject}` | `ticket_manage_catalogs` | Renombra, reordena o activa/desactiva. Renombrar **no** reescribe el texto de los tickets viejos |
 | `DELETE` | `/api/support/subjects/{subject}` | `ticket_manage_catalogs` | Borra sólo si ningún ticket (ni archivado) lo usa; si no, **409** `subject_in_use` |
+| `GET` | `/api/support/staff-options` | `ticket_view` | **Personal para los desplegables de soporte** (asignado a, filtro por técnico, técnico y acompañante de la intervención). `{data: [{id, name, user_name, user_lastname, role_name, can_intervene}]}`: personal **activo** del tenant, **sin abonados**. `can_intervene` = puede registrar intervenciones (`ticket_intervene` efectivo, o superadmin) y es lo que define «técnico». **No** trae correo, teléfono ni permisos. Sustituye a `/staff` en soporte: ese exige `view_staff`, que un técnico no tiene |
 | `POST` | `/api/support/{ticket}/archive` | `ticket_archive` | **Archiva** el expediente (reversible y auditado) |
 | `POST` | `/api/support/{ticket}/restore` | `ticket_restore` | **Restaura** un expediente archivado |
 

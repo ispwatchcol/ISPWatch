@@ -121,6 +121,13 @@ export default {
     // Aqui NO hay metodo de borrado, y no es un olvido: una intervencion no se
     // borra. Si esta mal se reabre con motivo y se corrige, y la correccion
     // queda en el historial del ticket.
+    // Personal para los desplegables de soporte. NO usar `api.staff.getAll()`
+    // aquí: exige `view_staff`, que un técnico no tiene, y el desplegable salía
+    // vacío. Cada fila trae `can_intervene` para filtrar «técnicos» por
+    // capacidad y no por el nombre del rol.
+    getStaffOptions() {
+        return apiClient.get('/support/staff-options')
+    },
     getInterventions(ticketId) {
         return apiClient.get(`/support/${ticketId}/interventions`)
     },

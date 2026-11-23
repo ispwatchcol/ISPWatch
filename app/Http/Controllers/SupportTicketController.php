@@ -167,6 +167,43 @@ class SupportTicketController extends Controller
     }
 
     /**
+     * P-121 · `exists` acotado al ISP del ticket.
+     *
+     * Antes `user_id`, `staff_id` y `sectorial_id` se validaban con
+     * `exists:tabla,id` a secas: quien pudiera crear o asignar tickets mandaba a
+     * mano el id de un cliente, técnico o sectorial de OTRO operador y el ticket
+     * lo guardaba. Mismo patrón que P-62/P-65; las intervenciones ya lo hacían
+     * bien (`TicketInterventionRequest`).
+     *
+     * `$actual` es el valor que el ticket ya tiene: pasa siempre, aunque sea de
+     * otro tenant, para que un dato heredado no bloquee el guardado de un campo
+     * que nadie tocó. El closure va anidado entre paréntesis por el
+     * `DatabasePresenceVerifier`, así que el `OR` no se escapa del tenant.
+     */
+    private function existeEnTenant(string $tabla, ?int $tenantId, ?int $actual = null): \Illuminate\Validation\Rules\Exists
+    {
+        return Rule::exists($tabla, 'id')->where(function ($q) use ($tenantId, $actual) {
+            $tenantId === null
+                ? $q->whereNull('tenant_id')
+                : $q->where('tenant_id', $tenantId);
+
+            if ($actual !== null) {
+                $q->orWhere('id', $actual);
+            }
+        });
+    }
+
+    /** @return array<string, string> */
+    private function mensajesDePertenencia(): array
+    {
+        return [
+            'user_id.exists'      => 'El cliente seleccionado no pertenece a este operador.',
+            'staff_id.exists'     => 'El técnico seleccionado no pertenece a este operador.',
+            'sectorial_id.exists' => 'El sectorial seleccionado no pertenece a este operador.',
+        ];
+    }
+
+    /**
      * Deja `subject` y `subject_id` coherentes entre sí antes de guardar.
      *
      *  · Con asunto del catálogo, el TEXTO se copia de su nombre: lo que el
@@ -287,6 +324,10 @@ class SupportTicketController extends Controller
     public function store(Request $request)
     {
         $tenantId = $request->user()?->tenant_id;
+        // Donde se guarda el ticket. Se calcula UNA vez y se usa para validar y
+        // para escribir: si la validación acotara a un tenant y el alta
+        // escribiera en otro, el acotado no protegería nada.
+        $tenantDelTicket = $tenantId ?? 1;
 
         $data = $request->validate([
             // Del catálogo (`subject_id`) o escrito a mano («Otro…»). Uno de
@@ -296,9 +337,13 @@ class SupportTicketController extends Controller
             'subject_id' => $this->reglaDeAsunto($tenantId),
             'description' => 'nullable|string',
             'category' => ['nullable', $this->reglaDe(TicketCatalogs::CATEGORY)],
-            'user_id' => 'required|exists:users,id',
-            'staff_id' => 'nullable|exists:users,id',
-            'sectorial_id' => 'nullable|integer|exists:sectorial,id',
+            // P-121 · Cliente, técnico y sectorial tienen que ser del ISP en el
+            // que el ticket se va a guardar. Un `exists` a secas aceptaba el id
+            // de otro operador. `$tenantDelTicket` es el MISMO valor que se
+            // escribe en `tenant_id` más abajo, con su respaldo incluido.
+            'user_id' => ['bail', 'required', 'integer', $this->existeEnTenant('users', $tenantDelTicket)],
+            'staff_id' => ['bail', 'nullable', 'integer', $this->existeEnTenant('users', $tenantDelTicket)],
+            'sectorial_id' => ['bail', 'nullable', 'integer', $this->existeEnTenant('sectorial', $tenantDelTicket)],
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
             // PR #2: el diagnóstico se puede capturar ya desde el alta, aunque lo
             // habitual sea rellenarlo después de la visita.
@@ -306,7 +351,7 @@ class SupportTicketController extends Controller
             // orden, que es cuando se sabe si va por garantía.
             'no_charge'        => 'nullable|boolean',
             'no_charge_reason' => 'nullable|string|max:255',
-        ] + $this->reglasDeDiagnostico($tenantId), $this->mensajesDeDiagnostico());
+        ] + $this->reglasDeDiagnostico($tenantId), $this->mensajesDeDiagnostico() + $this->mensajesDePertenencia());
 
         // PR B · La ruta ya exigió `ticket_create`, que cubre el acto de abrir
         // el ticket con su asunto, su categoría y su técnico asignado.
@@ -328,7 +373,7 @@ class SupportTicketController extends Controller
                 // `tenant_id` va PRIMERO: los mutators del diagnóstico resuelven
                 // el código en el ámbito del tenant, y `fill()` recorre el array
                 // en orden. Ver `SupportTicket::tenantParaResolver()`.
-                'tenant_id' => $request->user()?->tenant_id ?? 1,
+                'tenant_id' => $tenantDelTicket,
                 'user_id' => $data['user_id'],
                 'staff_id' => $data['staff_id'] ?? null,
                 'sectorial_id' => $data['sectorial_id'] ?? null,
@@ -439,8 +484,14 @@ class SupportTicketController extends Controller
             // Se ignora si llega, en vez de dar 422: la pantalla de edición
             // reenvía el formulario entero, y rechazar la petición por un campo
             // que el usuario no tocó rompería el guardado.
-            'staff_id' => 'sometimes|nullable|exists:users,id',
-            'sectorial_id' => 'sometimes|nullable|integer|exists:sectorial,id',
+            // P-121 · Acotados al ISP del ticket. El valor que el ticket YA
+            // tiene pasa siempre: la pantalla de edición reenvía el formulario
+            // entero, y un ticket viejo con un id de otro operador no debe
+            // quedar imposible de guardar por un campo que nadie tocó.
+            'staff_id' => ['bail', 'sometimes', 'nullable', 'integer',
+                $this->existeEnTenant('users', $ticket->tenant_id, $ticket->staff_id)],
+            'sectorial_id' => ['bail', 'sometimes', 'nullable', 'integer',
+                $this->existeEnTenant('sectorial', $ticket->tenant_id, $ticket->sectorial_id)],
             'attachments.*' => 'nullable|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx,txt',
             'no_charge' => 'sometimes|boolean',
             'no_charge_reason' => 'sometimes|nullable|string|max:255',
@@ -448,7 +499,7 @@ class SupportTicketController extends Controller
             // pasó por el scope global de BelongsToTenant, así que el ticket es
             // forzosamente del ISP de quien pide, y usar su tenant deja el
             // vocabulario admitido alineado con el dueño del dato.
-        ] + $this->reglasDeDiagnostico($ticket->tenant_id), $this->mensajesDeDiagnostico());
+        ] + $this->reglasDeDiagnostico($ticket->tenant_id), $this->mensajesDeDiagnostico() + $this->mensajesDePertenencia());
 
         if ($validator->fails()) {
             \Log::warning('Validation failed for ticket update:', [

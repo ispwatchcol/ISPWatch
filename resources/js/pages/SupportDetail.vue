@@ -1297,7 +1297,12 @@ const alCambiarMedicion = async () => {
 
 const loadStaff = async () => {
     try {
-        const { data } = await api.staff.getAll({}, { silentForbidden: true })
+        // `/support/staff-options` y no `/staff`: este exige `view_staff`, que
+        // un técnico no tiene, y la lista le llegaba vacía sin aviso. Como el
+        // técnico es obligatorio, tampoco podía registrar la intervención
+        // (reporte del 2026-11-20). Aquí NO se filtra por `can_intervene`: en
+        // la visita puede figurar cualquiera del personal.
+        const { data } = await api.support.getStaffOptions()
         staffList.value = data.data || []
     } catch (e) {
         // Sin lista, los desplegables quedan vacios pero el resto de la pantalla
