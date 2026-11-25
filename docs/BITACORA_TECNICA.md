@@ -11235,3 +11235,33 @@ cuotas existen sólo en la cartera de la instalación (`InstallationInstallmentP
 `TicketClosePathTest` (6): camino normal sin atajos, todo estado activo tiene camino, el camino
 devuelto se recorre con los endpoints de siempre hasta cerrar, y los bloqueos por permiso y por
 estado terminal. Suite de Soporte en verde (531).
+
+---
+
+## 131. «No puedo borrar ese router»: Eliminar mandaba a «dar de baja» y no había botón — 2026-11-25
+
+### Diagnóstico
+
+Reporte de un ISP (Chaguaní) con captura de «Eliminar Dispositivo #53 · MIKROTIK LDF 5». Eliminar
+rechaza —a propósito, § 15.5 del manual— un equipo **instalado** o que **se movió en un ticket**, y
+el mensaje dice «dale de baja». Pero *Equipos y existencias* sólo tenía Ver / Editar / Eliminar: el
+endpoint `POST /inventory/{id}/retire` existía sin ninguna pantalla que lo usara, así que el
+operador quedaba atascado. La lista tampoco mostraba el estado: no había forma de saber que el
+equipo estaba instalado antes de intentar borrarlo.
+
+Al revisarlo apareció un hueco del backend: `retireDevice()` no miraba el estado. Un equipo
+**instalado** podía darse de baja desde la bodega, dejando al cliente con un equipo «chatarra» y
+su instalación apuntándole; y un segundo «dar de baja» duplicaba la línea del kardex.
+
+### Qué se hizo
+
+- `InventoryLedger::retireDevice()` rechaza (422) un equipo instalado —se retira del cliente desde
+  el ticket, que ya ofrece «dar de baja» como destino— y uno ya dado de baja.
+- Lista: columna **Dónde está** (estado + custodio con `holder_label`, que el backend ya enviaba),
+  botón **Dar de baja** con motivo, y la ventana de eliminar: si el equipo está instalado lo
+  explica y no ofrece «Eliminar»; si el servidor rechaza, el motivo queda dentro de la ventana con
+  **Dar de baja en su lugar**.
+
+### Verificación
+
+`InventoryRetireDeviceTest` (4). Suite de Inventario en verde (201).
