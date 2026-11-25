@@ -368,6 +368,70 @@ class TicketWorkflow
         return in_array($code, self::TERMINALES, true);
     }
 
+    /**
+     * Estados por los que el camino AL CIERRE puede pasar, en el recorrido
+     * normal de una falla atendida: clasificar, asignar, (visitar), intervenir,
+     * restablecer. Quedan fuera a propósito los atajos que la matriz permite
+     * pero que dicen otra cosa: «asociado a incidente masivo» y «solución
+     * temporal» (exige cierre especial), las pausas, y «en diagnóstico remoto»,
+     * que cuenta como RESOLUCIÓN REMOTA en las estadísticas del § 17 —sugerirlo
+     * por ser un paso más corto falsearía ese indicador—.
+     */
+    private const CAMINO_NORMAL = [
+        self::EN_CLASIFICACION,
+        self::ASIGNADO,
+        self::EN_INTERVENCION,
+        self::SERVICIO_RESTABLECIDO,
+    ];
+
+    /**
+     * Pasos que faltan, desde `$desde`, hasta un estado desde el que se puede
+     * cerrar. `[]` si ya se puede cerrar desde ahí; `null` si no hay camino
+     * (terminal, o estado desconocido).
+     *
+     * Sirve para que la pantalla diga «para cerrar: En intervención → Servicio
+     * restablecido → Cerrar» en vez de esconder el botón sin explicación. Usa
+     * la MISMA matriz: cada paso sugerido es una transición válida, y recorrerlo
+     * deja un evento por paso en el historial.
+     *
+     * @return array<int, string>|null
+     */
+    public static function caminoAlCierre(?string $desde): ?array
+    {
+        if ($desde === null || self::esTerminal($desde) || !self::conocido($desde)) {
+            return null;
+        }
+
+        if (in_array($desde, self::PUEDE_CERRAR_DESDE, true)) {
+            return [];
+        }
+
+        // Búsqueda en anchura: el camino más corto por estados del recorrido normal.
+        $cola = [[$desde, []]];
+        $visto = [$desde => true];
+
+        while ($cola) {
+            [$estado, $camino] = array_shift($cola);
+
+            foreach (self::destinosDesde($estado) as $siguiente) {
+                if (isset($visto[$siguiente]) || !in_array($siguiente, self::CAMINO_NORMAL, true)) {
+                    continue;
+                }
+
+                $nuevo = [...$camino, $siguiente];
+
+                if ($siguiente === self::SERVICIO_RESTABLECIDO) {
+                    return $nuevo;
+                }
+
+                $visto[$siguiente] = true;
+                $cola[] = [$siguiente, $nuevo];
+            }
+        }
+
+        return null;
+    }
+
     // ── Reglas de cierre (§ 15) ──────────────────────────────────────────
 
     /**
