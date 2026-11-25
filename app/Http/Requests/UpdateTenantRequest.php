@@ -69,6 +69,13 @@ class UpdateTenantRequest extends FormRequest
                     ->where('tenant_id', $this->user()?->tenant_id),
             ],
 
+            // ── Flujo de tickets (bitácora § 133) ─────────────────────────────
+            // 'formal' = Solicitud Maestra (estados y reglas de cierre completas);
+            // 'simple' = Abierto → En proceso → En espera → Cerrado, y para
+            // cerrar basta con decir qué se hizo. Lo decide quien administra la
+            // empresa (la ruta ya exige manage_tenant).
+            'ticket_workflow_mode' => ['sometimes', Rule::in(\App\Support\TicketWorkflow::MODOS)],
+
             // Prefijo del consecutivo de contratos: texto LIBRE, el ISP escribe
             // lo que quiera («CNO/», «Contrato N° »). Sólo se rechazan los
             // caracteres de control, que nunca son intencionales y romperían

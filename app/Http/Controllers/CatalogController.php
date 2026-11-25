@@ -58,8 +58,28 @@ class CatalogController extends Controller
                 'description' => $fila->description,
             ])->values();
 
+        // Modo del flujo del ISP (bitácora § 133). `statuses` NO cambia de forma
+        // ni de valores —hay integradores y pruebas que la fijan—: el nombre que
+        // se le muestra al usuario en el modo simple («Abierto», «En proceso»…)
+        // y el grupo de cada estado viajan aparte, en `status_display`.
+        $modo = \App\Support\TicketWorkflow::modoDelTenant($tenantId);
+
+        $presentacionDeEstados = $catalogs->vigentes(TicketCatalogs::STATUS)
+            ->mapWithKeys(fn ($fila) => [$fila->code => [
+                'label' => (\App\Support\TicketWorkflow::esSimple($modo)
+                    ? \App\Support\TicketWorkflow::etiquetaSimple($fila->code) : null) ?? $fila->label,
+                'group' => \App\Support\TicketWorkflow::grupoDe($fila->code),
+            ]]);
+
         return response()->json([
             'statuses'   => $presentar(TicketCatalogs::STATUS),
+            // Aditivos (§ 133): con qué reglas trabaja este ISP, cómo se le
+            // muestra cada estado y cómo se llaman los grupos de la lista.
+            'workflow_mode'  => $modo,
+            'status_display' => $presentacionDeEstados,
+            'status_groups'  => collect(\App\Support\TicketWorkflow::ETIQUETAS_DE_GRUPO)
+                ->map(fn ($label, $code) => ['code' => $code, 'label' => $label])
+                ->values(),
             'priorities' => $presentar(TicketCatalogs::PRIORITY),
             'categories' => $presentar(TicketCatalogs::CATEGORY),
 

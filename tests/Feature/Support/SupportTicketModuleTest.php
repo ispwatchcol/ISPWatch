@@ -129,14 +129,14 @@ class SupportTicketModuleTest extends TestCase
     }
 
     /**
-     * DEFECTO FIJADO — `store()` escribe PRIORITY_MEDIUM a fuego y ni siquiera
-     * declara `priority` entre las reglas de validación, así que la prioridad
-     * enviada al crear se descarta en silencio. Hoy sólo se puede cambiar
-     * después, por update. La reestructuración debería aceptarla al crear; al
-     * hacerlo, este test debe actualizarse de forma consciente.
+     * Antes este test fijaba un DEFECTO: `store()` escribía PRIORITY_MEDIUM a
+     * fuego y la prioridad enviada al crear se descartaba en silencio. Desde la
+     * bitácora § 133 el alta la acepta (con `ticket_set_priority`, que el staff
+     * de este test tiene); el cambio es consciente, como pedía este comentario.
+     * Lo que pasa sin el permiso lo cubre TicketQuickCreateTest.
      */
     #[Test]
-    public function la_prioridad_enviada_al_crear_se_ignora_hoy(): void
+    public function la_prioridad_enviada_al_crear_se_respeta(): void
     {
         $response = $this->actingAs($this->staff)->postJson('/api/support', [
             'subject'  => 'Cliente corporativo caído',
@@ -146,11 +146,7 @@ class SupportTicketModuleTest extends TestCase
 
         $response->assertCreated();
 
-        $this->assertSame(
-            'medium',
-            SupportTicket::find($response->json('ticket.id'))->priority,
-            'Comportamiento actual: la prioridad de creación se ignora. Si esto cambia, es intencional.'
-        );
+        $this->assertSame('urgent', SupportTicket::find($response->json('ticket.id'))->priority);
     }
 
     #[Test]
