@@ -1047,6 +1047,9 @@
                      de trabajo; el propio componente se oculta a quien no tiene
                      view_expenses. -->
                 <div v-if="activeTab === 'system'" class="space-y-6">
+                    <!-- Flujo de tickets simple o formal (bitácora § 133). Se
+                         oculta a quien no tiene manage_tenant. -->
+                    <TicketWorkflowSection />
                     <InventoryExpenseSection />
                 </div>
 
@@ -1089,6 +1092,7 @@ import CustomersUpdateSection from "@/components/import/CustomersUpdateSection.v
 import InventoryImportSection from "@/components/import/InventoryImportSection.vue";
 import DocumentTemplatesSection from "@/components/settings/DocumentTemplatesSection.vue";
 import InventoryExpenseSection from "@/components/settings/InventoryExpenseSection.vue";
+import TicketWorkflowSection from "@/components/settings/TicketWorkflowSection.vue";
 import ApiKeysSection from "@/components/settings/ApiKeysSection.vue";
 import TenantApiKeysSection from "@/components/settings/TenantApiKeysSection.vue";
 import AuditLogSection from "@/components/settings/AuditLogSection.vue";

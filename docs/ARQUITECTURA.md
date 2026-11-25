@@ -2196,6 +2196,12 @@ estable, y muestra el segundo, que no lo es. La SPA los obtiene de
 `GET /api/catalogs/ticket` mediante el composable `useTicketCatalogs()`, que sustituyó a
 los mapas de etiquetas que estaban duplicados en cinco componentes.
 
+> **Desde § 133 el color va por GRUPO, no por código.** Los mapas por código sólo conocían los
+> cuatro estados viejos y los 18 del flujo nuevo caían todos al azul por defecto. Ahora el color
+> sale de `status_group` (servidor, `TicketWorkflow::GRUPOS`) y vive en un solo sitio,
+> `resources/js/utils/ticketStyles.js`. La etiqueta que se MUESTRA sale de `statusLabel()`, que
+> prefiere `status_display` del catálogo: en el flujo simple, el nombre corto.
+
 ### 15.7 Asuntos frecuentes: un catálogo del ISP, no de plataforma (2026-10-11)
 
 El asunto era texto libre y por eso no servía para filtrar. `ticket_subjects` es la lista de
@@ -2220,6 +2226,63 @@ Tres decisiones:
   asunto y el diagnóstico editables y los guarda con el `PUT` de siempre **antes** de la
   acción, porque los requisitos de cierre se evalúan sobre lo guardado. Los permisos son los
   de siempre, campo por campo; lo que el rol no puede cambiar se muestra bloqueado.
+
+### 15.8 Flujo formal o simple por ISP, y la cola de trabajo (§ 133, 2026-11-25)
+
+**El problema.** El flujo de `TicketWorkflow` —22 códigos, 4 transiciones obligatorias antes de
+poder cerrar, causa confirmada + acción + resultado + medición final— salió de la *Solicitud
+Maestra* de CNO y se aplicaba a todos los ISP. Para uno pequeño era burocracia: los tickets se
+quedaban abiertos.
+
+**La decisión: un modo por ISP, sin estados nuevos.** `tenant.ticket_workflow_mode` (`formal`
+por defecto, el de siempre; `simple` opcional). El simple **reutiliza los mismos códigos del
+catálogo** —no hay `ticket_status` nuevos, ni migración de datos— y cambia tres cosas, todas en
+`App\Support\TicketWorkflow`:
+
+| | Formal | Simple |
+|---|---|---|
+| Matriz | `TRANSICIONES` | `destinosSimples()`: desde cualquier estado vivo → `en_intervencion`, las 5 esperas, `duplicado` |
+| Se cierra desde | `PUEDE_CERRAR_DESDE` | cualquier estado vivo (`puedeCerrarDesde()`) |
+| Requisitos | `REQUISITOS_DE_CIERRE` + prueba final + regla 9 | sólo `solution` (`requisitosDeCierre()`) |
+| Etiquetas | las del catálogo | `ETIQUETAS_SIMPLES` («Abierto», «En proceso»…) |
+
+Los métodos llevan el modo como argumento (`destinosSegunModo`, `permiteSegunModo`,
+`caminoAlCierreSegunModo`…); el controlador lo resuelve una vez por petición con
+`modoDelTenant($ticket->tenant_id)`, que ante cualquier duda devuelve **formal** (el estricto
+es el seguro). Los **permisos no dependen del modo**: el modo dice qué es posible; el rol, quién
+puede hacerlo.
+
+**Grupos de estado.** `TicketWorkflow::GRUPOS` reparte los 22 códigos en cinco grupos
+(`nuevo`, `en_curso`, `en_espera`, `para_cerrar`, `cerrado`). Son presentación y filtro, no
+regla: los usan la cola (pestañas y contadores), los colores (`resources/js/utils/ticketStyles.js`)
+y la ficha del cliente. Un test (`todo_codigo_de_la_matriz_tiene_grupo_y_nombre_simple`) obliga a
+clasificar cualquier código nuevo.
+
+**La cola: `App\Support\TicketBoard`.** `GET /support` con `page` o `tab` pagina en el servidor,
+filtra por pestaña y cuenta las nueve pestañas en **una** consulta agrupada por
+`(status_id, quién lo tiene)` — nueve `count()` serían nueve viajes a Supabase. El id de quien
+pide va escrito en la expresión `CASE` (es un entero de la sesión) porque PostgreSQL no reconoce
+como iguales dos expresiones con parámetros distintos y el `GROUP BY` fallaría. Sin `page` ni
+`tab`, la respuesta de siempre (arreglo completo), que consumen la ficha del cliente y los socios.
+
+**El cliente visto desde soporte: `SupportCustomerController`.** `customer-options` (buscador
+del alta, sin exigir `view_clients`) y `customer-context/{user}` (ficha técnica + tickets
+abiertos). El **dinero** sólo sale con `view_billing`/`view_invoices`; las credenciales PPPoE
+nunca. Lo consume un solo componente, `components/support/TicketCustomerCard.vue`, en el alta y
+en el detalle.
+
+**El detalle: el servidor propone, la pantalla presenta.** `transitions` añade `next_step`
+(el paso principal) y `checklist` (requisitos estructurados). La pantalla pinta un botón
+principal, «Resolver y cerrar» y «Más acciones», sin copia de la matriz. «Resolver y cerrar»
+orquesta endpoints que ya existían —`PUT` de la revisión, `PATCH /status` por cada paso,
+`POST /measurements` con `phase: final`, `POST /close` o `/propose-closure`—: **no es atómico a
+propósito**; cada paso es válido solo y deja su evento en el historial, y si uno falla la
+ventana queda abierta con lo avanzado ya guardado.
+
+**Asignar es clasificar.** En el formal, un ticket que recibe su primer técnico mientras está en
+`radicado`/`en_clasificacion`/`open`/`reabierto` pasa a `asignado` con transiciones reales
+(`pasosAlAsignar()`), al crear o al editar. Es consecuencia de asignar (`ticket_assign` o el
+alta), no una transición libre: no exige `ticket_transition`.
 
 ---
 

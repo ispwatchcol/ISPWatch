@@ -2972,6 +2972,37 @@ nada sin invalidar en un AAA; pero el feed y `/customers` dejan de coincidir par
 **Recomendación.** Emitir con `PartnerEvent::recordMany()` dentro de la misma transacción, como ya
 hace `fromRouter()`, o declarar en el contrato que las bajas quedan fuera del feed.
 
+### 📋 P-122 · La búsqueda de la cola de tickets no ignora tildes
+
+Visto en la bitácora § 133. `TicketBoard::buscar()` usa `whereLike` (`ilike` en PostgreSQL):
+ignora mayúsculas pero **no tildes**, así que «Garcia» no encuentra «García» ni «Chaguani» a
+«Chaguaní». El buscador del alta sí las ignora porque filtra en el navegador. No hay una
+solución portable: SQLite (las pruebas) no tiene `unaccent` ni `translate()`.
+
+**Recomendación.** En PostgreSQL, la extensión `unaccent` con un índice funcional
+(`unaccent(lower(…))`) y una macro `whereLikeSinTildes` que en SQLite caiga a `whereLike`; o
+una columna normalizada (`search_text`) mantenida por un observer. Avisado en el manual de usuario.
+
+### 📋 P-123 · El buscador del alta trae TODOS los clientes del ISP
+
+Visto en la bitácora § 133. `GET /support/customer-options` devuelve una fila liviana por cliente
+(≈ 150 bytes) y el `SearchableSelect` filtra en el navegador, igual que hacía antes `/customers`
+(que traía más columnas). Con 2.000 clientes son ~300 KB; con 20.000, demasiado.
+
+**Recomendación.** Cuando un ISP pase de unos 10.000 clientes, búsqueda en el servidor con
+`?search=` y un mínimo de 2 caracteres, y que `SearchableSelect` acepte una fuente remota.
+
+### 📋 P-124 · «Editar ticket» y el recuadro «Atención» del detalle se solapan
+
+Visto en la bitácora § 133. El detalle ya cambia técnico y prioridad en el sitio, y el
+diagnóstico se completa en «Resolver y cerrar»; la página `SupportEdit.vue` sigue existiendo
+con los mismos campos más categoría, asunto, sectorial y «sin cobro». No es un fallo —todo pasa
+por el mismo `PUT` y sus permisos— pero son dos sitios para lo mismo.
+
+**Recomendación.** Cuando se confirme con los operadores que el detalle les basta, reducir
+*Editar* a lo que no está en el detalle (asunto, descripción, sectorial, sin cobro) y llevarlo a
+un modal.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3134,6 +3165,9 @@ hace `fromRouter()`, o declarar en el contrato que las bajas quedan fuera del fe
 | **P-119** | En la hoja de instalación, **Sectorial / Switch / Nodo**, **Core / Router** y **Plan** siguen siendo `<select>` nativos; `SearchableSelect` no soporta grupos (`optgroup`) y el de sectoriales los usa | Con muchas NAP o nodos hay que bajar a ojo por la lista | 🟢 Baja | 📋 Pendiente · fuera del alcance «asignar a / asignar material» de § 128; candidato: prop `item-group` en `SearchableSelect` |
 | **P-120** | El artículo «Gestionar dispositivos e inventario» del Centro de ayuda (`HelpCenterSeeder`) describe el menú viejo: «Lista de equipos → nuevo» y cuatro niveles, sin materiales, ingreso ni entregas | Quien busca ayuda en la app lee un camino que ya no existe (el manual sí está al día) | 🟢 Baja | 📋 Pendiente · no se tocó en § 128 para no sumar un `migrate:both` a un cambio de pantallas: el texto de producción se actualiza con una migración de contenido con huella md5, como `2026_10_01_100000_update_help_center_integracion_aaa`, y el seeder junto con ella |
 | **P-121** | `SupportTicketController::store/update` valida `staff_id`, `user_id` y `sectorial_id` con `exists` **sin acotar al tenant** (mismo patrón que P-62/P-65; las intervenciones ya lo hacen bien con `Rule::exists(...)->where('tenant_id', …)`) | Quien tenga permiso de crear o asignar tickets puede mandar a mano el id de un técnico, cliente o sectorial de **otro ISP** y el ticket lo guarda | 🟠 Media | ✅ **Resuelto 2026-11-23 (§ 129)**: los tres se validan con `existeEnTenant()`, acotado al tenant donde se guarda (alta) o al del ticket (edición). En la edición el valor que el ticket ya tiene pasa siempre, así que los datos heredados no hacía falta limpiarlos antes |
+| **P-122** | La búsqueda de la cola de tickets (`TicketBoard`) no ignora tildes | «Garcia» no encuentra «García» | 🟢 Baja | 📋 Pendiente · requiere `unaccent` en PostgreSQL o columna normalizada (§ 133) |
+| **P-123** | `/support/customer-options` trae todos los clientes del ISP para filtrar en el navegador | Lento en ISP de decenas de miles de clientes | 🟢 Baja | 📋 Pendiente · búsqueda en servidor cuando haga falta (§ 133) |
+| **P-124** | «Editar ticket» y el recuadro «Atención» del detalle cambian lo mismo | Dos sitios para lo mismo | 🟢 Baja | 📋 Pendiente · reducir *Editar* tras validarlo con los operadores (§ 133) |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

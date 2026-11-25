@@ -45,6 +45,14 @@ const measurementSuggestions = ref({})
 // quien lo edite tiene que llamar a `cargar(true)` para refrescarlo.
 const subjects = ref([])
 
+// Bitácora § 133 · Modo del flujo del ISP ('formal' | 'simple'), cómo se le
+// muestra cada estado al usuario ({ code: { label, group } }) y los nombres de
+// los grupos. `statuses` conserva las etiquetas del catálogo; las pantallas
+// nombran los estados con `statusLabel()`, que prefiere `statusDisplay`.
+const workflowMode = ref('formal')
+const statusDisplay = ref({})
+const statusGroups = ref([])
+
 const cargado = ref(false)
 const error = ref(false)
 
@@ -72,6 +80,9 @@ async function cargar(forzar = false) {
             finalTestWaiverReasons.value = data.final_test_waiver_reasons ?? []
             measurementSuggestions.value = data.measurement_suggestions ?? {}
             subjects.value = data.subjects ?? []
+            workflowMode.value = data.workflow_mode ?? 'formal'
+            statusDisplay.value = data.status_display ?? {}
+            statusGroups.value = data.status_groups ?? []
             cargado.value = true
         })
         .catch(() => {
@@ -92,6 +103,9 @@ async function cargar(forzar = false) {
             finalTestWaiverReasons.value = []
             measurementSuggestions.value = {}
             subjects.value = []
+            workflowMode.value = 'formal'
+            statusDisplay.value = {}
+            statusGroups.value = []
             error.value = true
         })
         .finally(() => { enVuelo = null })
@@ -118,11 +132,17 @@ export function useTicketCatalogs() {
         finalTestWaiverReasons,
         measurementSuggestions,
         subjects,
+        workflowMode,
+        statusDisplay,
+        statusGroups,
         cargado,
         error,
         cargar,
 
-        statusLabel: (code) => etiqueta(statuses, code),
+        statusLabel: (code) => (code && statusDisplay.value[code]?.label) || etiqueta(statuses, code),
+        /** Grupo del estado: nuevo, en_curso, en_espera, para_cerrar, cerrado. */
+        statusGroup: (code) => (code && statusDisplay.value[code]?.group) || 'nuevo',
+        esModoSimple: () => workflowMode.value === 'simple',
         priorityLabel: (code) => etiqueta(priorities, code),
         categoryLabel: (code) => etiqueta(categories, code),
         symptomLabel: (code) => etiqueta(symptoms, code),

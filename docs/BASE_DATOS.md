@@ -439,6 +439,7 @@ usada en los documentos, la marca y el contador de numeración de facturas.
 | `next_contract_number` | integer | NN | `1` | Contador secuencial de contratos firmados |
 | `inventory_entry_creates_expense` | boolean | NN | `false` | Si la entrada de inventario genera un gasto automático. **Nace apagado a propósito**: el ISP que ya registra la factura del proveedor contaría la compra dos veces |
 | `inventory_expense_category_id` | bigint | | | Categoría en la que caen esos gastos. FK a `expense_categories`, `nullOnDelete` |
+| `ticket_workflow_mode` | varchar(10) | NN | `formal` | Flujo de los tickets: `formal` (Solicitud Maestra: 9 estados del recorrido, causa/acción/resultado y medición final para cerrar) o `simple` (Abierto → En proceso → En espera → Cerrado; para cerrar basta `solution`). **Nace `formal` para todos**: desplegar no cambia nada; lo enciende cada ISP en *Configuración → Sistema*. Lo leen `TicketWorkflow::modoDelTenant()`; un valor desconocido cuenta como `formal`. Migración `2026_11_25_000001` (bitácora § 133) |
 | `logo` | varchar(255) | | | Ruta del logo |
 | `brand_color` | varchar(7) | | | Color de marca en HEX |
 | `document_footer_text` | text | | | Pie de página de los documentos |

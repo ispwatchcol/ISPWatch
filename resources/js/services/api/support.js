@@ -4,6 +4,21 @@ export default {
     getAll(params = {}) {
         return apiClient.get('/support', { params })
     },
+    // Cola de trabajo (§ 133): { tab, page, per_page, search, priority,
+    // staff_id, subject_id, sort } → { data, counts, current_page, last_page… }.
+    // Sin `page` el servidor responde el arreglo de siempre (getAll).
+    getBoard(params = {}) {
+        return apiClient.get('/support', { params: { page: 1, ...params } })
+    },
+    // Clientes para el buscador del alta (cédula, teléfono, dirección, IP,
+    // plan, tickets abiertos). No exige `view_clients`.
+    getCustomerOptions() {
+        return apiClient.get('/support/customer-options')
+    },
+    // Ficha del cliente para el ticket. `exclude`: el ticket desde el que se mira.
+    getCustomerContext(userId, params = {}) {
+        return apiClient.get(`/support/customer-context/${userId}`, { params })
+    },
     getOne(id) {
         return apiClient.get(`/support/${id}`)
     },

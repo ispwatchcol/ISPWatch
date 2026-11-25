@@ -175,10 +175,27 @@ import {
   MdPersonadd,
   MdContentcopy,
   MdRefresh,
+  // Soporte simplificado (bitácora § 133)
+  BiArchive,
+  MdPhone,
+  BiWhatsapp,
+  MdPersonoff,
+  MdMorehoriz,
+  MdAssignmentturnedin,
+  MdTaskalt,
+  MdRadiobuttonunchecked,
 } from "oh-vue-icons/icons";
 
 // REGISTRAR ICONOS
 addIcons(
+  BiArchive,
+  MdPhone,
+  BiWhatsapp,
+  MdPersonoff,
+  MdMorehoriz,
+  MdAssignmentturnedin,
+  MdTaskalt,
+  MdRadiobuttonunchecked,
   BiPerson,
   BiPeople,
   BiPersonPlus,

@@ -2293,8 +2293,8 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 
 | Método | Ruta | Requisito | Descripción |
 |---|---|---|---|
-| `GET` | `/api/support` | `ticket_view` | Lista |
-| `POST` | `/api/support` | `ticket_create` | Crea ticket. `user_id`, `staff_id` y `sectorial_id` tienen que ser **del mismo ISP**; si no, **422** con «… no pertenece a este operador» (P-121) |
+| `GET` | `/api/support` | `ticket_view` | Lista. Con `page` o `tab`: **cola paginada** con pestañas y contadores (ver «Cola de tickets» abajo); sin ellos, el arreglo de siempre |
+| `POST` | `/api/support` | `ticket_create` | Crea ticket. `user_id`, `staff_id` y `sectorial_id` tienen que ser **del mismo ISP**; si no, **422** con «… no pertenece a este operador» (P-121). `priority` opcional (§ 133): distinta de `medium` exige `ticket_set_priority` (**403** si falta). Con `staff_id`, en el flujo formal el ticket queda **`asignado`** (dos transiciones reales en el historial) |
 | `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
 | `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado**. `staff_id` y `sectorial_id` se acotan al ISP del ticket (**422** si son de otro); el valor que el ticket **ya tiene** pasa siempre, para que reenviar el formulario sin tocarlo no falle |
 | `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
@@ -2303,7 +2303,9 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `PUT` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Edita mensaje |
 | `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
 | `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | **Transición**: valida estado origen contra la matriz |
-| `GET` | `/api/support/{ticket}/transitions` | `ticket_view` | Qué puede hacer AHORA quien pide |
+| `GET` | `/api/support/{ticket}/transitions` | `ticket_view` | Qué puede hacer AHORA quien pide. Desde § 133 también `workflow_mode`, `status_group`, `next_step`, `checklist` y `requires_final_test` |
+| `GET` | `/api/support/customer-options` | `ticket_create` **o** `ticket_edit` | Clientes del ISP para el buscador del alta (§ 133). No exige `view_clients` |
+| `GET` | `/api/support/customer-context/{user}` | `ticket_view` | Ficha del cliente para el ticket: datos técnicos, tickets abiertos y, con `view_billing`/`view_invoices`, saldo (§ 133). **404** si es de otro ISP |
 | `POST` | `/api/support/{id}/propose-closure` | `staff_profile` + `ticket_transition` | **Propone** el cierre. NO cierra |
 | `POST` | `/api/support/{id}/close` | `staff_profile` + `ticket_close` | **Cierra**, con los requisitos del §15 |
 | `POST` | `/api/support/{id}/close-exception` | `staff_profile` + `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
@@ -2645,6 +2647,113 @@ todavía sin tomar, y hay un test que impide que se filtren por descuido.
 `intervention_reopened` (con `field: finished_at`, el sello anterior en `old_value` y el motivo
 en `metadata.reason`).
 
+### Tickets simplificados (§ 133 · 2026-11-25)
+
+#### Cola de tickets — `GET /api/support?page=1&tab=…`
+
+Con `page` **o** `tab` la respuesta cambia de forma. Sin ninguno de los dos, `GET /api/support`
+sigue devolviendo **el arreglo de siempre** (la ficha del cliente y los integradores lo usan así).
+
+| Parámetro | Valores | Notas |
+|---|---|---|
+| `tab` | `open` (defecto), `mine`, `unassigned`, `new`, `in_progress`, `waiting`, `to_close`, `closed`, `all` | Por **grupo** de estado (`TicketWorkflow::GRUPOS`). `mine` = abiertos con `staff_id` de quien pide |
+| `page`, `per_page` | `per_page` 5–100, defecto 25 | Paginación en el servidor |
+| `search` | texto | `#123` = ese número. Una cifra suelta: número, teléfono o cédula. Si no: asunto, descripción, nombre y apellido del cliente, teléfono, dirección, cédula, IP. Insensible a mayúsculas (`ilike`), **no** a tildes |
+| `priority` | código | |
+| `staff_id` | id o `unassigned` | |
+| `subject_id` | id o `other` | `other` = escritos a mano |
+| `sort` | `urgency` (defecto) o `recent` | `urgency`: prioridad desc. y, a igual prioridad, el más viejo primero. `closed` ordena siempre por `closed_at` desc. |
+
+```json
+{
+  "data": [{
+    "id": 12, "subject": "Sin internet", "subject_id": 3,
+    "status": "asignado", "status_label": "Asignado", "status_group": "en_curso",
+    "priority": "urgent", "priority_label": "Urgente",
+    "staff_id": 7, "staff": { "id": 7, "user_name": "Ana", "user_lastname": "Ruiz" },
+    "user_id": 40, "user": { "id": 40, "user_name": "Luis", "user_lastname": "Pardo", "tel": "3001112233" },
+    "customer_address": "Cra 5 # 10-20", "customer_city": "Chaguaní", "service_status": "suspendido",
+    "no_charge": false, "no_charge_reason": null,
+    "created_at": "…", "updated_at": "…", "closed_at": null
+  }],
+  "current_page": 1, "last_page": 3, "per_page": 25, "total": 61, "tab": "open",
+  "counts": { "open": 61, "mine": 9, "unassigned": 4, "new": 12, "in_progress": 30,
+              "waiting": 11, "to_close": 8, "closed": 540, "all": 601 },
+  "workflow_mode": "formal"
+}
+```
+
+Los `counts` respetan los filtros (`search`, `priority`, `staff_id`, `subject_id`) pero no la
+pestaña, y salen de **una sola** consulta agrupada. La fila es liviana: sin notas ni adjuntos.
+En el flujo simple, `status_label` es el nombre corto («En proceso»).
+
+#### `GET /api/support/customer-options`
+
+`{ data: [{ user_id, name, last_name, cedula, tel, address, city, ip_user, plan_name,
+service_status, open_tickets }] }`. Sólo clientes del ISP de quien pide. **Nunca** credenciales
+PPPoE/HotSpot. Exige `ticket_create` o `ticket_edit` (OR); `ticket_view` solo → **403**.
+
+#### `GET /api/support/customer-context/{user}?exclude={ticket}`
+
+```json
+{
+  "customer": { "user_id": 40, "name": "Luis", "last_name": "Pardo", "cedula": "79888777",
+    "email": "…", "tel": "3001112233", "address": "Cra 5 # 10-20", "city": "Chaguaní",
+    "latitude": null, "longitude": null, "ip_user": "10.20.0.31", "service_status": "suspendido",
+    "is_fiber": true, "plan_name": "Fibra 50", "router_name": "CORE-1",
+    "sectorial_name": "NAP-07", "sectorial_type": "nap", "olt_name": "OLT Centro",
+    "nap_port": 3, "installation_date": "2025-04-02" },
+  "open_tickets": [{ "id": 9, "subject": "…", "status": "radicado", "status_label": "Radicado",
+    "status_group": "nuevo", "created_at": "…" }],
+  "billing": { "pending_invoices": 1, "overdue_invoices": 1, "balance_due": 65000, "credit_balance": 0 }
+}
+```
+
+`billing` es `null` si quien pide no tiene `view_billing` ni `view_invoices` — `null` significa
+«no puedes verlo», no «sin deuda». `exclude` deja fuera de `open_tickets` el ticket desde el que se
+mira (máximo 10). Cliente de otro ISP → **404**.
+
+#### Ampliación de `GET /api/support/{ticket}/transitions`
+
+Claves **aditivas**; las anteriores no cambian.
+
+| Clave | Qué es |
+|---|---|
+| `workflow_mode` | `formal` o `simple` (columna `tenant.ticket_workflow_mode`) |
+| `status_group` | `nuevo` · `en_curso` · `en_espera` · `para_cerrar` · `cerrado` |
+| `next_step` | `{ kind: "transition", code, label }` (el paso normal, sólo si quien pide puede mover el estado), `{ kind: "close", code: "cerrado", label }` o `null` |
+| `checklist` | `[{ key, label, ok }]` con `key` ∈ `status`, `confirmed_cause`, `solution`, `result`, `prueba_final`. En el simple sólo `solution` |
+| `requires_final_test` | `false` en el simple |
+| `transitions[].group`, `transitions[].primary` | Grupo del destino y si es el paso principal |
+
+En el **flujo simple** cambian también los valores: `transitions` ofrece `en_intervencion`, las
+cinco esperas y `duplicado` desde cualquier estado vivo; `actions.close` es `true` desde
+cualquier estado vivo; `close_path` es `[]`; las etiquetas son las cortas («Abierto»).
+
+#### El modo y los endpoints del ciclo de vida
+
+| Endpoint | Formal (de siempre) | Simple |
+|---|---|---|
+| `PATCH /status` | Matriz `TRANSICIONES` | Matriz simple: `en_intervencion`, esperas, `duplicado` desde cualquier estado vivo |
+| `POST /close` | Desde `PUEDE_CERRAR_DESDE`; exige `confirmed_cause`, `solution`, `result` y prueba final; `solucion_temporal` → 422 (cierre especial) | Desde cualquier estado vivo; exige sólo `solution` |
+| `POST /propose-closure` | Desde `PUEDE_PROPONER_DESDE`; exige `solution`, `result` y prueba final | Desde cualquier estado vivo; exige sólo `solution` |
+| `PUT /support/{id}` con el primer `staff_id` | Si el ticket estaba en `radicado`/`en_clasificacion`/`open`/`reabierto`, pasa a `asignado` | No mueve el estado |
+
+Los permisos **no cambian** con el modo.
+
+#### Ampliación de `GET /api/catalogs/ticket`
+
+`statuses` **no cambia** (ni forma ni etiquetas). Se añaden:
+
+- `workflow_mode`: `formal` | `simple`.
+- `status_display`: `{ "<code>": { "label": "…", "group": "…" } }` — el nombre que se le muestra al
+  usuario (el corto, en el simple) y el grupo de cada estado.
+- `status_groups`: `[{ code, label }]` de los cinco grupos.
+
+#### `PUT|PATCH /api/tenant/config` — `ticket_workflow_mode`
+
+`formal` | `simple` (`manage_tenant`). Otro valor → **422**. Ver §18.
+
 ### Workflow formal del ticket (2026-09-19)
 
 Fuente: Solicitud Maestra §7 (ciclo de vida), §15 (reglas de cierre) y §18 (roles). CNO
@@ -2924,7 +3033,7 @@ Clientes · Facturas · Contabilidad · Infraestructura · Inventario · Soporte
 | `GET` | `/api/tenant/maps-config` | auth | Config de mapas (para que un no-admin vea el mapa) |
 | `GET` | `/api/tenants/{id}` | `manage_tenant` | Datos del tenant |
 | `PUT` | `/api/tenants/{id}` | `manage_tenant` | Actualiza |
-| `PUT/PATCH` | `/api/tenant/config` | `manage_tenant` | Configuración |
+| `PUT/PATCH` | `/api/tenant/config` | `manage_tenant` | Configuración. Incluye `ticket_workflow_mode` (`formal` o `simple`, § 133; ver §16 «Tickets simplificados») |
 | `POST` | `/api/tenant/logo` | `manage_tenant` | Sube el logo |
 | `GET` | `/api/document-templates` | `manage_document_templates` | Lista plantillas |
 | `GET` | `/api/document-templates/{type}` | `manage_document_templates` | Obtiene una |

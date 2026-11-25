@@ -104,14 +104,18 @@ const load = async () => {
 
 // R2: las etiquetas salen del catálogo. Los colores siguen aquí porque se
 // deciden por código —que es estable— y son presentación, no dato de negocio.
-const { cargar: cargarCatalogos, statusLabel, priorityLabel, categoryLabel } = useTicketCatalogs()
+const { cargar: cargarCatalogos, statusLabel, statusGroup, priorityLabel, categoryLabel } = useTicketCatalogs()
 
-const statusBadge = (s) => ({
-  open:        'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  in_progress: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  resolved:    'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  closed:      'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-}[s] ?? 'bg-gray-100 text-gray-600')
+// Color por GRUPO de estado (bitácora § 133): el mapa por código sólo conocía
+// los cuatro estados viejos y los 18 del flujo nuevo salían todos en gris.
+const GRUPO_BADGE = {
+  nuevo:       'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
+  en_curso:    'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200',
+  en_espera:   'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+  para_cerrar: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  cerrado:     'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+}
+const statusBadge = (s) => GRUPO_BADGE[statusGroup(s)] ?? GRUPO_BADGE.nuevo
 
 const priorityBadge = (p) => ({
   low:    'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
