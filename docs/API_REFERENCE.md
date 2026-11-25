@@ -2726,6 +2726,16 @@ puede. Campos añadidos:
 Existe porque sin ello la interfaz no podía distinguir «me falta un permiso» de «la pantalla
 está rota»: es exactamente lo que ocurrió cuando `ticket_reopen` no se había repartido.
 
+**Y lo mismo para cerrar (2026-11-25).** El botón de cierre sólo cabe en cinco estados; fuera de
+ellos el operador no sabía por qué no aparecía («no me deja cerrar»):
+
+| Campo | Valores |
+|---|---|
+| `close_blocked_by` | `archived` · `terminal` · `status` (el estado aún no admite cierre) · `permission` (falta `ticket_close`) · `null` |
+| `close_permission` | `ticket_close` |
+| `close_path` | `[{code, label}]`: los estados que faltan hasta «Servicio restablecido», por el recorrido normal (`TicketWorkflow::caminoAlCierre`; nunca por incidente masivo, solución temporal, pausas ni diagnóstico remoto). `[]` si ya se puede cerrar o si es terminal |
+| `can_walk_close_path` | Quien pide tiene `ticket_transition` y hay camino. La pantalla recorre el camino con un `PATCH .../status` por paso: no hay endpoint de «salto», cada paso es una transición normal con su evento |
+
 **Un ticket archivado está fuera del workflow.** Las cinco operaciones devuelven **404**: hay que
 restaurarlo primero (PR C).
 

@@ -119,6 +119,51 @@
                     <ul class="mt-1 list-inside list-disc text-xs text-amber-800 dark:text-amber-300">
                         <li v-for="falta in workflow.closureRequirements.missing" :key="falta">{{ falta }}</li>
                     </ul>
+                    <p class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                        Causa, acción y resultado se pueden elegir en la misma ventana de «Cerrar ticket»; si no hubo
+                        medición final, ahí mismo se indica por qué.
+                    </p>
+                </div>
+
+                <!-- Cómo se llega al cierre. Antes el botón «Cerrar ticket»
+                     sólo aparecía en cinco estados y fuera de ellos no había
+                     ninguna pista: «no me deja cerrar». El camino lo calcula el
+                     servidor con la misma matriz de transiciones. -->
+                <div
+                    v-if="workflow.closeBlockedBy === 'status' && workflow.closePath.length"
+                    data-testid="close-path"
+                    class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/20"
+                >
+                    <p class="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                        Para cerrar este ticket todavía hay que llevarlo a «Servicio restablecido»:
+                    </p>
+                    <p class="mt-1 text-xs text-emerald-800 dark:text-emerald-300">
+                        {{ workflow.statusLabel }}
+                        <template v-for="paso in workflow.closePath" :key="paso.code"> → <strong>{{ paso.label }}</strong></template>
+                        → <strong>Cerrar ticket</strong>
+                    </p>
+                    <button
+                        v-if="workflow.canWalkClosePath"
+                        @click="abrirAccion('walk')"
+                        data-testid="walk-close-path"
+                        class="mt-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
+                    >
+                        Avanzar hasta «{{ workflow.closePath[workflow.closePath.length - 1].label }}»
+                    </button>
+                    <p v-else class="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400">
+                        Mover el estado exige el permiso «Tickets · cambiar estado».
+                    </p>
+                </div>
+
+                <div
+                    v-if="workflow.closeBlockedBy === 'permission'"
+                    class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-gray-700 dark:bg-gray-900/40 dark:text-slate-300"
+                >
+                    Cerrar exige el permiso <strong>«Tickets · cerrar»</strong>
+                    (<code class="rounded bg-slate-200 px-1 dark:bg-gray-700">{{ workflow.closePermission }}</code>), que tu
+                    rol no tiene.
+                    <template v-if="workflow.actions.propose_closure">Puedes <strong>Proponer cierre</strong> para que lo cierre un supervisor.</template>
+                    <template v-else>Pídeselo a quien administre los roles.</template>
                 </div>
 
                 <!--
@@ -2398,6 +2443,11 @@ const workflow = ref({
     statusLabel: '',
     reopenBlockedBy: null,
     reopenPermission: 'ticket_reopen',
+    // Por qué no se puede cerrar y qué estados faltan (los dice el servidor).
+    closeBlockedBy: null,
+    closePermission: 'ticket_close',
+    closePath: [],
+    canWalkClosePath: false,
 })
 
 const algunaAccion = computed(() => Object.values(workflow.value.actions).some(Boolean))
@@ -2417,6 +2467,10 @@ const cargarWorkflow = async () => {
             statusLabel: data.status_label ?? '',
             reopenBlockedBy: data.reopen_blocked_by ?? null,
             reopenPermission: data.reopen_permission ?? 'ticket_reopen',
+            closeBlockedBy: data.close_blocked_by ?? null,
+            closePermission: data.close_permission ?? 'ticket_close',
+            closePath: data.close_path ?? [],
+            canWalkClosePath: data.can_walk_close_path ?? false,
         }
     } catch (err) {
         console.error('Error al cargar las acciones del ticket:', err)
@@ -2426,6 +2480,7 @@ const cargarWorkflow = async () => {
             transitions: [], actions: {},
             closureRequirements: { missing: [], complete: true },
             isTerminal: false, statusLabel: '', reopenBlockedBy: null, reopenPermission: 'ticket_reopen',
+            closeBlockedBy: null, closePermission: 'ticket_close', closePath: [], canWalkClosePath: false,
         }
     }
 }
@@ -2481,6 +2536,20 @@ const ACCIONES = {
         textoBoton: 'Autorizar y cerrar',
         cabecera: 'bg-amber-50/60 dark:bg-gray-700/30',
         boton: 'bg-amber-600 hover:bg-amber-700',
+    },
+    // Recorre el camino al cierre que dio el servidor: una transición normal
+    // por paso, en orden, cada una con su evento en el historial. No salta
+    // reglas: si un paso falla, se detiene ahí y lo dice.
+    walk: {
+        clave: 'walk',
+        titulo: 'Avanzar hacia el cierre',
+        descripcion: 'Mueve el ticket paso a paso por los estados que faltan. Cada paso queda en el historial con tu nombre.',
+        etiquetaMotivo: 'Motivo (opcional, va en cada paso)',
+        placeholder: 'Por ejemplo: visita realizada, servicio funcionando…',
+        motivoObligatorio: false,
+        textoBoton: 'Avanzar',
+        cabecera: 'bg-emerald-50/60 dark:bg-gray-700/30',
+        boton: 'bg-emerald-600 hover:bg-emerald-700',
     },
     reopen: {
         clave: 'reopen',
@@ -2649,6 +2718,27 @@ const ejecutarAccion = async () => {
                     return
                 }
             }
+        }
+
+        if (accion.value.clave === 'walk') {
+            const pasos = [...workflow.value.closePath]
+            let hechos = 0
+            try {
+                for (const paso of pasos) {
+                    await api.support.updateStatus(ticketId, paso.code, motivo)
+                    hechos++
+                }
+            } finally {
+                // Lo que sí avanzó tiene que verse aunque un paso falle.
+                if (hechos) {
+                    await loadTicket()
+                    await cargarWorkflow()
+                    await cargarHistorial(1)
+                }
+            }
+            cerrarAccion()
+            toast.value?.success('Listo', `El ticket quedó en «${pasos[pasos.length - 1].label}». Ya se puede cerrar.`)
+            return
         }
 
         const { data } = await (() => {
