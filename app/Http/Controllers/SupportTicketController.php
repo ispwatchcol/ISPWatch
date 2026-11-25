@@ -1123,6 +1123,20 @@ class SupportTicketController extends Controller
             default                                          => null,
         };
 
+        // Lo mismo para CERRAR. Antes el botón sólo existía en cinco estados y
+        // fuera de ellos no había ninguna pista: desde «Radicado» hacían falta
+        // cuatro transiciones y el operador decía «no me deja cerrar». Ahora el
+        // servidor dice por qué no y qué pasos faltan (caminoAlCierre usa la
+        // misma matriz, así que cada paso es una transición válida).
+        $camino = TicketWorkflow::caminoAlCierre($actual);
+        $closeBlocked = match (true) {
+            $ticket->is_archived                                       => 'archived',
+            TicketWorkflow::esTerminal($actual)                        => 'terminal',
+            !in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true) => 'status',
+            !$puede(Permissions::TICKET_CLOSE)                         => 'permission',
+            default                                                    => null,
+        };
+
         return response()->json([
             'status'      => $actual,
             'status_label' => $this->etiquetaDe($actual),
@@ -1158,6 +1172,17 @@ class SupportTicketController extends Controller
             // este correctivo: el permiso existía y no se había repartido.
             'reopen_blocked_by'   => $reopenBlocked,
             'reopen_permission'   => Permissions::TICKET_REOPEN,
+            // `status`: el estado todavía no admite cierre y `close_path` dice
+            // por dónde se llega. `permission`: falta `ticket_close` (queda
+            // «Proponer cierre» si tiene `ticket_transition`).
+            'close_blocked_by'    => $closeBlocked,
+            'close_permission'    => Permissions::TICKET_CLOSE,
+            'close_path'          => $ticket->is_archived || $camino === null ? [] : array_map(fn (string $code) => [
+                'code'  => $code,
+                'label' => $this->etiquetaDe($code),
+            ], $camino),
+            // Recorrer el camino exige poder mover el estado.
+            'can_walk_close_path' => !$ticket->is_archived && $puede(Permissions::TICKET_TRANSITION) && !empty($camino),
         ]);
     }
 

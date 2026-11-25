@@ -2135,6 +2135,17 @@ si de verdad hace falta, primero hay que reabrir el ticket, y eso también queda
 
 ### 14.3 Cerrar y reabrir un ticket
 
+> **¿No ves el botón «Cerrar ticket»?** Sólo aparece cuando el ticket está en **Servicio
+> restablecido** (o En observación, Solución temporal, Asociado a incidente masivo). En cualquier
+> otro estado, el recuadro verde del **Ciclo de vida** te muestra los pasos que faltan —por
+> ejemplo *Radicado → En clasificación → Asignado → En intervención → Servicio restablecido →
+> Cerrar ticket*— y el botón **Avanzar hasta «Servicio restablecido»** los hace por ti, uno por
+> uno, dejando cada paso en el historial. Si tu rol no tiene el permiso *Tickets · cerrar*, el
+> panel te lo dice y te queda **Proponer cierre**.
+>
+> La causa confirmada, la acción y el resultado no hace falta llenarlos antes: se eligen en la
+> misma ventana de **Cerrar ticket**, y si no hubo medición final, ahí mismo indicas por qué.
+
 **Proponer el cierre.** Cuando el técnico termina, pulsa **Proponer cierre**. Esto **no cierra**
 el ticket: lo deja *En observación*, esperando al supervisor, con la acción, el resultado y una
 observación técnica obligatoria. Sirve para separar a quien hizo el trabajo de quien acredita
