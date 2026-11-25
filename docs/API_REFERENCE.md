@@ -2092,7 +2092,7 @@ con el error en `numero`, no un 500.
 | `POST` | `/api/inventory/transfers` | `view_inventory` | Entrega/traspaso. Sin `source_type` en un material, el movimiento se registra como **entrada** desde el proveedor |
 | `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
 | `GET` | `/api/inventory/orphan-balances` | `view_inventory` | Material cuyo custodio fue eliminado: saldos con `quantity > 0` cuya sucursal o usuario ya no existe |
-| `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto) |
+| `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto). `422` si está **instalado** (se retira del cliente desde un ticket) o ya dado de baja (no duplica la línea del kardex) |
 
 > **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/transfers`,
 > `/orphan-balances`) se registran **antes** de `/api/inventory/{inventory}`; al revés, el

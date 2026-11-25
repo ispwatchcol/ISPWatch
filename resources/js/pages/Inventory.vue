@@ -148,7 +148,7 @@
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Dispositivo</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Serial / MAC</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Proveedor</th>
-                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Sucursal</th>
+                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Dónde está</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Precio</th>
                 <th class="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Acciones</th>
               </tr>
@@ -195,10 +195,14 @@
                     {{ device.provider_name || 'Sin proveedor' }}
                   </div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                  <div class="text-sm text-gray-800 dark:text-gray-200">
-                    <v-icon name="md-storemalldirectory" class="w-3 h-3 mr-1" />
-                    {{ device.branch_name || 'Sin sucursal' }}
+                <td class="px-6 py-4">
+                  <!-- Estado y custodio: sin esto no se sabía que el equipo
+                       estaba instalado hasta que «Eliminar» lo rechazaba. -->
+                  <span class="text-[11px] font-medium px-2 py-0.5 rounded-full" :class="statusClass(device.status)">
+                    {{ statusLabel(device.status) }}
+                  </span>
+                  <div class="mt-1 text-xs text-gray-600 dark:text-gray-300 max-w-[14rem] truncate" :title="device.holder_label">
+                    {{ device.holder_label || device.branch_name || 'Bodega' }}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -226,9 +230,19 @@
                       <v-icon name="md-edit" class="w-4 h-4 fill-current" />
                     </button>
                     <button
+                      v-if="can('view_inventory') && canRetire(device)"
+                      @click="openRetire(device)"
+                      data-testid="retire-device"
+                      class="p-2 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30
+                             rounded-lg transition-all hover:scale-110"
+                      title="Dar de baja (dañado, perdido o devuelto al proveedor)"
+                    >
+                      <v-icon name="md-cancel-outlined" class="w-4 h-4 fill-current" />
+                    </button>
+                    <button
                       v-if="can('delete_inventory')"
                       @click="deleteDevice(device)"
-                      class="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 
+                      class="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30
                              rounded-lg transition-all hover:scale-110"
                       title="Eliminar"
                     >
@@ -321,15 +335,16 @@
               </p>
             </div>
             <div>
-              <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Sucursal</p>
-              <p class="text-sm text-gray-800 dark:text-gray-200 truncate">
-                {{ device.branch_name || 'N/A' }}
+              <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Dónde está</p>
+              <span class="text-[11px] font-medium px-2 py-0.5 rounded-full" :class="statusClass(device.status)">{{ statusLabel(device.status) }}</span>
+              <p class="mt-1 text-xs text-gray-800 dark:text-gray-200 truncate">
+                {{ device.holder_label || device.branch_name || 'Bodega' }}
               </p>
             </div>
           </div>
 
           <!-- Actions -->
-          <div class="grid grid-cols-3 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-gray-200 dark:border-gray-700">
             <button
               @click="viewDevice(device)"
               class="py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg
@@ -346,6 +361,15 @@
             >
               <v-icon name="md-edit" class="w-4 h-4 fill-current" />
               Editar
+            </button>
+            <button
+              v-if="can('view_inventory') && canRetire(device)"
+              @click="openRetire(device)"
+              class="py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg
+                     transition-colors text-sm font-medium flex items-center justify-center gap-1"
+            >
+              <v-icon name="md-cancel-outlined" class="w-4 h-4 fill-current" />
+              Dar de baja
             </button>
             <button
               v-if="can('delete_inventory')"
@@ -418,7 +442,18 @@
 
           <!-- Content -->
           <div class="space-y-4">
-            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <!-- Instalado: no se ofrece un «Eliminar» que el servidor va a
+                 rechazar. Se dice dónde está y cómo se saca. -->
+            <div v-if="deviceToDelete?.status === 'installed'" data-testid="delete-installed"
+              class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-200">
+              <p class="font-medium">Este equipo está instalado: {{ deviceToDelete?.holder_label }}.</p>
+              <p class="mt-1">
+                No se puede eliminar ni dar de baja mientras siga en casa del cliente. Retíralo desde un
+                <strong>ticket de ese cliente</strong> → <em>Equipos de la visita</em> → <em>Retirar equipo del
+                cliente</em>: elige si vuelve a la bodega o si se da de baja (dañado).
+              </p>
+            </div>
+            <div v-else class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
               <div class="flex items-start gap-3">
                 <v-icon name="md-warning-round" class="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                 <div>
@@ -426,8 +461,21 @@
                   <p class="text-sm text-red-600 dark:text-red-400 mt-1">
                     Esta acción no se puede deshacer. El dispositivo <strong>"#{{ deviceToDelete?.id }} - {{ deviceToDelete?.stock_brand }} {{ deviceToDelete?.stock_model }}"</strong> será eliminado permanentemente.
                   </p>
+                  <p class="text-xs text-red-500 dark:text-red-400 mt-2">
+                    Eliminar es para lo que se cargó por error. Si el equipo se dañó, se perdió o volvió al
+                    proveedor, usa <strong>Dar de baja</strong>: sale del inventario y queda en el historial.
+                  </p>
                 </div>
               </div>
+            </div>
+            <!-- El motivo del rechazo, aquí y no sólo en un aviso que se va. -->
+            <div v-if="deleteError" data-testid="delete-error"
+              class="rounded-lg border border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900/40 p-3 text-sm text-slate-800 dark:text-slate-200">
+              <p>{{ deleteError }}</p>
+              <button v-if="canRetire(deviceToDelete)" type="button" @click="retireInsteadOfDelete"
+                class="mt-2 px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg">
+                Dar de baja en su lugar
+              </button>
             </div>
           </div>
 
@@ -441,6 +489,7 @@
               Cancelar
             </button>
             <button
+              v-if="deviceToDelete?.status !== 'installed'"
               @click="confirmDeleteDevice"
               :disabled="deleting"
               class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
@@ -448,6 +497,36 @@
               <v-icon v-if="deleting" name="ri-loader-4-line" animation="spin" class="w-4 h-4" />
               <v-icon v-else name="md-delete" class="w-4 h-4" />
               {{ deleting ? 'Eliminando...' : 'Eliminar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dar de baja: dañado, perdido o devuelto al proveedor. -->
+      <div v-if="retireTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+        @click.self="retireTarget = null">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md p-6" data-testid="retire-modal">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2 mb-2">
+            <v-icon name="md-cancel-outlined" class="w-6 h-6 text-amber-600" />
+            Dar de baja
+          </h2>
+          <p class="text-sm text-gray-600 dark:text-gray-300">
+            <strong>#{{ retireTarget.id }} · {{ retireTarget.stock_brand }} {{ retireTarget.stock_model }}</strong>
+            <span class="font-mono text-xs"> · {{ retireTarget.serial || 'sin serial' }}</span>
+          </p>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Sale del inventario y no vuelve a ofrecerse en órdenes ni tickets. No se borra: queda en
+            Movimientos como «Baja», con tu nombre y el motivo.
+          </p>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-4 mb-1">Motivo (opcional)</label>
+          <input v-model="retireNotes" type="text" maxlength="255" placeholder="Dañado por rayo, perdido, devuelto al proveedor…"
+            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-amber-500 outline-none" />
+          <div class="flex justify-end gap-3 mt-6">
+            <button @click="retireTarget = null" :disabled="retiring"
+              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg">Cancelar</button>
+            <button @click="confirmRetire" :disabled="retiring" data-testid="retire-confirm"
+              class="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg disabled:opacity-50">
+              {{ retiring ? 'Dando de baja…' : 'Dar de baja' }}
             </button>
           </div>
         </div>
@@ -627,12 +706,61 @@ const editDevice = (device) => {
 
 const deleteDevice = (device) => {
   deviceToDelete.value = device
+  deleteError.value = ''
   showDeleteModal.value = true
 }
 
 const closeDeleteModal = () => {
   showDeleteModal.value = false
   deviceToDelete.value = null
+  deleteError.value = ''
+}
+
+// ── Estado y baja ────────────────────────────────────────────────────────
+// Eliminar rechaza un equipo instalado o que se movió en un ticket y manda a
+// «darlo de baja», pero la lista no tenía ningún botón para eso: el operador
+// quedaba atascado (reporte de Chaguaní, 2026-11-25).
+const deleteError = ref('')
+const STATUS = {
+  stock:     { label: 'En bodega',   cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
+  assigned:  { label: 'Asignado',    cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  installed: { label: 'Instalado',   cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  retired:   { label: 'De baja',     cls: 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
+}
+const statusLabel = (s) => STATUS[s]?.label ?? 'En bodega'
+const statusClass = (s) => STATUS[s]?.cls ?? STATUS.stock.cls
+// Sólo lo que está en bodega o en manos de alguien: lo instalado se retira del
+// cliente desde un ticket, y lo dado de baja ya lo está.
+const canRetire = (device) => !!device && ['stock', 'assigned', undefined, null].includes(device.status)
+
+const retireTarget = ref(null)
+const retireNotes = ref('')
+const retiring = ref(false)
+
+const openRetire = (device) => {
+  retireTarget.value = device
+  retireNotes.value = ''
+}
+
+const retireInsteadOfDelete = () => {
+  const device = deviceToDelete.value
+  closeDeleteModal()
+  openRetire(device)
+}
+
+const confirmRetire = async () => {
+  if (!retireTarget.value || retiring.value) return
+  retiring.value = true
+  try {
+    await inventoryApi.retire(retireTarget.value.id, { notes: retireNotes.value || null })
+    toast.value?.success('Dado de baja', 'El equipo salió del inventario y quedó en Movimientos.')
+    retireTarget.value = null
+    await loadDevices()
+  } catch (error) {
+    toast.value?.error('Error', firstError(error, 'No se pudo dar de baja el equipo.'))
+  } finally {
+    retiring.value = false
+  }
 }
 
 const confirmDeleteDevice = async () => {
@@ -647,7 +775,9 @@ const confirmDeleteDevice = async () => {
     await loadDevices()
   } catch (error) {
     console.error('Error deleting device:', error)
-    toast.value?.error('Error', firstError(error, 'No se pudo eliminar el dispositivo'))
+    // El motivo se queda en la ventana, junto al botón para resolverlo.
+    deleteError.value = firstError(error, 'No se pudo eliminar el dispositivo')
+    toast.value?.error('No se eliminó', deleteError.value)
   } finally {
     deleting.value = false
   }
