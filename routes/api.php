@@ -477,6 +477,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         // documentado como pendiente, fuera del alcance de este PR.
         Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge']);
         Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges']);
+        // Acuerdo de pago de un cargo (cuotas). Misma puerta que crear el cargo.
+        Route::put('/support/{id}/charges/{invoice}/installments', [SupportTicketController::class, 'updateChargeInstallments']);
     });
 
     // ─── SECTORIAL: photos / notes / history / linked tickets ───

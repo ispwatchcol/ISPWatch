@@ -11,6 +11,8 @@ use App\Models\SupportTicketHistory;
 use App\Models\TicketSubject;
 use App\Models\User;
 use App\Services\BillingService;
+use App\Services\TicketChargeInstallments;
+use App\Models\CustomerInstallation;
 use App\Support\TicketCatalogs;
 use App\Models\TicketMeasurement;
 use App\Support\TicketMeasurements;
@@ -1785,19 +1787,38 @@ class SupportTicketController extends Controller
             'items.*.type'        => 'nullable|string|max:50',
             'due_date'            => 'nullable|date',
             'notes'               => 'nullable|string',
-        ]);
+        ] + $this->reglasDeCuotas());
 
         try {
             $billingService = app(BillingService::class);
 
-            $invoice = $billingService->generateServiceChargeInvoice([
-                'tenant_id'   => $ticket->tenant_id,
-                'customer_id' => $ticket->user_id,
-                'ticket_id'   => $ticket->id,
-                'items'       => $data['items'],
-                'due_date'    => $data['due_date'] ?? null,
-                'notes'       => $data['notes'] ?? "Cargo por ticket #{$ticket->id}: {$ticket->subject}",
-            ]);
+            // El cargo y su acuerdo de pago nacen juntos: si el plan se
+            // rechaza (modo inválido, demasiadas cuotas), no queda una factura
+            // suelta cobrando todo de una vez.
+            $invoice = DB::transaction(function () use ($billingService, $ticket, $data, $request) {
+                $invoice = $billingService->generateServiceChargeInvoice([
+                    'tenant_id'   => $ticket->tenant_id,
+                    'customer_id' => $ticket->user_id,
+                    'ticket_id'   => $ticket->id,
+                    'items'       => $data['items'],
+                    'due_date'    => $data['due_date'] ?? null,
+                    'notes'       => $data['notes'] ?? "Cargo por ticket #{$ticket->id}: {$ticket->subject}",
+                ]);
+
+                if ((int) ($data['installments_count'] ?? 0) > 0) {
+                    app(TicketChargeInstallments::class)->apply(
+                        $invoice,
+                        $ticket,
+                        (int) $data['installments_count'],
+                        $data['installments_mode'] ?? null,
+                        $data['installments_first_due_date'] ?? null,
+                        $request->user()?->id,
+                    );
+                    $invoice = $invoice->fresh();
+                }
+
+                return $invoice;
+            });
 
             // PR #3 · Referencia, no copia. El importe y el detalle viven en la
             // factura y allí se mantienen —se anulan, se pagan—; duplicarlos en
@@ -1817,6 +1838,9 @@ class SupportTicketController extends Controller
                 'message' => 'Cargo generado correctamente. ✅',
                 'invoice' => $invoice,
             ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Un plan de cuotas rechazado es un 422 con su motivo, no un 500.
+            throw $e;
         } catch (\Exception $e) {
             \Log::error('Error generating ticket charge: ' . $e->getMessage());
             return response()->json([
@@ -1871,7 +1895,55 @@ class SupportTicketController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
+        // Cada cargo con su acuerdo de pago (null si se cobra de una vez).
+        $cuotas = app(TicketChargeInstallments::class);
+        $charges->each(fn (Invoice $c) => $c->setAttribute('installments', $cuotas->summary($c)));
+
         return response()->json($charges);
+    }
+
+    /**
+     * Cambia el acuerdo de pago de un cargo del ticket: número de cuotas, modo
+     * (dentro de la mensualidad o en facturas aparte) y primer vencimiento.
+     * `installments_count` 0 lo quita. Lo ya cobrado queda fijo.
+     */
+    public function updateChargeInstallments(Request $request, $id, $invoiceId)
+    {
+        $ticket  = SupportTicket::findOrFail($id);
+        $invoice = Invoice::where('ticket_id', $ticket->id)->findOrFail($invoiceId);
+
+        $data = $request->validate(['installments_count' => 'required|integer|min:0|max:' . CustomerInstallation::MAX_INSTALLMENTS]
+            + $this->reglasDeCuotas());
+
+        $cuotas = app(TicketChargeInstallments::class);
+        $cuotas->apply(
+            $invoice,
+            $ticket,
+            (int) $data['installments_count'],
+            $data['installments_mode'] ?? null,
+            $data['installments_first_due_date'] ?? null,
+            $request->user()?->id,
+        );
+
+        $invoice = $invoice->fresh(['items', 'payments']);
+        $invoice->setAttribute('installments', $cuotas->summary($invoice));
+
+        return response()->json([
+            'message' => (int) $data['installments_count'] > 0
+                ? 'Acuerdo de pago actualizado.'
+                : 'El cargo quedó para cobrarse de una vez.',
+            'invoice' => $invoice,
+        ]);
+    }
+
+    /** Campos del acuerdo de pago de un cargo (alta y edición). */
+    private function reglasDeCuotas(): array
+    {
+        return [
+            'installments_count'          => 'nullable|integer|min:0|max:' . CustomerInstallation::MAX_INSTALLMENTS,
+            'installments_mode'           => 'nullable|in:' . implode(',', CustomerInstallation::INSTALLMENT_MODES),
+            'installments_first_due_date' => 'nullable|date',
+        ];
     }
 
     // ─────────────────────────────────────────────────────────────────────

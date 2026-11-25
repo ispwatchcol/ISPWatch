@@ -1897,6 +1897,14 @@ Dentro del ticket puedes:
 - **Mover el ticket por el ciclo de vida** (ver 14.3).
 - **Adjuntar archivos**.
 - **Generar un cargo**: si la visita se cobra, esto crea una factura ligada al ticket.
+  **En cuotas (desde 2026-11):** en *Nuevo Cargo* marca **Cobrar en cuotas**, elige cuántas y
+  cómo se cobran —**dentro de la mensualidad** (cada factura mensual trae la siguiente cuota) o
+  **facturas aparte** (una por cuota, mes a mes desde la fecha que pongas)—, igual que en la
+  cartera de la instalación. El cargo queda *En cuotas* y no cuenta para mora ni corte; cada cuota
+  sí, cuando vence. Debajo del cargo se ve cada cuota y su estado, y **Cambiar cuotas** deja
+  modificar el número, el modo o la primera fecha, o **Quitar cuotas** para volver a cobrarlo de
+  una vez. Lo ya pagado no se toca: con una cuota pagada no se puede cambiar el modo, y si quitas
+  el acuerdo, lo que faltaba vuelve al cargo.
   > Si el ticket está marcado **Sin cobro al cliente**, el botón no aparece y el bloque te
   > explica por qué. Para volver a poder cobrarlo, quita la marca en **Editar ticket**: queda
   > registrado en el historial quién la quitó y cuándo.

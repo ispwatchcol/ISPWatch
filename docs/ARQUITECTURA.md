@@ -683,6 +683,15 @@ aparte intactas se reescriben **en su sitio**; las sobrantes se **anulan**, nunc
 tiene calendario propio en modo `monthly` (la cuota sigue al ciclo de facturación del router:
 si una mensualidad se anula, la cuota se corre un mes) y no emite avisos propios.
 
+**También para cargos de ticket (2026-11-25).** El planificador ya no recibe la orden sino un
+`AppSupportInstallmentPlan` (modo, número de cuotas, primer vencimiento y el *concepto* con
+que se nombra el origen: «instalación» o «ticket #N»). `TicketChargeInstallments` lo usa sobre la
+factura `service_charge` del cargo, con la misma cuenta de lo debido. Las cuotas aparte son del
+mismo tipo que la madre (eso las reconoce como «factura propia») y **no** llevan `ticket_id`, para
+que la lista de cargos del ticket no las sume dos veces. Para el tope de facturación, una factura
+futura que es vehículo de una cuota no cuenta, sea del tipo que sea (antes sólo miraba
+`installation`). No hay columnas nuevas: el plan de un cargo se lee de sus filas de cuota.
+
 **Dos arreglos que salieron del camino.** `syncPayment()` recalculaba el saldo ignorando los
 faltantes de abonos parciales ya arrastrados (re-guardar la cartera los volvía a deber), y
 volver a guardar la cartera de una factura **anulada** la resucitaba. Ver bitácora § 113.

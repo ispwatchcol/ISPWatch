@@ -908,6 +908,13 @@ reutiliza el arrastre (`InstallationInstallmentPlanner`): la factura madre saca 
 por `carried_out` y cada cuota es una fila de `invoice_carryovers` con `installment_number` /
 `installment_count`. Tres cosas que hay que respetar si tocas algo de eso:
 
+> Desde 2026-11-25 el mismo planificador sirve a los cargos de ticket: recibe un
+> `InstallmentPlan` (`fromInstallation()` / `forTicketCharge()`), no la orden. Si agregas otro
+> origen diferible, crea su `InstallmentPlan` y su servicio delgado (ver
+> `TicketChargeInstallments`), no otro planificador. El renglón de la cuota nombra el origen con
+> `InstallmentPlan::conceptFor($madre)`.
+
+
 - **Qué arrastres cobra una mensualidad lo decide un solo método**,
   `BillingService::chargeablePendingCarryovers()`: todos los faltantes y, de cada acuerdo, la
   cuota de número más bajo. La generación y la vista previa (`explainMonthlyInvoice`) lo

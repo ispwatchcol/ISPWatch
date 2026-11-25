@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\CustomerInstallation;
+use App\Support\InstallmentPlan;
 use App\Models\Invoice;
 use App\Models\InvoiceCarryover;
 use App\Models\InvoiceItem;
@@ -71,7 +72,7 @@ class InstallationInstallmentPlanner
      *
      * @throws ValidationException
      */
-    public function sync(Invoice $mother, CustomerInstallation $installation, float $owed, ?int $actorId = null): float
+    public function sync(Invoice $mother, InstallmentPlan $plan, float $owed, ?int $actorId = null): float
     {
         $owed = round(max(0.0, $owed), 2);
 
@@ -87,10 +88,9 @@ class InstallationInstallmentPlanner
         $lockedAmount = round((float) $locked->sum('amount'), 2);
         $lockedCount  = $locked->count();
 
-        $mode  = $installation->installments_mode;
-        $count = (int) ($installation->installments_count ?? 0);
-
-        $wants = (bool) $installation->payment_agreement && !$installation->no_charge;
+        $mode  = $plan->mode;
+        $count = $plan->count;
+        $wants = $plan->wants;
 
         if ($wants && $owed > 0.009 && ($count < 1 || !in_array($mode, CustomerInstallation::INSTALLMENT_MODES, true))) {
             throw ValidationException::withMessages([
@@ -112,7 +112,7 @@ class InstallationInstallmentPlanner
             if ($owed + 0.009 < $lockedAmount) {
                 throw ValidationException::withMessages([
                     'payment_agreement' => 'Ya se cobraron $' . number_format($lockedAmount, 0, ',', '.')
-                        . ' en cuotas de este acuerdo, más de lo que quedaría debiendo la instalación. '
+                        . ' en cuotas de este acuerdo, más de lo que quedaría debiendo la factura. '
                         . 'Corrígelo desde Facturación.',
                 ]);
             }
@@ -145,7 +145,7 @@ class InstallationInstallmentPlanner
         if ($remaining < -0.009) {
             throw ValidationException::withMessages([
                 'installments_count' => 'Ya se cobraron $' . number_format($lockedAmount, 0, ',', '.')
-                    . ' en cuotas, más de lo que quedaría debiendo la instalación. Corrígelo desde Facturación.',
+                    . ' en cuotas, más de lo que quedaría debiendo la factura. Corrígelo desde Facturación.',
             ]);
         }
 
@@ -170,12 +170,12 @@ class InstallationInstallmentPlanner
         if ($mode === CustomerInstallation::INSTALLMENTS_MONTHLY) {
             $this->materializeMonthly($mother, $free, $slots, $amounts, $count, $actorId);
         } else {
-            $this->materializeSeparate($mother, $installation, $free, $slots, $amounts, $count, $actorId);
+            $this->materializeSeparate($mother, $plan, $free, $slots, $amounts, $count, $actorId);
         }
 
         $this->renumber($locked, $count);
 
-        Log::info("InstallationInstallments: factura #{$mother->number} (instalación #{$installation->id}) "
+        Log::info("InstallmentPlanner: factura #{$mother->number} ({$plan->concept}) "
             . "financia \${$owed} en {$count} cuota(s), modo {$mode}.");
 
         return $owed;
@@ -255,10 +255,14 @@ class InstallationInstallmentPlanner
         return $this->hasMoney($vehiculo);
     }
 
-    /** Factura propia de una cuota: tipo instalación y distinta de la madre. */
+    /**
+     * Factura propia de una cuota: del MISMO tipo que la madre (instalación o
+     * cargo de ticket) y distinta de ella. Una cuota cobrada dentro de una
+     * mensualidad vive en una factura de otro tipo y por eso queda bloqueada.
+     */
     private function isOwnInstallmentInvoice(Invoice $invoice, Invoice $mother): bool
     {
-        return $invoice->invoice_type === Invoice::TYPE_INSTALLATION && (int) $invoice->id !== (int) $mother->id;
+        return $invoice->invoice_type === $mother->invoice_type && (int) $invoice->id !== (int) $mother->id;
     }
 
     /**
@@ -321,7 +325,8 @@ class InstallationInstallmentPlanner
             if ($vehiculo && !$vehiculo->estaAnulada()) {
                 $this->billing->voidInvoice(
                     $vehiculo,
-                    'Acuerdo de pago de la instalación modificado: esta cuota ya no hace parte del plan.',
+                    'Acuerdo de pago (' . InstallmentPlan::conceptFor($row->fromInvoice) . ') modificado: '
+                        . 'esta cuota ya no hace parte del plan.',
                     $actorId
                 );
             }
@@ -368,7 +373,7 @@ class InstallationInstallmentPlanner
      */
     private function materializeSeparate(
         Invoice $mother,
-        CustomerInstallation $installation,
+        InstallmentPlan $plan,
         Collection $free,
         array $slots,
         array $amounts,
@@ -390,8 +395,8 @@ class InstallationInstallmentPlanner
             $actorId
         );
 
-        $primera = $installation->installments_first_due_date
-            ? Carbon::parse($installation->installments_first_due_date)->startOfDay()
+        $primera = $plan->firstDueDate
+            ? Carbon::parse($plan->firstDueDate)->startOfDay()
             : now()->startOfDay()->addMonthNoOverflow();
 
         foreach ($slots as $i => $numero) {
@@ -414,9 +419,12 @@ class InstallationInstallmentPlanner
         $factura = Invoice::create([
             'tenant_id'    => $mother->tenant_id,
             'customer_id'  => $mother->customer_id,
-            // SIN installation_id: la orden apunta a UNA factura (la madre, por
-            // `hasOne`). La cuota se enlaza a la madre por la fila de arrastre.
-            'invoice_type' => Invoice::TYPE_INSTALLATION,
+            // SIN installation_id ni ticket_id: la orden apunta a UNA factura (la
+            // madre, por `hasOne`) y los cargos del ticket se listan por
+            // `ticket_id`, así que la cuota sumaría dos veces. Se enlaza a la madre
+            // por la fila de arrastre. Mismo tipo que la madre: es lo que la
+            // reconoce como «factura propia» de la cuota.
+            'invoice_type' => $mother->invoice_type,
             'number'       => $this->billing->generateInvoiceNumber((int) $mother->tenant_id),
             'issue_date'   => now()->startOfDay(),
             'due_date'     => $vence,
@@ -432,7 +440,7 @@ class InstallationInstallmentPlanner
             // nueva del mes.
             'carried_in'   => $monto,
             'status'       => Invoice::STATUS_ISSUED,
-            'notes'        => "Cuota {$numero} de {$count} del acuerdo de pago de la instalación (factura #{$mother->number}).",
+            'notes'        => "Cuota {$numero} de {$count} del acuerdo de pago (" . InstallmentPlan::conceptFor($mother) . ", factura #{$mother->number}).",
         ]);
 
         $fila = InvoiceCarryover::create([
@@ -451,7 +459,7 @@ class InstallationInstallmentPlanner
         InvoiceItem::create([
             'invoice_id'  => $factura->id,
             'type'        => 'installment',
-            'description' => InvoiceCarryover::installmentDescription($fila, $mother->number),
+            'description' => InvoiceCarryover::installmentDescription($fila, $mother->number, InstallmentPlan::conceptFor($mother)),
             'quantity'    => 1,
             'unit_price'  => $monto,
             'amount'      => $monto,
@@ -479,7 +487,7 @@ class InstallationInstallmentPlanner
         InvoiceItem::create([
             'invoice_id'  => $factura->id,
             'type'        => 'installment',
-            'description' => InvoiceCarryover::installmentDescription($fila, $mother->number),
+            'description' => InvoiceCarryover::installmentDescription($fila, $mother->number, InstallmentPlan::conceptFor($mother)),
             'quantity'    => 1,
             'unit_price'  => $monto,
             'amount'      => $monto,
@@ -494,7 +502,7 @@ class InstallationInstallmentPlanner
             'total'        => $monto,
             'balance_due'  => $monto,
             'carried_in'   => $monto,
-            'notes'        => "Cuota {$numero} de {$count} del acuerdo de pago de la instalación (factura #{$mother->number}).",
+            'notes'        => "Cuota {$numero} de {$count} del acuerdo de pago (" . InstallmentPlan::conceptFor($mother) . ", factura #{$mother->number}).",
         ]);
 
         // Intacta por definición (si no, estaría bloqueada): sin pagos, el

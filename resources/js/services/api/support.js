@@ -160,6 +160,10 @@ export default {
     getHistory(ticketId, page = 1) {
         return apiClient.get(`/support/${ticketId}/history`, { params: { page } })
     },
+    // Acuerdo de pago de un cargo: { installments_count (0 = quitar), installments_mode, installments_first_due_date }.
+    updateChargeInstallments(ticketId, invoiceId, data) {
+        return apiClient.put(`/support/${ticketId}/charges/${invoiceId}/installments`, data)
+    },
     getCharges(ticketId) {
         return apiClient.get(`/support/${ticketId}/charges`)
     },

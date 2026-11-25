@@ -612,7 +612,7 @@ class TicketGranularPermissionsTest extends TestCase
         sort($sinPermiso);
 
         $this->assertSame(
-            ['GET|HEAD api/support/{id}/charges', 'POST api/support/{id}/charge'],
+            ['GET|HEAD api/support/{id}/charges', 'POST api/support/{id}/charge', 'PUT api/support/{id}/charges/{invoice}/installments'],
             $sinPermiso,
             'Hay rutas de ticket sin permiso que no son las de cargos.',
         );

@@ -11188,3 +11188,51 @@ ajeno heredado se guarda si se reenvía ese mismo valor, y ese valor no abre la 
 del mismo ISP ajeno.
 
 Carpeta `tests/Feature/Support` en verde (525) y el bundle compila.
+
+---
+
+## 132. Cuotas en los cargos de un ticket, igual que en la instalación — 2026-11-25
+
+### Pedido
+
+«La opción de poner a cuotas los cobros de los tickets, al igual que la instalación; cuota
+sumada a la facturación o factura aparte, seleccionable; y que se pueda cambiar después.»
+
+### Qué se hizo
+
+- **Un solo planificador.** `InstallationInstallmentPlanner::sync()` recibe ahora un
+  `App\Support\InstallmentPlan` en vez de la orden de instalación (`fromInstallation()` /
+  `forTicketCharge()`). La mecánica no cambia: lo financiado sale de la madre por `carried_out`,
+  cada cuota es una fila de `invoice_carryovers` con `installment_number`, lo cobrado queda fijo.
+  Las suites de cuotas de instalación (17) y de facturación siguen verdes sin tocarlas.
+- `TicketChargeInstallments` aplica el plan a la factura `service_charge` de un cargo con la misma
+  cuenta de lo debido que la cartera (total − asignado − saldo a favor − faltantes).
+- `POST /support/{id}/charge` acepta el plan y lo aplica en la misma transacción (un plan
+  inválido no deja un cargo suelto); `PUT /support/{id}/charges/{invoice}/installments` lo
+  cambia o lo quita; `GET .../charges` trae el plan de cada cargo.
+- Pantalla: «Cobrar en cuotas» en *Nuevo Cargo* y «Cambiar cuotas» en cada cargo, con el
+  componente `ChargeInstallmentsFields` (mismos modos y tope de 24 que la instalación).
+
+### Decisiones
+
+- **Sin migración.** El plan vigente se deduce de sus filas de cuota (`summary()`), como ya hacía
+  la cartera para mostrarlo. Lo que se pide al guardar viaja en la petición.
+- **Las cuotas aparte no llevan `ticket_id`**: la lista de cargos del ticket las sumaría dos
+  veces. Son del mismo tipo que la madre, que es lo que el planificador usa para reconocerlas.
+- **Tope de facturación**: `pendingInvoiceCount()` dejaba fuera sólo cuotas futuras de tipo
+  `installation`; una cuota aparte de ticket habría contado como deuda antes de vencer y podía
+  frenar la mensualidad. Ahora excluye cualquier factura futura que sea vehículo de una cuota.
+  Mora y corte ya miraban `due_date < now`, así que no cambian.
+- El renglón y las notas nombran el origen («Cuota 1 de 3 · ticket #12»), con
+  `InstallmentPlan::conceptFor()`.
+
+### Verificación
+
+`TicketChargeInstallmentsTest` (8): sin cuotas igual que antes; mensualidad cobra una cuota por
+mes y la nombra; aparte emite una factura por cuota con vencimientos mes a mes y las futuras no
+cuentan para el tope; cambiar número/modo/quitar; lo pagado queda fijo; plan inválido no deja
+cargo; lista con el plan; cargo de otro ticket → 404. Libros (C1, C2, C3, C4, C13) cierran en
+todos. Suites Support (533), Billing (461) y Unit en verde. Navegador: cargo en 3 cuotas aparte
+y cambio a 2 dentro de la mensualidad.
+
+Numeración: § 130 y § 131 están en los PR #345 y #346, abiertos en paralelo.

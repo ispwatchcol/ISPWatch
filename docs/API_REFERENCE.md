@@ -2308,8 +2308,9 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `POST` | `/api/support/{id}/close` | `staff_profile` + `ticket_close` | **Cierra**, con los requisitos del §15 |
 | `POST` | `/api/support/{id}/close-exception` | `staff_profile` + `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
 | `POST` | `/api/support/{id}/reopen` | `staff_profile` + `ticket_reopen` | **Reabre** un ticket cerrado |
-| `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`) |
-| `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket |
+| `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`). Opcional en cuotas: `installments_count`, `installments_mode`, `installments_first_due_date` (todo o nada: un plan inválido no deja el cargo) |
+| `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket; cada uno trae `installments` (plan de cuotas o `null`) |
+| `PUT` | `/api/support/{id}/charges/{invoice}/installments` | `staff_profile` | Cambia el acuerdo de pago del cargo: `installments_count` (0 = quitar, máx. 24), `installments_mode` (`monthly`|`separate`), `installments_first_due_date`. 422 si toca lo ya cobrado |
 | `GET` | `/api/support/{id}/equipment` | `ticket_equipment` | Equipos movidos en la visita, **incluidas las líneas revertidas** (ver §16.1) |
 | `GET` | `/api/support/{id}/equipment/available` | `ticket_equipment` | Qué se puede entregar o retirar |
 | `POST` | `/api/support/{id}/equipment` | `ticket_equipment` | Entrega o **retira** un equipo del cliente |
