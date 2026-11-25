@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\InstallmentPlan;
 use App\Models\CustomerCredit;
 use App\Models\CustomerInstallation;
 use App\Models\Invoice;
@@ -255,7 +256,7 @@ class InstallationBillingService
         $debe = max(0.0, round($total - $allocated - $creditApplied - $faltantesFuera, 2));
 
         // Acuerdo de pago: lo financiado sale de aquí y espera en cuotas.
-        $financiado = $this->installments->sync($invoice, $installation, $debe, auth()->id());
+        $financiado = $this->installments->sync($invoice, InstallmentPlan::fromInstallation($installation), $debe, auth()->id());
 
         $invoice->carried_out = round($faltantesFuera + $financiado, 2);
         $invoice->balance_due = max(0.0, round($debe - $financiado, 2));

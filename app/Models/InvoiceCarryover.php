@@ -58,9 +58,9 @@ class InvoiceCarryover extends Model
      * #F-0012)». Uno solo para la mensualidad y para la factura aparte, para
      * que el cliente lea lo mismo en los dos modos.
      */
-    public static function installmentDescription(self $row, ?string $fromNumber): string
+    public static function installmentDescription(self $row, ?string $fromNumber, string $concept = 'instalación'): string
     {
-        return "Cuota {$row->installment_number} de {$row->installment_count} · instalación"
+        return "Cuota {$row->installment_number} de {$row->installment_count} · {$concept}"
             . ($fromNumber ? " (factura #{$fromNumber})" : '');
     }
 

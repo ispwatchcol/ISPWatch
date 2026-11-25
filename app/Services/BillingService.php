@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\InstallmentPlan;
 use App\Billing\FirstInvoicePolicy;
 use App\Billing\MonthlyInvoiceAlreadyExists;
 use App\Mail\InvoiceCreatedMail;
@@ -839,9 +840,15 @@ class BillingService
             // defecto) y dejara al cliente sin mensualidad sin que nadie lo
             // notara. Una factura de instalación normal vence el mismo día que
             // se emite, así que esto sólo deja fuera a las cuotas futuras.
-            ->where(fn ($q) => $q->where('invoice_type', '!=', Invoice::TYPE_INSTALLATION)
-                ->orWhereNull('invoice_type')
-                ->orWhereDate('due_date', '<=', now()->toDateString()))
+            //
+            // Desde 2026-11-25 también hay cuotas de CARGOS DE TICKET (tipo
+            // `service_charge`): una factura futura que es vehículo de una cuota
+            // tampoco cuenta, sea del tipo que sea. Lo que la identifica es su
+            // fila de arrastre de cuota, no el tipo.
+            ->where(fn ($q) => $q->whereDate('due_date', '<=', now()->toDateString())
+                ->orWhere(fn ($q2) => $q2
+                    ->where(fn ($t) => $t->where('invoice_type', '!=', Invoice::TYPE_INSTALLATION)->orWhereNull('invoice_type'))
+                    ->whereNotIn('id', InvoiceCarryover::withoutTenantScope()->whereNotNull('installment_number')->whereNotNull('to_invoice_id')->select('to_invoice_id'))))
             ->count();
     }
 
@@ -2790,7 +2797,7 @@ class BillingService
     protected function applyPendingCarryoversTo(Invoice $invoice): void
     {
         $pending = $this->chargeablePendingCarryovers((int) $invoice->tenant_id, (int) $invoice->customer_id);
-        $pending->load('fromInvoice:id,number');
+        $pending->load('fromInvoice:id,number,invoice_type,ticket_id');
 
         $total = round((float) $pending->sum('amount'), 2);
 
@@ -2827,7 +2834,7 @@ class BillingService
             InvoiceItem::create([
                 'invoice_id'  => $invoice->id,
                 'type'        => 'installment',
-                'description' => InvoiceCarryover::installmentDescription($cuota, $cuota->fromInvoice?->number),
+                'description' => InvoiceCarryover::installmentDescription($cuota, $cuota->fromInvoice?->number, InstallmentPlan::conceptFor($cuota->fromInvoice)),
                 'quantity'    => 1,
                 'unit_price'  => $monto,
                 'amount'      => $monto,

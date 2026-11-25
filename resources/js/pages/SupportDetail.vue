@@ -827,6 +827,17 @@
                                 ></textarea>
                             </div>
 
+                            <!-- Acuerdo de pago: igual que la cartera de la instalación. -->
+                            <div>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input v-model="chargeForm.en_cuotas" type="checkbox" data-testid="charge-in-installments"
+                                        class="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+                                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Cobrar en cuotas</span>
+                                </label>
+                                <ChargeInstallmentsFields v-if="chargeForm.en_cuotas" v-model="chargeForm.cuotas"
+                                    :total="chargeTotal" class="mt-2" />
+                            </div>
+
                             <div class="flex justify-between items-center border-t border-gray-200 dark:border-gray-600 pt-3">
                                 <span class="text-sm font-semibold text-gray-700 dark:text-gray-300">
                                     Total: <span class="text-lg text-green-600 dark:text-green-400">{{ formatCurrency(chargeTotal) }}</span>
@@ -848,16 +859,64 @@
                         <div v-if="loadingCharges" class="text-center py-4 text-sm text-gray-500 dark:text-gray-400">Cargando cargos...</div>
                         <div v-else-if="ticketCharges.length > 0" class="space-y-3">
                             <div v-for="charge in ticketCharges" :key="charge.id"
-                                class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700 flex justify-between items-center">
-                                <div>
-                                    <p class="text-sm font-semibold text-gray-800 dark:text-white">Factura #{{ charge.number }}</p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(charge.created_at) }}</p>
-                                    <p v-if="charge.notes" class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ charge.notes }}</p>
+                                class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="text-sm font-semibold text-gray-800 dark:text-white">Factura #{{ charge.number }}</p>
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(charge.created_at) }}</p>
+                                        <p v-if="charge.notes" class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ charge.notes }}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-sm font-bold text-green-600 dark:text-green-400">{{ formatCurrency(charge.total) }}</p>
+                                        <!-- Financiado: la factura queda «pagada» porque lo debido
+                                             salió a las cuotas, pero decir «Pagado» confunde. -->
+                                        <span v-if="charge.installments && charge.status === 'paid'"
+                                            class="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">En cuotas</span>
+                                        <span v-else :class="chargeStatusClass(charge.status)" class="text-xs px-2 py-0.5 rounded-full font-medium">{{ chargeStatusLabel(charge.status) }}</span>
+                                        <a :href="`/billing/invoices/${charge.id}`" class="block text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1">Ver factura</a>
+                                    </div>
                                 </div>
-                                <div class="text-right">
-                                    <p class="text-sm font-bold text-green-600 dark:text-green-400">{{ formatCurrency(charge.total) }}</p>
-                                    <span :class="chargeStatusClass(charge.status)" class="text-xs px-2 py-0.5 rounded-full font-medium">{{ chargeStatusLabel(charge.status) }}</span>
-                                    <a :href="`/billing/invoices/${charge.id}`" class="block text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1">Ver factura</a>
+
+                                <!-- Acuerdo de pago del cargo -->
+                                <div v-if="charge.installments" class="mt-3 text-xs" data-testid="charge-plan">
+                                    <p class="text-gray-700 dark:text-gray-300">
+                                        En <strong>{{ charge.installments.count }} cuotas</strong>
+                                        {{ charge.installments.mode === 'separate' ? 'en facturas aparte' : 'dentro de la mensualidad' }}
+                                        · financiado {{ formatCurrency(charge.installments.financed) }}
+                                    </p>
+                                    <ul class="mt-1 space-y-0.5">
+                                        <li v-for="c in charge.installments.items" :key="c.number" class="flex justify-between gap-2 text-gray-600 dark:text-gray-400">
+                                            <span>Cuota {{ c.number }} de {{ c.of }}<template v-if="c.due_date"> · vence {{ formatDay(c.due_date) }}</template></span>
+                                            <span>
+                                                {{ formatCurrency(c.amount) }} ·
+                                                <template v-if="c.paid">pagada</template>
+                                                <template v-else-if="c.state === 'pending'">espera la próxima mensualidad</template>
+                                                <template v-else>en factura #{{ c.invoice_number }}</template>
+                                            </span>
+                                        </li>
+                                    </ul>
+                                </div>
+                                <div v-if="puedeCambiarCuotas(charge)" class="mt-2">
+                                    <button v-if="editandoCuotas !== charge.id" type="button" @click="abrirCuotas(charge)"
+                                        data-testid="edit-installments"
+                                        class="text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                                        {{ charge.installments ? 'Cambiar cuotas' : 'Pasar a cuotas' }}
+                                    </button>
+                                    <div v-else class="space-y-2">
+                                        <ChargeInstallmentsFields v-model="cuotasEdit" :total="totalAFinanciar(charge)"
+                                            :locked-mode="modoBloqueado(charge)" />
+                                        <div class="flex flex-wrap gap-2">
+                                            <button type="button" @click="guardarCuotas(charge)" :disabled="guardandoCuotas"
+                                                class="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50">
+                                                {{ guardandoCuotas ? 'Guardando…' : 'Guardar cuotas' }}
+                                            </button>
+                                            <button v-if="charge.installments" type="button" @click="guardarCuotas(charge, true)" :disabled="guardandoCuotas"
+                                                class="px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:underline">
+                                                Quitar cuotas
+                                            </button>
+                                            <button type="button" @click="editandoCuotas = null" class="px-3 py-1.5 text-xs text-gray-500">Cancelar</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1289,6 +1348,7 @@ import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import ticketEquipmentApi from '@/services/api/ticket-equipment'
 import SerialDevicePicker from '../components/SerialDevicePicker.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import ChargeInstallmentsFields from '../components/ChargeInstallmentsFields.vue'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 import { fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
@@ -1435,11 +1495,58 @@ const formatQuantity = (item) => {
     return unit ? `${qty} ${unit}` : `${qty}`
 }
 
+const cuotasPorDefecto = () => ({ count: 3, mode: 'monthly', first_due_date: '' })
+
 const chargeForm = ref({
     items: [defaultChargeItem()],
     due_date: '',
     notes: '',
+    en_cuotas: false,
+    cuotas: cuotasPorDefecto(),
 })
+
+// ── Cuotas de un cargo ya generado ─────────────────────────────────────
+// Mismas reglas que la cartera de la instalación (las aplica el servidor):
+// lo ya cobrado queda fijo y no se cambia el modo de un plan con cuotas cobradas.
+const editandoCuotas = ref(null)
+const cuotasEdit = ref(cuotasPorDefecto())
+const guardandoCuotas = ref(false)
+
+const puedeCambiarCuotas = (c) => !ticket.value?.no_charge && !['void', 'cancelled'].includes(c.status)
+    && (c.installments || Number(c.balance_due) > 0)
+const modoBloqueado = (c) => (c.installments?.items?.some(i => i.locked) ? c.installments.mode : null)
+// Lo que el plan reparte: lo que el cargo debe más lo que ya está en cuotas.
+const totalAFinanciar = (c) => Math.round((Number(c.balance_due) + Number(c.installments?.financed || 0)) * 100) / 100
+
+const abrirCuotas = (c) => {
+    const plan = c.installments
+    const primera = plan?.items?.find(i => i.due_date)?.due_date || ''
+    cuotasEdit.value = plan
+        ? { count: plan.count, mode: plan.mode, first_due_date: primera }
+        : cuotasPorDefecto()
+    editandoCuotas.value = c.id
+}
+
+const guardarCuotas = async (c, quitar = false) => {
+    guardandoCuotas.value = true
+    try {
+        const { data } = await api.support.updateChargeInstallments(ticketId, c.id, quitar
+            ? { installments_count: 0 }
+            : {
+                installments_count: cuotasEdit.value.count,
+                installments_mode: cuotasEdit.value.mode,
+                installments_first_due_date: cuotasEdit.value.mode === 'separate' ? (cuotasEdit.value.first_due_date || null) : null,
+            })
+        toast.value?.success('Listo', data.message)
+        editandoCuotas.value = null
+        await loadCharges()
+    } catch (e) {
+        const errores = e.response?.data?.errors
+        toast.value?.error('No se guardó', (errores && Object.values(errores)[0]?.[0]) || e.response?.data?.message || 'No se pudo cambiar el acuerdo de pago.')
+    } finally {
+        guardandoCuotas.value = false
+    }
+}
 
 const addChargeItem = () => chargeForm.value.items.push(defaultChargeItem())
 const removeChargeItem = (i) => chargeForm.value.items.splice(i, 1)
@@ -1454,7 +1561,7 @@ const isChargeFormValid = computed(() =>
 
 const cancelCharge = () => {
     showChargeForm.value = false
-    chargeForm.value = { items: [defaultChargeItem()], due_date: '', notes: '' }
+    chargeForm.value = { items: [defaultChargeItem()], due_date: '', notes: '', en_cuotas: false, cuotas: cuotasPorDefecto() }
 }
 
 const loadCharges = async () => {
@@ -1483,6 +1590,12 @@ const submitCharge = async () => {
             })),
             due_date: chargeForm.value.due_date || undefined,
             notes: chargeForm.value.notes || undefined,
+            ...(chargeForm.value.en_cuotas ? {
+                installments_count: chargeForm.value.cuotas.count,
+                installments_mode: chargeForm.value.cuotas.mode,
+                installments_first_due_date: chargeForm.value.cuotas.mode === 'separate'
+                    ? (chargeForm.value.cuotas.first_due_date || undefined) : undefined,
+            } : {}),
         }
         const res = await api.support.generateCharge(ticketId, payload)
         toast.value?.success('Cargo generado', res.data.message || 'El cargo fue creado correctamente.')
@@ -2049,6 +2162,14 @@ const formatDate = (date) => {
     return new Date(date).toLocaleDateString('es-ES', {
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     })
+}
+
+// Fecha sin hora («2026-12-05»): `new Date()` la lee como medianoche UTC y en
+// Colombia saldría el día anterior a las 19:00. Se arma en hora local.
+const formatDay = (ymd) => {
+    if (!ymd) return '-'
+    const [y, m, d] = String(ymd).slice(0, 10).split('-').map(Number)
+    return new Date(y, m - 1, d).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 // ── Historial inalterable (PR #3 · F1-17) ──
