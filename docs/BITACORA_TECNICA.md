@@ -11191,6 +11191,53 @@ Carpeta `tests/Feature/Support` en verde (525) y el bundle compila.
 
 ---
 
+## 130. «No me permite cerrar un ticket»: el cierre funcionaba, la pantalla no decía cómo llegar — 2026-11-25
+
+### Diagnóstico
+
+Reproducido en navegador contra backend aislado, como administrador: el cierre funciona de punta a
+punta (causa, acción y resultado elegidos en la ventana de cierre + justificación de la medición
+final). Lo que bloqueaba era la **llegada**: «Cerrar ticket» sólo existe en cinco estados
+(`PUEDE_CERRAR_DESDE`) y un ticket nuevo nace en «Radicado», a cuatro transiciones. El panel
+listaba lo que faltaba al expediente pero no el estado, así que el operador veía requisitos y
+ningún botón. Además, sin `ticket_close` el botón desaparecía sin explicación.
+
+### Qué se hizo
+
+- `TicketWorkflow::caminoAlCierre()`: camino más corto hasta «Servicio restablecido» por el
+  recorrido normal (clasificar, asignar, intervenir). Excluye los atajos que la matriz permite
+  pero que dicen otra cosa: incidente masivo (cerrable en un paso desde Radicado), solución
+  temporal (exige cierre especial), pausas, y diagnóstico remoto (contaría como resolución remota
+  en el § 17).
+- `GET /support/{id}/transitions` devuelve `close_blocked_by`, `close_permission`, `close_path` y
+  `can_walk_close_path`.
+- La pantalla muestra el camino y el botón **Avanzar hasta «Servicio restablecido»**, que hace un
+  `PATCH .../status` por paso (cada uno con su evento); si un paso falla, se detiene y recarga lo
+  avanzado. Sin `ticket_close`, explica el permiso y ofrece proponer el cierre.
+- Etiquetas de permisos: `ticket_close_override` y `ticket_reopen` decían «(aún sin uso)» aunque
+  sus endpoints existen. Ahora «cierre especial (cerrar sin cumplir todos los requisitos)» y
+  «reabrir». `ticket_close_override` sigue sin concederse a nadie por migración (decisión del
+  § 18, ver migración 2026_09_21_000002): es el ISP quien lo da desde Roles.
+
+### Qué NO se cambió
+
+Las reglas del § 15 y la matriz siguen iguales: no hay cierre directo desde Radicado. El atajo
+sólo automatiza transiciones que ya eran válidas.
+
+### Cobros
+
+El cargo del ticket se genera bien (una factura con ítems y vencimiento). **No tiene cuotas**: las
+cuotas existen sólo en la cartera de la instalación (`InstallationInstallmentPlanner`, atado a
+`CustomerInstallation`). Pendiente de definir con el usuario antes de construirlas.
+
+### Verificación
+
+`TicketClosePathTest` (6): camino normal sin atajos, todo estado activo tiene camino, el camino
+devuelto se recorre con los endpoints de siempre hasta cerrar, y los bloqueos por permiso y por
+estado terminal. Suite de Soporte en verde (531).
+
+---
+
 ## 131. «No puedo borrar ese router»: Eliminar mandaba a «dar de baja» y no había botón — 2026-11-25
 
 ### Diagnóstico
@@ -11218,5 +11265,3 @@ su instalación apuntándole; y un segundo «dar de baja» duplicaba la línea d
 ### Verificación
 
 `InventoryRetireDeviceTest` (4). Suite de Inventario en verde (201).
-
-Nota de numeración: § 130 está en el PR #345, abierto en paralelo.
