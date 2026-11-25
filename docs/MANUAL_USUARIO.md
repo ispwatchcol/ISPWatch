@@ -2420,10 +2420,18 @@ Un equipo instalado queda ligado al cliente y ya no aparece como disponible para
 sistema te lo dice y no lo borra: si desapareciera, la instalación de ese cliente se quedaría
 sin equipo y nadie podría saber después qué router quedó puesto ahí.
 
-Para sacarlo del inventario tienes dos caminos, según lo que haya pasado de verdad:
+La columna **Dónde está** de *Equipos y existencias* dice el estado de cada equipo: *En bodega*,
+*Asignado* (a quién), *Instalado* (en casa de qué cliente) o *De baja*.
 
-- **Se dañó, se perdió o se lo devolviste al proveedor** → dale de **baja**. El equipo sale de
-  circulación y la baja queda escrita en Movimientos, con quién y cuándo.
+Para sacarlo del inventario tienes estos caminos, según lo que haya pasado de verdad:
+
+- **Se dañó, se perdió o se lo devolviste al proveedor** → botón **Dar de baja** (ícono ámbar
+  de la fila), con un motivo opcional. El equipo sale de circulación y la baja queda escrita en
+  Movimientos, con quién y cuándo. Si al eliminar el sistema te dice que no se puede (por ejemplo,
+  porque el equipo se usó en un ticket), la misma ventana ofrece **Dar de baja en su lugar**.
+- **Está instalado en un cliente** → no se puede eliminar ni dar de baja desde la lista: retíralo
+  desde un **ticket de ese cliente** → *Equipos de la visita* → *Retirar equipo del cliente*,
+  eligiendo si vuelve a la bodega o si se da de baja. La ventana de eliminar te lo explica.
 - **Volvió a la bodega** → regístralo en **Entregas y traspasos** (sale de quien lo tenía, entra a
   la bodega). Cuando ya no esté instalado, se puede borrar.
 

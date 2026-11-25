@@ -11238,6 +11238,36 @@ estado terminal. Suite de Soporte en verde (531).
 
 ---
 
+## 131. «No puedo borrar ese router»: Eliminar mandaba a «dar de baja» y no había botón — 2026-11-25
+
+### Diagnóstico
+
+Reporte de un ISP (Chaguaní) con captura de «Eliminar Dispositivo #53 · MIKROTIK LDF 5». Eliminar
+rechaza —a propósito, § 15.5 del manual— un equipo **instalado** o que **se movió en un ticket**, y
+el mensaje dice «dale de baja». Pero *Equipos y existencias* sólo tenía Ver / Editar / Eliminar: el
+endpoint `POST /inventory/{id}/retire` existía sin ninguna pantalla que lo usara, así que el
+operador quedaba atascado. La lista tampoco mostraba el estado: no había forma de saber que el
+equipo estaba instalado antes de intentar borrarlo.
+
+Al revisarlo apareció un hueco del backend: `retireDevice()` no miraba el estado. Un equipo
+**instalado** podía darse de baja desde la bodega, dejando al cliente con un equipo «chatarra» y
+su instalación apuntándole; y un segundo «dar de baja» duplicaba la línea del kardex.
+
+### Qué se hizo
+
+- `InventoryLedger::retireDevice()` rechaza (422) un equipo instalado —se retira del cliente desde
+  el ticket, que ya ofrece «dar de baja» como destino— y uno ya dado de baja.
+- Lista: columna **Dónde está** (estado + custodio con `holder_label`, que el backend ya enviaba),
+  botón **Dar de baja** con motivo, y la ventana de eliminar: si el equipo está instalado lo
+  explica y no ofrece «Eliminar»; si el servidor rechaza, el motivo queda dentro de la ventana con
+  **Dar de baja en su lugar**.
+
+### Verificación
+
+`InventoryRetireDeviceTest` (4). Suite de Inventario en verde (201).
+
+---
+
 ## 132. Cuotas en los cargos de un ticket, igual que en la instalación — 2026-11-25
 
 ### Pedido
@@ -11281,5 +11311,3 @@ cuentan para el tope; cambiar número/modo/quitar; lo pagado queda fijo; plan in
 cargo; lista con el plan; cargo de otro ticket → 404. Libros (C1, C2, C3, C4, C13) cierran en
 todos. Suites Support (533), Billing (461) y Unit en verde. Navegador: cargo en 3 cuotas aparte
 y cambio a 2 dentro de la mensualidad.
-
-Numeración: § 131 está en el PR #346.

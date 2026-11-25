@@ -843,6 +843,22 @@ class InventoryLedger
      */
     public function retireDevice(InventoryDevice $device, ?User $actor = null, ?string $notes = null): InventoryDevice
     {
+        // Instalado: darlo de baja desde la bodega dejaría al cliente con un
+        // equipo «chatarra» en su casa y la hoja de su instalación mintiendo.
+        // Primero se retira del cliente (ticket → Equipos de la visita).
+        if ($device->status === InventoryDevice::STATUS_INSTALLED) {
+            throw ValidationException::withMessages([
+                'device' => "El equipo {$this->deviceName($device)} está instalado en un cliente. Retíralo primero "
+                    . 'desde un ticket de ese cliente (Equipos de la visita → Retirar, con destino «dar de baja»).',
+            ]);
+        }
+
+        if ($device->status === InventoryDevice::STATUS_RETIRED) {
+            throw ValidationException::withMessages([
+                'device' => "El equipo {$this->deviceName($device)} ya está dado de baja.",
+            ]);
+        }
+
         return DB::transaction(function () use ($device, $actor, $notes) {
             $from = $this->currentHolderOf($device);
 
