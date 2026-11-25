@@ -22,6 +22,7 @@ use App\Http\Controllers\TicketMeasurementController;
 use App\Http\Controllers\TicketSubjectController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\SupportStaffOptionsController;
+use App\Http\Controllers\SupportCustomerController;
 use App\Http\Controllers\TicketEquipmentController;
 use App\Http\Controllers\TenantController;
 use App\Http\Controllers\SettingsController;
@@ -672,6 +673,15 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         // que `subjects`. NO es `/staff`: ese exige `view_staff`, que un técnico
         // no tiene, y le dejaba los desplegables vacíos sin aviso.
         Route::get('/support/staff-options', [SupportStaffOptionsController::class, 'index']);
+
+        // El cliente visto desde soporte (bitácora § 133). Antes del apiResource
+        // por lo mismo que `subjects`. El buscador del alta pide poder abrir o
+        // editar tickets —no `view_clients`, que quien radica no siempre
+        // tiene—; la ficha va con `ticket_view` y el saldo sólo sale para quien
+        // ya puede ver facturación (lo decide el controlador).
+        Route::get('/support/customer-options', [SupportCustomerController::class, 'options'])
+            ->middleware('permission:ticket_create,ticket_edit');
+        Route::get('/support/customer-context/{user}', [SupportCustomerController::class, 'context']);
 
         Route::middleware('permission:ticket_manage_catalogs')->group(function () {
             Route::post('/support/subjects', [TicketSubjectController::class, 'store']);

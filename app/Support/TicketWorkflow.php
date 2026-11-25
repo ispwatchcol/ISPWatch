@@ -467,4 +467,335 @@ class TicketWorkflow
         'solution' => 'Acción o solución registrada (regla 2 del § 15)',
         'result'   => 'Resultado técnico (regla 3)',
     ];
+
+    // ── Modo del flujo por ISP: formal o simple (bitácora § 133) ─────────
+    //
+    // TODO LO DE ARRIBA ES EL FLUJO FORMAL, el de la Solicitud Maestra de CNO,
+    // y sigue intacto: un ISP en modo formal se comporta exactamente igual que
+    // antes de que existiera el modo simple.
+    //
+    // POR QUÉ EXISTE EL SIMPLE. Esas reglas las pidió un cliente con un proceso
+    // formal de mesa de ayuda y se aplicaban a todos. Para un ISP pequeño eran
+    // cuatro cambios de estado obligatorios antes de poder cerrar, más causa
+    // confirmada, resultado y medición final: los tickets se quedaban abiertos.
+    //
+    // QUÉ CAMBIA Y QUÉ NO. El simple NO tiene estados propios: usa los mismos
+    // códigos del catálogo —el historial, los reportes y la API siguen
+    // hablando el mismo idioma— y sólo cambia tres cosas:
+    //
+    //   1 · la matriz: desde cualquier estado de trabajo se puede ir a «en
+    //       proceso» (en_intervencion), a una espera, o cerrar directamente;
+    //   2 · los requisitos de cierre: basta con decir qué se hizo (`solution`);
+    //       la causa confirmada, el resultado y la medición final se aceptan
+    //       pero no se exigen;
+    //   3 · las etiquetas que ve el usuario: «Abierto», «En proceso»,
+    //       «En espera…», «Resuelto», «Cerrado».
+    //
+    // Los permisos NO cambian con el modo: cerrar sigue exigiendo `ticket_close`
+    // y mover el estado `ticket_transition`. El modo decide qué es posible; el
+    // rol, quién puede hacerlo.
+
+    public const MODO_FORMAL = 'formal';
+    public const MODO_SIMPLE = 'simple';
+    public const MODOS = [self::MODO_FORMAL, self::MODO_SIMPLE];
+
+    /**
+     * Modo del ISP. Lo que no se puede leer —tenant inexistente, columna sin
+     * migrar, valor raro— es FORMAL: el modo estricto es el seguro, porque
+     * equivocarse hacia el simple dejaría cerrar sin los requisitos que un ISP
+     * formal exige.
+     */
+    public static function modoDelTenant(?int $tenantId): string
+    {
+        if (!$tenantId) {
+            return self::MODO_FORMAL;
+        }
+
+        try {
+            $modo = \Illuminate\Support\Facades\DB::table('tenant')
+                ->where('id', $tenantId)
+                ->value('ticket_workflow_mode');
+        } catch (\Throwable) {
+            return self::MODO_FORMAL;
+        }
+
+        return $modo === self::MODO_SIMPLE ? self::MODO_SIMPLE : self::MODO_FORMAL;
+    }
+
+    public static function esSimple(?string $modo): bool
+    {
+        return $modo === self::MODO_SIMPLE;
+    }
+
+    // ── Grupos de estado ────────────────────────────────────────────────
+    //
+    // Para la lista (pestañas y contadores) y los colores. Los 22 códigos se
+    // reparten en cinco grupos que cualquiera entiende sin conocer el flujo.
+    // Es presentación y filtro, NO regla: qué transición cabe lo sigue
+    // decidiendo la matriz.
+
+    public const GRUPO_NUEVO       = 'nuevo';
+    public const GRUPO_EN_CURSO    = 'en_curso';
+    public const GRUPO_EN_ESPERA   = 'en_espera';
+    public const GRUPO_PARA_CERRAR = 'para_cerrar';
+    public const GRUPO_CERRADO     = 'cerrado';
+
+    public const GRUPOS = [
+        self::RADICADO                  => self::GRUPO_NUEVO,
+        self::EN_CLASIFICACION          => self::GRUPO_NUEVO,
+        self::OPEN                      => self::GRUPO_NUEVO,
+        self::REABIERTO                 => self::GRUPO_NUEVO,
+
+        self::EN_DIAGNOSTICO_REMOTO     => self::GRUPO_EN_CURSO,
+        self::ASIGNADO                  => self::GRUPO_EN_CURSO,
+        self::VISITA_PROGRAMADA         => self::GRUPO_EN_CURSO,
+        self::EN_INTERVENCION           => self::GRUPO_EN_CURSO,
+        self::IN_PROGRESS               => self::GRUPO_EN_CURSO,
+        self::ASOCIADO_INCIDENTE_MASIVO => self::GRUPO_EN_CURSO,
+
+        self::PENDIENTE_CLIENTE         => self::GRUPO_EN_ESPERA,
+        self::PENDIENTE_MATERIAL        => self::GRUPO_EN_ESPERA,
+        self::PENDIENTE_TERCERO         => self::GRUPO_EN_ESPERA,
+        self::PENDIENTE_INFRAESTRUCTURA => self::GRUPO_EN_ESPERA,
+        self::NO_FUE_POSIBLE_CONTACTAR  => self::GRUPO_EN_ESPERA,
+
+        self::SERVICIO_RESTABLECIDO     => self::GRUPO_PARA_CERRAR,
+        self::EN_OBSERVACION            => self::GRUPO_PARA_CERRAR,
+        self::SOLUCION_TEMPORAL         => self::GRUPO_PARA_CERRAR,
+        // Legacy: es terminal para el flujo, pero todavía se puede cerrar
+        // desde ahí, así que espera a que alguien lo cierre.
+        self::RESOLVED                  => self::GRUPO_PARA_CERRAR,
+
+        self::CERRADO                   => self::GRUPO_CERRADO,
+        self::CLOSED                    => self::GRUPO_CERRADO,
+        self::DUPLICADO                 => self::GRUPO_CERRADO,
+    ];
+
+    /** Etiqueta de cada grupo, para pestañas y leyendas. */
+    public const ETIQUETAS_DE_GRUPO = [
+        self::GRUPO_NUEVO       => 'Nuevo',
+        self::GRUPO_EN_CURSO    => 'En curso',
+        self::GRUPO_EN_ESPERA   => 'En espera',
+        self::GRUPO_PARA_CERRAR => 'Para cerrar',
+        self::GRUPO_CERRADO     => 'Cerrado',
+    ];
+
+    /** Un código que nadie clasificó cuenta como nuevo: se ve, no se pierde. */
+    public static function grupoDe(?string $code): string
+    {
+        return self::GRUPOS[$code] ?? self::GRUPO_NUEVO;
+    }
+
+    /** @return array<int, string> códigos de un grupo */
+    public static function codigosDelGrupo(string $grupo): array
+    {
+        return array_keys(array_filter(self::GRUPOS, fn (string $g) => $g === $grupo));
+    }
+
+    // ── Modo simple: etiquetas ───────────────────────────────────────────
+
+    /**
+     * Cómo se llama cada estado en el modo simple. Varios códigos comparten
+     * nombre a propósito: para quien atiende, «asignado» y «en intervención»
+     * son lo mismo — alguien lo está trabajando.
+     */
+    public const ETIQUETAS_SIMPLES = [
+        self::RADICADO                  => 'Abierto',
+        self::EN_CLASIFICACION          => 'Abierto',
+        self::OPEN                      => 'Abierto',
+        self::REABIERTO                 => 'Reabierto',
+
+        self::EN_DIAGNOSTICO_REMOTO     => 'En proceso',
+        self::ASIGNADO                  => 'En proceso',
+        self::VISITA_PROGRAMADA         => 'En proceso',
+        self::EN_INTERVENCION           => 'En proceso',
+        self::IN_PROGRESS               => 'En proceso',
+        self::ASOCIADO_INCIDENTE_MASIVO => 'En proceso · falla masiva',
+
+        self::PENDIENTE_CLIENTE         => 'En espera del cliente',
+        self::PENDIENTE_MATERIAL        => 'En espera de material',
+        self::PENDIENTE_TERCERO         => 'En espera de un tercero',
+        self::PENDIENTE_INFRAESTRUCTURA => 'En espera de infraestructura',
+        self::NO_FUE_POSIBLE_CONTACTAR  => 'Sin contacto con el cliente',
+
+        self::SERVICIO_RESTABLECIDO     => 'Resuelto',
+        self::EN_OBSERVACION            => 'Resuelto',
+        self::SOLUCION_TEMPORAL         => 'Resuelto (temporal)',
+        self::RESOLVED                  => 'Resuelto',
+
+        self::CERRADO                   => 'Cerrado',
+        self::CLOSED                    => 'Cerrado',
+        self::DUPLICADO                 => 'Duplicado',
+    ];
+
+    public static function etiquetaSimple(?string $code): ?string
+    {
+        return $code === null ? null : (self::ETIQUETAS_SIMPLES[$code] ?? null);
+    }
+
+    // ── Modo simple: matriz ──────────────────────────────────────────────
+
+    /** Las esperas que ofrece el simple: las mismas pausas del formal. */
+    private const ESPERAS_SIMPLES = self::PAUSAS;
+
+    /**
+     * Destinos del modo simple. Desde cualquier estado de trabajo: ponerlo
+     * «en proceso», ponerlo en espera, marcarlo duplicado o cerrarlo. Cerrar
+     * va aparte (endpoint propio, como en el formal) y no figura aquí.
+     *
+     * @return array<int, string>
+     */
+    private static function destinosSimples(?string $desde): array
+    {
+        if ($desde === null || self::esTerminal($desde) || !self::conocido($desde)) {
+            return [];
+        }
+
+        $destinos = [self::EN_INTERVENCION, ...self::ESPERAS_SIMPLES, self::DUPLICADO];
+
+        // Nunca el estado en el que ya está: moverlo a sí mismo es un 422.
+        return array_values(array_filter(
+            $destinos,
+            fn (string $d) => $d !== $desde,
+        ));
+    }
+
+    /**
+     * Destinos válidos según el modo. El formal es la matriz de siempre.
+     *
+     * @return array<int, string>
+     */
+    public static function destinosSegunModo(?string $desde, ?string $modo): array
+    {
+        return self::esSimple($modo) ? self::destinosSimples($desde) : self::destinosDesde($desde);
+    }
+
+    public static function permiteSegunModo(?string $desde, ?string $hacia, ?string $modo): bool
+    {
+        return $hacia !== null && in_array($hacia, self::destinosSegunModo($desde, $modo), true);
+    }
+
+    /** ¿Se puede cerrar desde aquí? En el simple, desde cualquier estado vivo. */
+    public static function puedeCerrarDesde(?string $code, ?string $modo): bool
+    {
+        if (self::esSimple($modo)) {
+            // `resolved` es terminal para el flujo (legacy) pero se cierra.
+            if ($code === self::RESOLVED) {
+                return true;
+            }
+
+            return $code !== null && self::conocido($code) && !self::esTerminal($code);
+        }
+
+        return in_array($code, self::PUEDE_CERRAR_DESDE, true);
+    }
+
+    /** En el simple se propone desde donde se podría cerrar. */
+    public static function puedeProponerDesde(?string $code, ?string $modo): bool
+    {
+        if (self::esSimple($modo)) {
+            return self::puedeCerrarDesde($code, $modo);
+        }
+
+        return in_array($code, self::PUEDE_PROPONER_DESDE, true);
+    }
+
+    /**
+     * Pasos que faltan para poder cerrar. En el simple no falta ninguno: se
+     * cierra desde donde esté.
+     *
+     * @return array<int, string>|null
+     */
+    public static function caminoAlCierreSegunModo(?string $desde, ?string $modo): ?array
+    {
+        if (self::esSimple($modo)) {
+            return self::puedeCerrarDesde($desde, $modo) ? [] : null;
+        }
+
+        return self::caminoAlCierre($desde);
+    }
+
+    /**
+     * Requisitos de cierre según el modo. El simple sólo pide lo que se hizo:
+     * sin eso el expediente no dice nada, y es lo único que cualquier ISP
+     * necesita saber de un ticket cerrado.
+     *
+     * @return array<string, string>
+     */
+    public static function requisitosDeCierre(?string $modo): array
+    {
+        return self::esSimple($modo)
+            ? ['solution' => 'Qué se hizo (acción o solución)']
+            : self::REQUISITOS_DE_CIERRE;
+    }
+
+    /** @return array<string, string> */
+    public static function requisitosDePropuesta(?string $modo): array
+    {
+        return self::esSimple($modo)
+            ? ['solution' => 'Qué se hizo (acción o solución)']
+            : self::REQUISITOS_DE_PROPUESTA;
+    }
+
+    /** La regla 5 del § 15 (medición final o justificación) es del formal. */
+    public static function exigePruebaFinal(?string $modo): bool
+    {
+        return !self::esSimple($modo);
+    }
+
+    /** La regla 9 (solución temporal exige autorización) también es del formal. */
+    public static function solucionTemporalExigeAutorizacion(?string $modo): bool
+    {
+        return !self::esSimple($modo);
+    }
+
+    /**
+     * El paso que la pantalla debe ofrecer como PRINCIPAL desde aquí, o null
+     * si lo principal es cerrar (o no hay nada que hacer).
+     *
+     *   · formal: el siguiente estado del camino al cierre;
+     *   · simple: «en proceso» mientras nadie lo trabaja; después, cerrar.
+     */
+    public static function siguientePaso(?string $desde, ?string $modo): ?string
+    {
+        if ($desde === null || self::esTerminal($desde)) {
+            return null;
+        }
+
+        if (self::esSimple($modo)) {
+            $grupo = self::grupoDe($desde);
+
+            return in_array($grupo, [self::GRUPO_NUEVO, self::GRUPO_EN_ESPERA], true)
+                && $desde !== self::EN_INTERVENCION
+                ? self::EN_INTERVENCION
+                : null;
+        }
+
+        $camino = self::caminoAlCierre($desde);
+
+        return $camino[0] ?? null;
+    }
+
+    /**
+     * Estado en el que queda un ticket que nace con técnico asignado, en el
+     * flujo formal. Asignar ES clasificar y asignar; hacer que alguien pulse
+     * dos botones más para decir lo que ya se sabe era la mitad de la queja.
+     * En el simple no cambia nada: sigue «Abierto» hasta que alguien lo trabaje.
+     *
+     * @return array<int, string> pasos desde el estado inicial, en orden
+     */
+    public static function pasosAlAsignar(?string $desde, ?string $modo): array
+    {
+        if (self::esSimple($modo)) {
+            return [];
+        }
+
+        return match ($desde) {
+            self::RADICADO         => [self::EN_CLASIFICACION, self::ASIGNADO],
+            self::EN_CLASIFICACION => [self::ASIGNADO],
+            self::OPEN             => [self::ASIGNADO],
+            self::REABIERTO        => [self::ASIGNADO],
+            default                => [],
+        };
+    }
 }

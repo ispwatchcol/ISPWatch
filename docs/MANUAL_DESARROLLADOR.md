@@ -1521,6 +1521,13 @@ orden y ticket, precisión, saldo, tenants, reenvío, cable) y `QuantityDecimals
   congelado de la línea consumida y, si el tenant lo activó, costo del gasto de entrada). No le
   agregues un tercer significado sin separar el campo (P-93).
 
+**Recorrido de navegador de los tickets (§ 133).** `tests/Browser/tickets-simplificados.mjs`
+recorre la cola (pestañas, contadores, búsqueda por teléfono), «Resolver y cerrar» en el flujo
+formal (camino + diagnóstico + medición final), el alta desde la ficha del cliente, el cambio a
+flujo simple en Configuración, el cierre simple, el celular a 390 px y la vista del técnico. Se
+corre igual que el de abajo, contra un backend aislado sembrado con los datos que describe su
+cabecera (`WAIT_MS=30000` con `php -S`).
+
 **Recorrido de navegador del material por cantidad.** `tests/Browser/material-por-cantidad.mjs`
 recorre por pantalla *Ingresar al inventario* (crea «Fibra drop» ahí mismo, entran 100 m, y un
 modelo con dos ONU de una vez), la redirección de `/inventory/create`, la entrega con origen y
@@ -2074,6 +2081,36 @@ En los tres catálogos extensibles (`symptom`, `cause`, `solution`), `tenant_id 
 fila de plataforma y un valor es fila de ese ISP. Al crear una fila con `tenant_id`,
 **valida en código que el código no exista ya como global**: ningún índice puede impedirlo
 (ver P-21 en `MEJORAS_RECOMENDADAS.md`).
+
+### Ejemplo: tocar el flujo del ticket (formal y simple)
+
+Desde la bitácora § 133 cada ISP elige su flujo (`tenant.ticket_workflow_mode`). Lo que hay
+que saber antes de tocar `AppSupportTicketWorkflow`:
+
+1. **Todo método que decide algo del flujo lleva el modo.** `destinosSegunModo`,
+   `permiteSegunModo`, `puedeCerrarDesde`, `puedeProponerDesde`, `caminoAlCierreSegunModo`,
+   `requisitosDeCierre`, `requisitosDePropuesta`, `exigePruebaFinal`,
+   `solucionTemporalExigeAutorizacion`, `siguientePaso`, `pasosAlAsignar`. Las constantes
+   viejas (`TRANSICIONES`, `PUEDE_CERRAR_DESDE`, `REQUISITOS_DE_CIERRE`…) son **el formal**;
+   un endpoint nuevo que las use a pelo ignora el modo simple sin ningún error. Resuelve el
+   modo con `TicketWorkflow::modoDelTenant($ticket->tenant_id)` —del **ticket**, no del usuario—.
+2. **Un estado nuevo necesita grupo y nombre corto.** Añádelo a `GRUPOS` (decide en qué
+   pestaña de la cola sale y su color) y a `ETIQUETAS_SIMPLES`. Si no, la prueba
+   `todo_codigo_de_la_matriz_tiene_grupo_y_nombre_simple` falla.
+3. **El simple no tiene estados propios.** No crees filas de `ticket_status` para él: reutiliza
+   los códigos del formal y cambia la etiqueta en `ETIQUETAS_SIMPLES`. Así el historial, los
+   reportes y la API de socios hablan el mismo idioma en los dos modos.
+4. **Los permisos no dependen del modo.** Si te tienta poner `if (esSimple) no pidas X permiso`,
+   no: el modo decide qué es posible; el rol, quién.
+5. **La pantalla no tiene copia de la matriz.** Pinta lo que devuelve
+   `GET /support/{id}/transitions` (`next_step`, `checklist`, `transitions[].primary`). Un paso
+   nuevo que deba ser el principal se declara en el servidor (`siguientePaso()`), no en Vue.
+6. **Colores: por grupo, en un solo sitio.** `resources/js/utils/ticketStyles.js`
+   (`groupBadgeClass`, `priorityBadgeClass`, `ageInfo`, `telUrl`, `whatsappUrl`, `mapsUrl`).
+   No vuelvas a escribir un mapa `{ open: …, in_progress: … }` en un componente.
+7. **El cliente desde soporte:** `components/support/TicketCustomerCard.vue` sobre
+   `GET /support/customer-context/{user}`. El saldo sólo llega con `view_billing`/`view_invoices`;
+   si añades un dato de dinero, va dentro de `billing`, nunca en `customer`.
 
 **Trampa de PostgreSQL:** no intentes garantizar la unicidad con
 `UNIQUE(tenant_id, code)`. En SQL `NULL` nunca es igual a `NULL`, así que ese índice deja

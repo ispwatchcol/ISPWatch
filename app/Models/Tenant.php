@@ -51,6 +51,9 @@ class Tenant extends Model
         // contaría la compra dos veces.
         'inventory_entry_creates_expense',
         'inventory_expense_category_id',
+        // Flujo de tickets: 'formal' (Solicitud Maestra, el de siempre) o
+        // 'simple'. Ver TicketWorkflow y bitácora § 133.
+        'ticket_workflow_mode',
         'contract_prefix',
         'next_contract_number',
         'legal_name',

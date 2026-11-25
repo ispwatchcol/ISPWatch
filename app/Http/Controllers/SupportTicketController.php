@@ -280,6 +280,13 @@ class SupportTicketController extends Controller
      */
     public function index(Request $request)
     {
+        // Cola de trabajo paginada, con pestañas y contadores (bitácora § 133).
+        // Sin `page` ni `tab`, la respuesta de siempre: un arreglo con todo,
+        // que es lo que consumen la ficha del cliente y los integradores.
+        if ($request->has('page') || $request->has('tab')) {
+            return response()->json(app(\App\Support\TicketBoard::class)->listar($request));
+        }
+
         // SECURITY FIX (OWASP A01): Scope to authenticated user's tenant
         $tenantId = $request->user()?->tenant_id;
         $query = SupportTicket::with(['user', 'staff', 'messages', 'attachments']);
@@ -339,6 +346,10 @@ class SupportTicketController extends Controller
             'subject_id' => $this->reglaDeAsunto($tenantId),
             'description' => 'nullable|string',
             'category' => ['nullable', $this->reglaDe(TicketCatalogs::CATEGORY)],
+            // Elegible desde el alta (bitácora § 133). Antes nacía siempre
+            // «Media» y la columna de la lista no decía nada. Marcar otra que no
+            // sea Media exige `ticket_set_priority`, igual que cambiarla después.
+            'priority' => ['nullable', $this->reglaDe(TicketCatalogs::PRIORITY)],
             // P-121 · Cliente, técnico y sectorial tienen que ser del ISP en el
             // que el ticket se va a guardar. Un `exists` a secas aceptaba el id
             // de otro operador. `$tenantDelTicket` es el MISMO valor que se
@@ -383,7 +394,7 @@ class SupportTicketController extends Controller
                 'subject_id' => $data['subject_id'] ?? null,
                 'description' => $data['description'] ?? null,
                 'category' => $data['category'] ?? 'general',
-                'priority' => SupportTicket::PRIORITY_MEDIUM,
+                'priority' => $data['priority'] ?? SupportTicket::PRIORITY_MEDIUM,
                 // El estado de apertura sale del CATÁLOGO (`is_initial`), no de
                 // una constante. La Solicitud Maestra abre en `radicado`, y
                 // dejarlo escrito aquí habría obligado a desplegar código para
@@ -395,6 +406,14 @@ class SupportTicketController extends Controller
                 'no_charge'        => (bool) ($data['no_charge'] ?? false),
                 'no_charge_reason' => $data['no_charge_reason'] ?? null,
             ] + $this->diagnosticoDe($data));
+
+            // Nace con técnico: en el flujo formal queda «Asignado» en vez de
+            // «Radicado». Cada paso es una transición válida de la matriz y deja
+            // su evento en el historial (lo escribe el observer), así que el
+            // expediente cuenta lo que pasó: se clasificó y se asignó al abrirlo.
+            if (!empty($data['staff_id'])) {
+                $this->avanzarAlAsignar($ticket, 'Técnico asignado al abrir el ticket');
+            }
 
             if (!empty($data['sectorial_id'])) {
                 \App\Models\SectorialHistory::log(
@@ -552,8 +571,15 @@ class SupportTicketController extends Controller
 
         try {
             $marcaAntes = (bool) $ticket->no_charge;
+            $sinTecnicoAntes = $ticket->staff_id === null;
 
             $ticket->update($data);
+
+            // Recibe su primer técnico mientras seguía en la recepción: queda
+            // «Asignado» (flujo formal), igual que si hubiera nacido con él.
+            if ($sinTecnicoAntes && !empty($data['staff_id'])) {
+                $this->avanzarAlAsignar($ticket, 'Técnico asignado');
+            }
 
             // Perdonar —o dejar de perdonar— el cobro de una visita es una
             // decisión de dinero, y el expediente tiene que decir quién la tomó
@@ -762,7 +788,42 @@ class SupportTicketController extends Controller
             return Permissions::TICKET_ATTACH;
         }
 
+        // Una prioridad distinta de la de siempre es una decisión con permiso
+        // propio. «Media» es lo que el alta ponía sin preguntar, así que
+        // mandarla explícita no exige nada nuevo.
+        if (($data['priority'] ?? SupportTicket::PRIORITY_MEDIUM) !== SupportTicket::PRIORITY_MEDIUM
+            && !$usuario->hasPermission(Permissions::TICKET_SET_PRIORITY)) {
+            return Permissions::TICKET_SET_PRIORITY;
+        }
+
         return null;
+    }
+
+    /**
+     * Lleva el ticket a «Asignado» cuando recibe técnico y todavía estaba en
+     * la recepción (formal). En el simple no hace nada: «Abierto» con técnico
+     * es un estado perfectamente claro.
+     *
+     * Usa `transicionar()` paso a paso y sin correo: el observer escribe un
+     * `status_changed` por paso, y avisar al cliente dos veces de que su ticket
+     * «cambió» en el mismo segundo en que lo abrió no le sirve a nadie.
+     */
+    private function avanzarAlAsignar(SupportTicket $ticket, string $motivo): void
+    {
+        $modo = TicketWorkflow::modoDelTenant($ticket->tenant_id);
+
+        $pasos = TicketWorkflow::pasosAlAsignar($ticket->status, $modo);
+        $ultimo = array_key_last($pasos);
+
+        foreach ($pasos as $i => $paso) {
+            if (!TicketWorkflow::permite($ticket->status, $paso)) {
+                return;
+            }
+
+            // El motivo, una sola vez (en el último paso): una nota por paso
+            // repetiría la misma frase en el historial.
+            $this->transicionar($ticket, $paso, $i === $ultimo ? $motivo : null, notificar: false);
+        }
     }
 
     /**
@@ -1086,9 +1147,15 @@ class SupportTicketController extends Controller
         $puede = fn (string $permiso): bool => (int) $usuario->role_id === 1
             || $usuario->hasPermission($permiso);
 
+        // Formal (Solicitud Maestra) o simple. Decide la matriz, los requisitos
+        // y las etiquetas; los permisos no cambian con el modo.
+        $modo = TicketWorkflow::modoDelTenant($ticket->tenant_id);
+
+        $siguiente = TicketWorkflow::siguientePaso($actual, $modo);
+
         $destinos = [];
 
-        foreach (TicketWorkflow::destinosDesde($actual) as $code) {
+        foreach (TicketWorkflow::destinosSegunModo($actual, $modo) as $code) {
             // Cerrar no se ofrece aquí: tiene endpoint propio, permiso propio y
             // requisitos que comprobar. Mezclarlo con el resto haría que un
             // `PATCH .../status` con destino `cerrado` saltara el §15.
@@ -1097,17 +1164,21 @@ class SupportTicketController extends Controller
             }
 
             $destinos[] = [
-                'code'  => $code,
-                'label' => $this->catalogs->label(TicketCatalogs::STATUS, $this->catalogs->id(TicketCatalogs::STATUS, $code)),
+                'code'    => $code,
+                'label'   => $this->etiquetaDe($code, $modo),
+                // Para que la pantalla agrupe: el paso normal va como botón
+                // principal y las esperas y desvíos, en «Más acciones».
+                'group'   => TicketWorkflow::grupoDe($code),
+                'primary' => $code === $siguiente,
             ];
         }
 
-        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
+        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::requisitosDeCierre($modo));
 
         // PR F2 - la regla 5 del parrafo 15 tambien cuenta aqui. Sin esto la
         // pantalla diria «listo para cerrar» y el cierre respondaria 422, que es
         // justo lo que este endpoint existe para evitar.
-        if ($this->faltaPruebaFinal($ticket)) {
+        if (TicketWorkflow::exigePruebaFinal($modo) && $this->faltaPruebaFinal($ticket)) {
             $faltantes['prueba_final'] = 'Medición final o justificación de por qué no fue posible (regla 5 del § 15)';
         }
 
@@ -1130,18 +1201,55 @@ class SupportTicketController extends Controller
         // cuatro transiciones y el operador decía «no me deja cerrar». Ahora el
         // servidor dice por qué no y qué pasos faltan (caminoAlCierre usa la
         // misma matriz, así que cada paso es una transición válida).
-        $camino = TicketWorkflow::caminoAlCierre($actual);
+        $camino = TicketWorkflow::caminoAlCierreSegunModo($actual, $modo);
+        $puedeCerrarDesdeAqui = TicketWorkflow::puedeCerrarDesde($actual, $modo);
         $closeBlocked = match (true) {
             $ticket->is_archived                                       => 'archived',
-            TicketWorkflow::esTerminal($actual)                        => 'terminal',
-            !in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true) => 'status',
+            TicketWorkflow::esTerminal($actual) && !$puedeCerrarDesdeAqui => 'terminal',
+            !$puedeCerrarDesdeAqui                                     => 'status',
             !$puede(Permissions::TICKET_CLOSE)                         => 'permission',
             default                                                    => null,
         };
 
+        // La lista de comprobación del cierre, ESTRUCTURADA. `closure_requirements`
+        // sigue trayendo los textos; esto dice además qué campo es cada cosa para
+        // que la pantalla pueda pintar ✓/✗ y abrir el campo que falta.
+        $checklist = [];
+
+        if (!$puedeCerrarDesdeAqui && !TicketWorkflow::esTerminal($actual)) {
+            $checklist[] = [
+                'key'   => 'status',
+                'label' => 'Servicio restablecido',
+                'ok'    => false,
+            ];
+        }
+
+        foreach (TicketWorkflow::requisitosDeCierre($modo) as $campo => $descripcion) {
+            $checklist[] = [
+                'key'   => $campo,
+                'label' => match ($campo) {
+                    'confirmed_cause' => 'Causa confirmada',
+                    'solution'        => TicketWorkflow::esSimple($modo) ? 'Qué se hizo' : 'Acción realizada',
+                    'result'          => 'Resultado',
+                    default           => $descripcion,
+                },
+                'ok'    => !array_key_exists($campo, $faltantes),
+            ];
+        }
+
+        if (TicketWorkflow::exigePruebaFinal($modo)) {
+            $checklist[] = [
+                'key'   => 'prueba_final',
+                'label' => 'Medición final (o por qué no se pudo)',
+                'ok'    => !array_key_exists('prueba_final', $faltantes),
+            ];
+        }
+
         return response()->json([
             'status'      => $actual,
-            'status_label' => $this->etiquetaDe($actual),
+            'status_label' => $this->etiquetaDe($actual, $modo),
+            'status_group' => TicketWorkflow::grupoDe($actual),
+            'workflow_mode' => $modo,
             'is_archived' => $ticket->is_archived,
             // Un terminal no ofrece transiciones ordinarias, y la pantalla
             // necesita saberlo para explicarlo en vez de no pintar nada.
@@ -1152,13 +1260,13 @@ class SupportTicketController extends Controller
             'actions'     => [
                 'propose_closure' => !$ticket->is_archived
                     && $puede(Permissions::TICKET_TRANSITION)
-                    && in_array($actual, TicketWorkflow::PUEDE_PROPONER_DESDE, true),
+                    && TicketWorkflow::puedeProponerDesde($actual, $modo),
                 'close' => !$ticket->is_archived
                     && $puede(Permissions::TICKET_CLOSE)
-                    && in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true),
+                    && $puedeCerrarDesdeAqui,
                 'close_exception' => !$ticket->is_archived
                     && $puede(Permissions::TICKET_CLOSE_OVERRIDE)
-                    && in_array($actual, TicketWorkflow::PUEDE_CERRAR_DESDE, true),
+                    && $puedeCerrarDesdeAqui,
                 'reopen' => !$ticket->is_archived
                     && $puede(Permissions::TICKET_REOPEN)
                     && TicketWorkflow::sePuedeReabrir($actual),
@@ -1181,10 +1289,30 @@ class SupportTicketController extends Controller
             'close_permission'    => Permissions::TICKET_CLOSE,
             'close_path'          => $ticket->is_archived || $camino === null ? [] : array_map(fn (string $code) => [
                 'code'  => $code,
-                'label' => $this->etiquetaDe($code),
+                'label' => $this->etiquetaDe($code, $modo),
             ], $camino),
             // Recorrer el camino exige poder mover el estado.
             'can_walk_close_path' => !$ticket->is_archived && $puede(Permissions::TICKET_TRANSITION) && !empty($camino),
+
+            // Lo que la pantalla ofrece como botón PRINCIPAL. `transition`: el
+            // siguiente estado del recorrido normal (y sólo si quien mira puede
+            // moverlo); `close`: ya se puede cerrar; null: nada que proponer.
+            'next_step' => match (true) {
+                $ticket->is_archived => null,
+                $siguiente !== null && $puede(Permissions::TICKET_TRANSITION) => [
+                    'kind'  => 'transition',
+                    'code'  => $siguiente,
+                    'label' => $this->etiquetaDe($siguiente, $modo),
+                ],
+                $puedeCerrarDesdeAqui && !TicketWorkflow::esTerminal($actual) || $actual === TicketWorkflow::RESOLVED => [
+                    'kind'  => 'close',
+                    'code'  => TicketWorkflow::CERRADO,
+                    'label' => 'Cerrar',
+                ],
+                default => null,
+            },
+            'checklist' => $ticket->is_archived ? [] : $checklist,
+            'requires_final_test' => TicketWorkflow::exigePruebaFinal($modo),
         ]);
     }
 
@@ -1269,11 +1397,12 @@ class SupportTicketController extends Controller
     public function proposeClosure(Request $request, $id)
     {
         $ticket = SupportTicket::findOrFail($id);
+        $modo = TicketWorkflow::modoDelTenant($ticket->tenant_id);
 
-        if (!in_array($ticket->status, TicketWorkflow::PUEDE_PROPONER_DESDE, true)) {
+        if (!TicketWorkflow::puedeProponerDesde($ticket->status, $modo)) {
             return response()->json([
                 'message' => 'Sólo se puede proponer el cierre de un ticket cuyo servicio ya está '
-                    . 'restablecido. Este ticket está en «' . $this->etiquetaDe($ticket->status) . '».',
+                    . 'restablecido. Este ticket está en «' . $this->etiquetaDe($ticket->status, $modo) . '».',
                 'error'   => 'ticket_cannot_propose_closure',
                 'status'  => $ticket->status,
             ], 422);
@@ -1288,14 +1417,14 @@ class SupportTicketController extends Controller
 
         $this->aplicarExencionDePruebaFinal($ticket, $data);
 
-        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_PROPUESTA);
+        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::requisitosDePropuesta($modo));
 
         // PR F2 - la regla 5 se exige TAMBIEN al proponer, no solo al cerrar. El
         // parrafo 18 le da al Tecnico de campo «pruebas finales y propuesta de
         // cierre» en la misma frase: es el mismo momento del trabajo, y dejarlo
         // solo para el cierre trasladaria al supervisor un dato que solo tiene
-        // quien estuvo en sitio.
-        if ($this->faltaPruebaFinal($ticket)) {
+        // quien estuvo en sitio. (Sólo en el flujo formal: es su regla.)
+        if (TicketWorkflow::exigePruebaFinal($modo) && $this->faltaPruebaFinal($ticket)) {
             $faltantes['prueba_final'] = 'Medición final o justificación de por qué no fue posible (regla 5 del § 15)';
         }
 
@@ -1363,6 +1492,7 @@ class SupportTicketController extends Controller
     private function cerrar(Request $request, $id, bool $excepcion)
     {
         $ticket = SupportTicket::findOrFail($id);
+        $modo = TicketWorkflow::modoDelTenant($ticket->tenant_id);
 
         if (TicketWorkflow::esTerminal($ticket->status)) {
             return response()->json([
@@ -1372,9 +1502,9 @@ class SupportTicketController extends Controller
             ], 422);
         }
 
-        if (!in_array($ticket->status, TicketWorkflow::PUEDE_CERRAR_DESDE, true)) {
+        if (!TicketWorkflow::puedeCerrarDesde($ticket->status, $modo)) {
             return response()->json([
-                'message' => 'No se puede cerrar un ticket en «' . $this->etiquetaDe($ticket->status)
+                'message' => 'No se puede cerrar un ticket en «' . $this->etiquetaDe($ticket->status, $modo)
                     . '»: el servicio todavía no está restablecido. El documento separa restablecer '
                     . 'de cerrar, y cerrar sin restablecer deja el expediente diciendo algo que no pasó.',
                 'error'   => 'ticket_cannot_close_from_status',
@@ -1396,18 +1526,20 @@ class SupportTicketController extends Controller
         // lee del ticket.
         $this->aplicarExencionDePruebaFinal($ticket, $data);
 
-        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::REQUISITOS_DE_CIERRE);
+        $faltantes = $this->requisitosFaltantes($ticket, TicketWorkflow::requisitosDeCierre($modo));
 
         // Regla 5 del parrafo 15. Va aparte de `REQUISITOS_DE_CIERRE` porque se
         // cumple de dos maneras -medicion final O justificacion- y aquella
         // constante solo sabe comparar campos del ticket contra `blank()`.
-        if ($this->faltaPruebaFinal($ticket)) {
+        // Es del flujo formal: el simple no la exige.
+        if (TicketWorkflow::exigePruebaFinal($modo) && $this->faltaPruebaFinal($ticket)) {
             $faltantes['prueba_final'] = 'Medición final o justificación de por qué no fue posible (regla 5 del § 15)';
         }
 
         // §15.9: una solución temporal no se cierra sin «seguimiento o
         // autorización». El cierre excepcional ES esa autorización.
-        if ($ticket->status === TicketWorkflow::SOLUCION_TEMPORAL) {
+        if ($ticket->status === TicketWorkflow::SOLUCION_TEMPORAL
+            && TicketWorkflow::solucionTemporalExigeAutorizacion($modo)) {
             $faltantes['solucion_temporal'] = 'Cierre con solución temporal: exige autorización (regla 9 del § 15)';
         }
 
@@ -1600,20 +1732,25 @@ class SupportTicketController extends Controller
     /** 422 uniforme cuando la matriz no admite el movimiento. */
     private function rechazarTransicion(SupportTicket $ticket, string $destino)
     {
-        if (TicketWorkflow::permite($ticket->status, $destino)) {
+        // La matriz del MODO del ISP: en el simple caben movimientos que el
+        // formal no admite (de «Abierto» directo a «En proceso»).
+        $modo = TicketWorkflow::modoDelTenant($ticket->tenant_id);
+
+        if (TicketWorkflow::permiteSegunModo($ticket->status, $destino, $modo)) {
             return null;
         }
 
-        $posibles = array_map(fn ($c) => $this->etiquetaDe($c), TicketWorkflow::destinosDesde($ticket->status));
+        $permitidos = TicketWorkflow::destinosSegunModo($ticket->status, $modo);
+        $posibles = array_map(fn ($c) => $this->etiquetaDe($c, $modo), $permitidos);
 
         return response()->json([
-            'message' => 'No se puede pasar de «' . $this->etiquetaDe($ticket->status) . '» a «'
-                . $this->etiquetaDe($destino) . '».'
-                . ($posibles ? ' Desde aquí se puede ir a: ' . implode(', ', $posibles) . '.' : ''),
+            'message' => 'No se puede pasar de «' . $this->etiquetaDe($ticket->status, $modo) . '» a «'
+                . $this->etiquetaDe($destino, $modo) . '».'
+                . ($posibles ? ' Desde aquí se puede ir a: ' . implode(', ', array_unique($posibles)) . '.' : ''),
             'error'             => 'ticket_transition_not_allowed',
             'from'              => $ticket->status,
             'to'                => $destino,
-            'allowed'           => TicketWorkflow::destinosDesde($ticket->status),
+            'allowed'           => $permitidos,
         ], 422);
     }
 
@@ -1738,11 +1875,18 @@ class SupportTicketController extends Controller
         ], 422);
     }
 
-    /** Etiqueta del catálogo para un código, o el código si no hay fila. */
-    private function etiquetaDe(?string $code): string
+    /**
+     * Etiqueta del catálogo para un código, o el código si no hay fila. En el
+     * modo simple, el nombre corto («Abierto», «En proceso»…) cuando lo hay.
+     */
+    private function etiquetaDe(?string $code, ?string $modo = null): string
     {
         if ($code === null) {
             return '—';
+        }
+
+        if (TicketWorkflow::esSimple($modo) && ($simple = TicketWorkflow::etiquetaSimple($code))) {
+            return $simple;
         }
 
         return $this->catalogs->label(TicketCatalogs::STATUS, $this->catalogs->id(TicketCatalogs::STATUS, $code))

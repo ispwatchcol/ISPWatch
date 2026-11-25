@@ -1,5 +1,5 @@
 <template>
-    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
+    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 p-3 sm:p-6">
         <!-- Notification Toast -->
         <NotificationToast ref="toast" />
         
@@ -9,54 +9,66 @@
         </div>
 
         <div v-else class="max-w-7xl mx-auto">
-            <!-- Header -->
-            <div class="mb-6 flex justify-between items-center">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100">
-                        Ticket #{{ ticket.id }} - {{ ticket.subject }}
-                    </h1>
-                    <p class="text-gray-500 dark:text-gray-400 mt-1">
-                        Creado el {{ formatDate(ticket.created_at) }}
+            <!-- Header (bitácora § 133): qué ticket es y cómo está, de un vistazo.
+                 En el celular los botones bajan en vez de salirse de la pantalla. -->
+            <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div class="min-w-0">
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        <router-link to="/support" class="hover:underline">Soporte</router-link>
+                        · Ticket #{{ ticket.id }}
                     </p>
-                    <span v-if="ticket.no_charge"
-                        :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
-                        class="mt-2 inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                        Sin cobro al cliente
-                    </span>
+                    <h1 class="mt-0.5 break-words text-xl font-bold text-gray-800 dark:text-gray-100 sm:text-3xl">
+                        {{ ticket.subject }}
+                    </h1>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <span :class="groupBadgeClass(workflow.statusGroup || statusGroup(ticket.status))" data-testid="ticket-status-badge">
+                            {{ workflow.statusLabel || statusLabel(ticket.status) }}
+                        </span>
+                        <span :class="priorityBadgeClass(ticket.priority)">Prioridad {{ (priorityLabel(ticket.priority) || ticket.priority || '').toLowerCase() }}</span>
+                        <span v-if="ticket.no_charge"
+                            :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
+                            class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            Sin cobro al cliente
+                        </span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">
+                            Abierto {{ formatDate(ticket.created_at) }}
+                            <template v-if="!workflow.isTerminal"> · <span :class="ageClass(edadDelTicket.nivel)">{{ edadDelTicket.texto }}</span></template>
+                        </span>
+                    </div>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                     <!-- PR C · Un expediente archivado está fuera de la operación:
                          el backend rechaza editarlo, anotarlo y transicionarlo, así
                          que la pantalla tampoco lo ofrece. -->
                     <button
                         v-if="canEdit && !ticket.is_archived"
                         @click="router.push(`/support/${ticketId}/edit`)"
-                        class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+                        class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
-                    <v-icon name="fa-edit" class="w-5 h-5 inline mr-2"></v-icon>
+                        <v-icon name="fa-edit" class="mr-1 inline h-4 w-4"></v-icon>
                         Editar
                     </button>
                     <button
                         v-if="canArchive && !ticket.is_archived"
                         @click="abrirArchivado"
-                        class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition"
+                        class="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-amber-700 transition hover:bg-amber-50 dark:border-amber-700 dark:bg-gray-800 dark:text-amber-300 dark:hover:bg-amber-900/20"
                     >
-                        <v-icon name="bi-archive" class="w-5 h-5 inline mr-2"></v-icon>
+                        <v-icon name="bi-archive" class="mr-1 inline h-4 w-4"></v-icon>
                         Archivar
                     </button>
                     <button
                         v-if="canRestore && ticket.is_archived"
                         @click="abrirRestauracion"
-                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+                        class="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white transition hover:bg-blue-700"
                     >
-                        <v-icon name="ri-arrow-go-back-line" class="w-5 h-5 inline mr-2"></v-icon>
+                        <v-icon name="ri-arrow-go-back-line" class="mr-1 inline h-4 w-4"></v-icon>
                         Restaurar
                     </button>
                     <button
                         @click="router.push('/support')"
-                        class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+                        class="rounded-lg bg-gray-600 px-3 py-2 text-sm text-white transition hover:bg-gray-700"
                     >
-                    <v-icon name="ri-arrow-go-back-line" class="w-5 h-5 inline mr-2"></v-icon>
+                        <v-icon name="ri-arrow-go-back-line" class="mr-1 inline h-4 w-4"></v-icon>
                         Volver
                     </button>
                 </div>
@@ -90,171 +102,161 @@
                 </div>
             </div>
 
-            <!-- ── Ciclo de vida (Solicitud Maestra §7, §15, §18) ──────────
-                 Sustituye al selector libre de estado. Sólo se pintan los pasos
-                 que el SERVIDOR dice que caben desde aquí: la matriz no se
-                 duplica en JavaScript, porque una segunda copia se
-                 desincroniza y el panel acaba ofreciendo lo que la API rechaza. -->
+            <!-- ── Siguiente paso (bitácora § 133) ─────────────────────────
+                 Sustituye a la tarjeta «Ciclo de vida» con sus ocho botones
+                 iguales. Ahora hay UN botón principal —el paso normal, o cerrar
+                 cuando ya toca—, «Resolver y cerrar» para hacerlo todo en una
+                 ventana, y el resto (esperas, duplicado, cierre especial…) en
+                 «Más acciones». Qué cabe lo sigue diciendo el SERVIDOR
+                 (`GET .../transitions`): la pantalla no tiene copia de la matriz. -->
             <div
-                v-if="!ticket.is_archived && (workflow.transitions.length || algunaAccion || workflow.isTerminal)"
-                class="mb-6 rounded-xl bg-white p-6 shadow-md dark:bg-gray-800"
+                v-if="!ticket.is_archived && workflow.cargado"
+                class="mb-6 rounded-xl bg-white p-4 shadow-md dark:bg-gray-800 sm:p-5"
+                data-testid="next-step-card"
             >
-                <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-                    <h3 class="text-lg font-bold text-gray-800 dark:text-white">Ciclo de vida</h3>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-gray-700 dark:text-slate-200">
-                        {{ workflow.statusLabel || statusLabel(ticket.status) || ticket.status }}
-                    </span>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            {{ workflow.isTerminal ? 'Ticket terminado' : 'Siguiente paso' }}
+                        </p>
+                        <p class="mt-0.5 text-sm text-gray-700 dark:text-gray-200">{{ textoSiguientePaso }}</p>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button
+                            v-if="botonPrincipal"
+                            @click="botonPrincipal.ejecutar()"
+                            data-testid="primary-action"
+                            class="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow transition"
+                            :class="botonPrincipal.clase"
+                        >
+                            <v-icon :name="botonPrincipal.icono" class="h-4 w-4" />
+                            {{ botonPrincipal.label }}
+                        </button>
+
+                        <button
+                            v-if="mostrarResolverAparte"
+                            @click="abrirAccion('resolve')"
+                            data-testid="resolve-and-close"
+                            class="flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
+                        >
+                            <v-icon name="md-taskalt" class="h-4 w-4" />
+                            Resolver y cerrar
+                        </button>
+
+                        <div v-if="masAcciones.length" class="relative">
+                            <button
+                                @click="menuAcciones = !menuAcciones"
+                                data-testid="more-actions"
+                                class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                            >
+                                Más acciones
+                                <v-icon name="md-keyboardarrowdown" class="h-4 w-4" />
+                            </button>
+                            <!-- Velo transparente: tocar fuera cierra el menú. -->
+                            <div v-if="menuAcciones" class="fixed inset-0 z-20" @click="menuAcciones = false"></div>
+                            <div
+                                v-if="menuAcciones"
+                                class="absolute right-0 z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-700 dark:bg-gray-800"
+                            >
+                                <template v-for="(grupo, i) in masAccionesAgrupadas" :key="grupo.titulo">
+                                    <p class="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400" :class="i ? 'border-t border-gray-100 dark:border-gray-700' : ''">
+                                        {{ grupo.titulo }}
+                                    </p>
+                                    <button
+                                        v-for="a in grupo.acciones"
+                                        :key="a.key"
+                                        @click="menuAcciones = false; a.ejecutar()"
+                                        class="block w-full px-3 py-2 text-left text-sm text-gray-700 transition hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                                    >
+                                        <span :class="groupDotClass(a.grupo)" v-if="a.grupo" class="mr-2"></span>{{ a.label }}
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Lo que le falta al expediente para poder cerrarse, ANTES de
-                     abrir ningún modal: enterarse de que falta la causa
-                     confirmada después de escribir el motivo es peor. -->
-                <div
-                    v-if="workflow.closureRequirements.missing.length"
-                    class="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/25"
-                >
-                    <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                        Para cerrar este ticket falta:
-                    </p>
-                    <ul class="mt-1 list-inside list-disc text-xs text-amber-800 dark:text-amber-300">
-                        <li v-for="falta in workflow.closureRequirements.missing" :key="falta">{{ falta }}</li>
-                    </ul>
-                    <p class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                        Causa, acción y resultado se pueden elegir en la misma ventana de «Cerrar ticket»; si no hubo
-                        medición final, ahí mismo se indica por qué.
-                    </p>
-                </div>
-
-                <!-- Cómo se llega al cierre. Antes el botón «Cerrar ticket»
-                     sólo aparecía en cinco estados y fuera de ellos no había
-                     ninguna pista: «no me deja cerrar». El camino lo calcula el
-                     servidor con la misma matriz de transiciones. -->
-                <div
-                    v-if="workflow.closeBlockedBy === 'status' && workflow.closePath.length"
-                    data-testid="close-path"
-                    class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-900/20"
-                >
-                    <p class="text-xs font-semibold text-emerald-900 dark:text-emerald-200">
-                        Para cerrar este ticket todavía hay que llevarlo a «Servicio restablecido»:
-                    </p>
-                    <p class="mt-1 text-xs text-emerald-800 dark:text-emerald-300">
-                        {{ workflow.statusLabel }}
-                        <template v-for="paso in workflow.closePath" :key="paso.code"> → <strong>{{ paso.label }}</strong></template>
-                        → <strong>Cerrar ticket</strong>
-                    </p>
-                    <button
-                        v-if="workflow.canWalkClosePath"
-                        @click="abrirAccion('walk')"
-                        data-testid="walk-close-path"
-                        class="mt-2 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
-                    >
-                        Avanzar hasta «{{ workflow.closePath[workflow.closePath.length - 1].label }}»
-                    </button>
-                    <p v-else class="mt-1 text-[11px] text-emerald-700 dark:text-emerald-400">
-                        Mover el estado exige el permiso «Tickets · cambiar estado».
-                    </p>
-                </div>
-
-                <div
-                    v-if="workflow.closeBlockedBy === 'permission'"
-                    class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-gray-700 dark:bg-gray-900/40 dark:text-slate-300"
-                >
-                    Cerrar exige el permiso <strong>«Tickets · cerrar»</strong>
-                    (<code class="rounded bg-slate-200 px-1 dark:bg-gray-700">{{ workflow.closePermission }}</code>), que tu
-                    rol no tiene.
-                    <template v-if="workflow.actions.propose_closure">Puedes <strong>Proponer cierre</strong> para que lo cierre un supervisor.</template>
-                    <template v-else>Pídeselo a quien administre los roles.</template>
-                </div>
-
-                <!--
-                  Un ticket cerrado sin acciones disponibles NO se queda mudo.
-                  Antes la tarjeta entera desaparecía y el operador no tenía
-                  forma de saber si le faltaba un permiso, si el estado no lo
-                  admitía o si la pantalla estaba rota. El motivo lo da el
-                  servidor, que es el único que conoce los permisos.
-                -->
-                <div
-                    v-if="!workflow.transitions.length && !algunaAccion"
-                    class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-gray-700 dark:bg-gray-900/40"
-                >
-                    <p class="text-sm text-slate-700 dark:text-slate-200">
-                        Este ticket está <strong>{{ workflow.statusLabel || statusLabel(ticket.status) }}</strong>
-                        y no tiene acciones disponibles para ti.
-                    </p>
-                    <p v-if="workflow.reopenBlockedBy === 'permission'" class="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                        Reabrirlo exige el permiso <strong>«Tickets · reabrir»</strong>
-                        (<code class="rounded bg-slate-200 px-1 dark:bg-gray-700">{{ workflow.reopenPermission }}</code>).
-                        Pídeselo a quien administre los roles.
-                    </p>
-                    <p v-else-if="workflow.reopenBlockedBy === 'archived'" class="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                        Está archivado: restáuralo antes de volver a trabajarlo.
-                    </p>
-                </div>
-
-                <!-- Transiciones ordinarias -->
-                <div v-if="workflow.transitions.length" class="mb-4">
+                <!-- Para cerrar: cada cosa con ✓ o ○. Tocar lo que falta abre la
+                     ventana de cierre, donde se completa todo junto. -->
+                <div v-if="!workflow.isTerminal && workflow.checklist.length" class="mt-4 border-t border-gray-100 pt-3 dark:border-gray-700" data-testid="close-checklist">
                     <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                        Mover a
+                        Para cerrar
+                        <span v-if="workflow.mode === 'simple'" class="ml-1 font-normal normal-case text-gray-400">· flujo simple</span>
                     </p>
                     <div class="flex flex-wrap gap-2">
                         <button
-                            v-for="paso in workflow.transitions"
-                            :key="paso.code"
-                            @click="abrirAccion('transition', paso)"
-                            class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/50"
+                            v-for="item in workflow.checklist"
+                            :key="item.key"
+                            @click="resolverRequisito(item)"
+                            :data-testid="`check-${item.key}`"
+                            class="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition"
+                            :class="item.ok
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300'
+                                : 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200'"
                         >
-                            {{ paso.label }}
+                            <v-icon :name="item.ok ? 'bi-check-circle-fill' : 'md-radiobuttonunchecked'" class="h-3.5 w-3.5" />
+                            {{ item.label }}
                         </button>
                     </div>
                 </div>
 
-                <!-- Las cuatro operaciones con nombre propio -->
-                <div v-if="algunaAccion" class="flex flex-wrap gap-2 border-t border-gray-100 pt-4 dark:border-gray-700">
-                    <button
-                        v-if="workflow.actions.propose_closure"
-                        @click="abrirAccion('propose')"
-                        class="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300"
-                    >
-                        <v-icon name="md-assignmentturnedin" class="h-4 w-4" />
-                        Proponer cierre
-                    </button>
-                    <button
-                        v-if="workflow.actions.close"
-                        @click="abrirAccion('close')"
-                        class="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
-                    >
-                        <v-icon name="bi-check-circle-fill" class="h-4 w-4" />
-                        Cerrar ticket
-                    </button>
-                    <button
-                        v-if="workflow.actions.close_exception"
-                        @click="abrirAccion('exception')"
-                        class="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-                    >
-                        <v-icon name="md-warning" class="h-4 w-4" />
-                        Cierre especial
-                    </button>
-                    <button
-                        v-if="workflow.actions.reopen"
-                        @click="abrirAccion('reopen')"
-                        class="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-                    >
-                        <v-icon name="ri-arrow-go-back-line" class="h-4 w-4" />
-                        Reabrir
-                    </button>
-                </div>
-            </div>
-
-            <!-- Badges -->
-            <div class="flex gap-3 mb-6">
-                <span :class="getStatusBadgeClass(ticket.status)">{{ getStatusLabel(ticket.status) }}</span>
-                <span :class="getPriorityBadgeClass(ticket.priority)">{{ getPriorityLabel(ticket.priority) }}</span>
-                <span :class="getCategoryBadgeClass(ticket.category)">{{ getCategoryLabel(ticket.category) }}</span>
+                <!-- Por qué no hay botón, cuando no lo hay. Lo dice el servidor. -->
+                <p
+                    v-if="workflow.closeBlockedBy === 'permission' && !puedeResolver"
+                    class="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-gray-900/40 dark:text-slate-300"
+                >
+                    Cerrar exige el permiso <strong>«Tickets · cerrar»</strong>, que tu rol no tiene. Pídeselo a quien administre los roles.
+                </p>
+                <p
+                    v-else-if="workflow.closeBlockedBy === 'status' && !workflow.canWalkClosePath && !workflow.isTerminal"
+                    class="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-gray-900/40 dark:text-slate-300"
+                >
+                    Para cerrar todavía hay que llevarlo a «Servicio restablecido», y mover el estado exige el permiso
+                    <strong>«Tickets · cambiar estado»</strong>.
+                </p>
+                <p
+                    v-if="workflow.isTerminal && !workflow.actions.reopen"
+                    class="mt-3 text-xs text-slate-600 dark:text-slate-400"
+                >
+                    <template v-if="workflow.reopenBlockedBy === 'permission'">
+                        Reabrirlo exige el permiso <strong>«Tickets · reabrir»</strong>. Pídeselo a quien administre los roles.
+                    </template>
+                    <template v-else>No tiene acciones disponibles para ti.</template>
+                </p>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <!-- Columna Principal -->
-                <div class="lg:col-span-2 space-y-6">
+                <div class="lg:col-span-2 space-y-6 min-w-0">
+                    <!-- Pestañas (bitácora § 133): antes eran trece tarjetas
+                         apiladas. Se usan con v-show y no v-if: intervenciones,
+                         mediciones y equipos tienen que seguir montados para que
+                         el cierre sepa lo que ya se registró. -->
+                    <div class="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0" data-testid="detail-tabs">
+                        <div class="flex min-w-max gap-1 rounded-xl bg-white p-1 shadow-sm dark:bg-gray-800">
+                            <button
+                                v-for="p in pestanasDetalle"
+                                :key="p.key"
+                                @click="pestanaDetalle = p.key"
+                                :data-testid="`detail-tab-${p.key}`"
+                                class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition"
+                                :class="pestanaDetalle === p.key
+                                    ? 'bg-blue-600 text-white shadow'
+                                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'"
+                            >
+                                {{ p.label }}
+                                <span
+                                    v-if="p.count"
+                                    class="rounded-full px-1.5 text-xs font-semibold"
+                                    :class="pestanaDetalle === p.key ? 'bg-white/25 text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'"
+                                >{{ p.count }}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Resumen: lo que pasó y lo que se sabe -->
+                    <div v-show="pestanaDetalle === 'resumen'" class="space-y-6">
                     <!-- Descripción -->
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Descripción</h2>
@@ -288,19 +290,19 @@
                                 </dt>
                                 <dd class="mt-1 text-gray-800 dark:text-gray-100">
                                     <template v-if="campo.valor">
-                                        <span class="inline-flex items-center gap-2">
-                                            <code class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-xs font-mono">
-                                                {{ campo.valor.code }}
-                                            </code>
-                                            <span>{{ campo.valor.label }}</span>
-                                        </span>
+                                        <!-- Sin el código interno (`AC02`): no le dice nada a
+                                             quien lee. Queda en el `title` para quien lo necesite. -->
+                                        <span :title="campo.valor.code">{{ campo.valor.label }}</span>
                                     </template>
                                     <span v-else class="text-gray-400 dark:text-gray-500 italic">Sin definir</span>
                                 </dd>
                             </div>
                         </dl>
                     </div>
+                    </div>
 
+                    <!-- Trabajo: intervenciones, mediciones y equipos de la visita -->
+                    <div v-show="pestanaDetalle === 'trabajo'" class="space-y-6">
                     <!-- Intervenciones tecnicas (PR F1 - seccion 14) -->
                     <TicketInterventions
                         ref="interventionsRef"
@@ -322,239 +324,6 @@
                         @cambio="alCambiarMedicion"
                     />
 
-                    <!-- Historial inalterable (PR #3 · F1-17) -->
-                    <div v-if="canViewHistory" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
-                        <div class="flex justify-between items-center mb-1">
-                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Historial</h2>
-                            <span class="text-xs text-gray-400 dark:text-gray-500">Registro no editable</span>
-                        </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                            Horas en Colombia (America/Bogota).
-                        </p>
-
-                        <div v-if="historialCargando && !historial.length" class="flex items-center gap-3 py-4 text-gray-500 dark:text-gray-400">
-                            <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></div>
-                            <span class="text-sm">Cargando historial…</span>
-                        </div>
-
-                        <p v-else-if="historialError" class="text-sm text-amber-700 dark:text-amber-300">
-                            No se pudo cargar el historial.
-                            <button type="button" @click="cargarHistorial(1)" class="underline font-medium">Reintentar</button>
-                        </p>
-
-                        <p v-else-if="!historial.length" class="text-sm text-gray-500 dark:text-gray-400">
-                            Todavía no hay movimientos registrados en este ticket.
-                        </p>
-
-                        <ol v-else class="relative border-l border-gray-200 dark:border-gray-700 ml-2 space-y-5">
-                            <li v-for="evento in historial" :key="evento.id" class="ml-5">
-                                <span class="absolute -left-[5px] w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-
-                                <p class="text-sm text-gray-800 dark:text-gray-100">
-                                    {{ etiquetaDeEvento(evento) }}
-                                </p>
-
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                    {{ actorDe(evento) }} · {{ formatDateBogota(evento.created_at) }}
-                                </p>
-                            </li>
-                        </ol>
-
-                        <button
-                            v-if="historialHayMas"
-                            type="button"
-                            @click="cargarHistorial(historialPagina + 1)"
-                            :disabled="historialCargando"
-                            class="mt-5 text-sm text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-                        >
-                            {{ historialCargando ? 'Cargando…' : 'Ver movimientos anteriores' }}
-                        </button>
-                    </div>
-
-                    <!-- Bitácora de Trabajo (Notas del Staff) -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Bitácora de Trabajo</h2>
-                            <button 
-                                v-if="canNote"
-                                @click="showNoteForm = true"
-                                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg transition flex items-center gap-1"
-                            >
-                                <v-icon name="md-add" class="w-4 h-4" />
-                                Nueva Nota
-                            </button>
-                        </div>
-
-                        <!-- Formulario para Nueva Nota -->
-                        <div v-if="showNoteForm" class="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
-                            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
-                                {{ editingNoteId ? 'Editar Nota' : 'Agregar Nueva Nota' }}
-                            </h3>
-                            <textarea 
-                                v-model="noteContent"
-                                rows="3"
-                                class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
-                                placeholder="Escribe aquí los detalles del trabajo realizado..."
-                            ></textarea>
-                            <div class="flex justify-end gap-2 text-sm">
-                                <button 
-                                    @click="cancelNote"
-                                    class="px-3 py-1 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
-                                >
-                                    Cancelar
-                                </button>
-                                <button 
-                                    @click="saveNote"
-                                    :disabled="!noteContent.trim() || savingNote"
-                                    class="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50"
-                                >
-                                    {{ savingNote ? 'Guardando...' : 'Guardar' }}
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Lista de Notas -->
-                        <div v-if="ticket.messages?.length > 0" class="space-y-4">
-                            <div v-for="message in ticket.messages" :key="message.id" 
-                                 class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700 relative group">
-                                <div class="flex justify-between items-start mb-2">
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
-                                            {{ (message.author_label || '?').charAt(0) }}
-                                        </div>
-                                        <div>
-                                            <!-- `author_label` lo resuelve el backend: usuario vivo,
-                                                 si no el nombre congelado al escribir, si no
-                                                 «Usuario eliminado». Nunca se accede a
-                                                 `user.user_name` directamente, porque `user_id`
-                                                 puede ser NULL desde que dar de baja a un cliente
-                                                 dejó de borrar sus notas (H-6). -->
-                                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ message.author_label }}</p>
-                                            <p class="text-[10px] text-gray-500 dark:text-gray-400">{{ formatDate(message.created_at) }}</p>
-                                        </div>
-                                    </div>
-                                    <div v-if="canNote" class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button @click="editNote(message)" class="p-1 text-gray-400 hover:text-blue-500 transition-colors">
-                                            <v-icon name="fa-edit" class="w-4 h-4" />
-                                        </button>
-                                        <button @click="deleteNote(message.id)" class="p-1 text-gray-400 hover:text-red-500 transition-colors">
-                                            <v-icon name="md-delete" class="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{{ message.message }}</p>
-                            </div>
-                        </div>
-                        <div v-else class="text-center py-4 text-gray-500 dark:text-gray-400 text-sm italic">
-                            No hay notas registradas en este ticket.
-                        </div>
-                    </div>
-
-                    <!-- Archivos Adjuntos -->
-                    <div v-if="ticket.attachments?.length > 0" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
-                        <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Archivos Adjuntos</h2>
-                        <div class="space-y-2">
-                            <div v-for="attachment in ticket.attachments" :key="attachment.id"
-                                 class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div class="flex items-center gap-3">
-                                    <v-icon name="bi-file-earmark" class="w-5 h-5 text-gray-500" />
-                                    <div>
-                                        <span class="text-sm text-gray-800 dark:text-white">{{ attachment.file_name }}</span>
-                                        <p class="text-[10px] text-gray-500 dark:text-gray-400">
-                                            Subido por {{ attachment.author_label }}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <button 
-                                        v-if="isImage(attachment.file_name)"
-                                        @click="openImage(attachment)"
-                                        class="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
-                                    >
-                                        <v-icon name="fa-eye" class="w-4 h-4" />
-                                        Ver
-                                    </button>
-                                    <!-- `download_url` fuerza Content-Disposition:
-                                         attachment en el servidor. El atributo
-                                         `download` de HTML no basta: sólo se
-                                         respeta en el mismo origen y el navegador
-                                         acabaría abriendo la imagen en la pestaña. -->
-                                    <a :href="attachment.download_url" target="_blank"
-                                       class="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white text-sm flex items-center gap-1">
-                                        <v-icon name="md-download" class="w-4 h-4" />
-                                        Descargar
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Modal de Visualización de Imagen (Estilo Manual) -->
-                    <Teleport to="body">
-                        <div 
-                          v-if="lightboxImage" 
-                          class="fixed inset-0 z-app-modal flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
-                          @click="lightboxImage = null"
-                        >
-                          <div 
-                            class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-5xl w-full mx-4 overflow-hidden transform transition-all border border-gray-100 dark:border-gray-700 mx-auto"
-                            @click.stop
-                          >
-                            <div class="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-start bg-indigo-50/50 dark:bg-gray-700/30">
-                              <div>
-                                <h3 class="text-xl font-bold text-gray-900 dark:text-white">Vista Previa</h3>
-                                 <span class="text-xs text-indigo-500 dark:text-indigo-300 uppercase font-semibold tracking-wider mt-1 block">Imagen Adjunta</span>
-                              </div>
-                              <button 
-                                @click="lightboxImage = null"
-                                class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
-                              >
-                                <v-icon name="io-close" class="w-6 h-6" />
-                              </button>
-                            </div>
-                            
-                            <div class="p-0 bg-gray-50 dark:bg-gray-900/50 flex justify-center items-center min-h-[8rem]">
-                                <!-- Si el archivo ya no está en el almacenamiento, el
-                                     endpoint responde 404 y el <img> mostraría el icono
-                                     roto sin decir por qué. Se sustituye por un aviso. -->
-                                <div v-if="lightboxError" class="p-8 text-center">
-                                    <p class="text-gray-700 dark:text-gray-200 font-medium">
-                                        No se pudo cargar la vista previa.
-                                    </p>
-                                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                        El archivo ya no está disponible en el almacenamiento.
-                                    </p>
-                                </div>
-                                <img
-                                    v-else
-                                    :src="lightboxImage"
-                                    @error="lightboxError = true"
-                                    class="max-w-full max-h-[80vh] rounded-none shadow-sm"
-                                    alt="Vista previa"
-                                />
-                            </div>
-
-                            <div class="p-6 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-end gap-3">
-                               <a
-                                v-if="!lightboxError"
-                                :href="lightboxDownload"
-                                target="_blank"
-                                class="px-5 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-sm transition-colors flex items-center gap-2"
-                              >
-                                <v-icon name="md-download" class="w-4 h-4" />
-                                Descargar
-                              </a>
-                              <button 
-                                @click="lightboxImage = null"
-                                class="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm transition-colors"
-                              >
-                                Cerrar
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                    </Teleport>
-                   
                    <!-- Equipos y materiales de la visita.
                         Descuentan del inventario de quien los aporta y quedan
                         en el kardex: cargar un equipo aquí es sacarlo de la
@@ -696,7 +465,10 @@
                             parcial de material gastado.
                         </p>
                     </div>
+                    </div>
 
+                    <!-- Cobros -->
+                    <div v-show="pestanaDetalle === 'cobros'" class="space-y-6">
                    <!-- Cargos del Ticket (Staff Only) -->
                     <div v-if="canEdit" ref="chargesCard" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
@@ -924,6 +696,127 @@
                             No hay cargos registrados en este ticket.
                         </div>
                     </div>
+                    </div>
+
+                    <!-- Notas y archivos -->
+                    <div v-show="pestanaDetalle === 'notas'" class="space-y-6">
+                    <!-- Bitácora de Trabajo (Notas del Staff) -->
+                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Bitácora de Trabajo</h2>
+                            <button 
+                                v-if="canNote"
+                                @click="showNoteForm = true"
+                                class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg transition flex items-center gap-1"
+                            >
+                                <v-icon name="md-add" class="w-4 h-4" />
+                                Nueva Nota
+                            </button>
+                        </div>
+
+                        <!-- Formulario para Nueva Nota -->
+                        <div v-if="showNoteForm" class="mb-6 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border border-gray-200 dark:border-gray-600">
+                            <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                                {{ editingNoteId ? 'Editar Nota' : 'Agregar Nueva Nota' }}
+                            </h3>
+                            <textarea 
+                                v-model="noteContent"
+                                rows="3"
+                                class="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+                                placeholder="Escribe aquí los detalles del trabajo realizado..."
+                            ></textarea>
+                            <div class="flex justify-end gap-2 text-sm">
+                                <button 
+                                    @click="cancelNote"
+                                    class="px-3 py-1 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    @click="saveNote"
+                                    :disabled="!noteContent.trim() || savingNote"
+                                    class="px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:opacity-50"
+                                >
+                                    {{ savingNote ? 'Guardando...' : 'Guardar' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Lista de Notas -->
+                        <div v-if="ticket.messages?.length > 0" class="space-y-4">
+                            <div v-for="message in ticket.messages" :key="message.id" 
+                                 class="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-100 dark:border-gray-700 relative group">
+                                <div class="flex justify-between items-start mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs">
+                                            {{ (message.author_label || '?').charAt(0) }}
+                                        </div>
+                                        <div>
+                                            <!-- `author_label` lo resuelve el backend: usuario vivo,
+                                                 si no el nombre congelado al escribir, si no
+                                                 «Usuario eliminado». Nunca se accede a
+                                                 `user.user_name` directamente, porque `user_id`
+                                                 puede ser NULL desde que dar de baja a un cliente
+                                                 dejó de borrar sus notas (H-6). -->
+                                            <p class="text-sm font-semibold text-gray-800 dark:text-white">{{ message.author_label }}</p>
+                                            <p class="text-[10px] text-gray-500 dark:text-gray-400">{{ formatDate(message.created_at) }}</p>
+                                        </div>
+                                    </div>
+                                    <div v-if="canNote" class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @click="editNote(message)" class="p-1 text-gray-400 hover:text-blue-500 transition-colors">
+                                            <v-icon name="fa-edit" class="w-4 h-4" />
+                                        </button>
+                                        <button @click="deleteNote(message.id)" class="p-1 text-gray-400 hover:text-red-500 transition-colors">
+                                            <v-icon name="md-delete" class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{{ message.message }}</p>
+                            </div>
+                        </div>
+                        <div v-else class="text-center py-4 text-gray-500 dark:text-gray-400 text-sm italic">
+                            No hay notas registradas en este ticket.
+                        </div>
+                    </div>
+
+                    <!-- Archivos Adjuntos -->
+                    <div v-if="ticket.attachments?.length > 0" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <h2 class="text-xl font-bold text-gray-800 dark:text-white mb-4">Archivos Adjuntos</h2>
+                        <div class="space-y-2">
+                            <div v-for="attachment in ticket.attachments" :key="attachment.id"
+                                 class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div class="flex items-center gap-3">
+                                    <v-icon name="bi-file-earmark" class="w-5 h-5 text-gray-500" />
+                                    <div>
+                                        <span class="text-sm text-gray-800 dark:text-white">{{ attachment.file_name }}</span>
+                                        <p class="text-[10px] text-gray-500 dark:text-gray-400">
+                                            Subido por {{ attachment.author_label }}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <button 
+                                        v-if="isImage(attachment.file_name)"
+                                        @click="openImage(attachment)"
+                                        class="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
+                                    >
+                                        <v-icon name="fa-eye" class="w-4 h-4" />
+                                        Ver
+                                    </button>
+                                    <!-- `download_url` fuerza Content-Disposition:
+                                         attachment en el servidor. El atributo
+                                         `download` de HTML no basta: sólo se
+                                         respeta en el mismo origen y el navegador
+                                         acabaría abriendo la imagen en la pestaña. -->
+                                    <a :href="attachment.download_url" target="_blank"
+                                       class="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white text-sm flex items-center gap-1">
+                                        <v-icon name="md-download" class="w-4 h-4" />
+                                        Descargar
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                    <!-- Gestión del Ticket: subir evidencia. Exige `ticket_attach`,
                         no `ticket_edit`: adjuntar es una capacidad propia. -->
@@ -977,38 +870,196 @@
                             </button>
                          </div>
                     </div>
+                    </div>
+
+                    <!-- Historial -->
+                    <div v-show="pestanaDetalle === 'historial'" class="space-y-6">
+                    <!-- Historial inalterable (PR #3 · F1-17) -->
+                    <div v-if="canViewHistory" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                        <div class="flex justify-between items-center mb-1">
+                            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Historial</h2>
+                            <span class="text-xs text-gray-400 dark:text-gray-500">Registro no editable</span>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                            Horas en Colombia (America/Bogota).
+                        </p>
+
+                        <div v-if="historialCargando && !historial.length" class="flex items-center gap-3 py-4 text-gray-500 dark:text-gray-400">
+                            <div class="animate-spin rounded-full h-5 w-5 border-2 border-blue-500 border-t-transparent"></div>
+                            <span class="text-sm">Cargando historial…</span>
+                        </div>
+
+                        <p v-else-if="historialError" class="text-sm text-amber-700 dark:text-amber-300">
+                            No se pudo cargar el historial.
+                            <button type="button" @click="cargarHistorial(1)" class="underline font-medium">Reintentar</button>
+                        </p>
+
+                        <p v-else-if="!historial.length" class="text-sm text-gray-500 dark:text-gray-400">
+                            Todavía no hay movimientos registrados en este ticket.
+                        </p>
+
+                        <ol v-else class="relative border-l border-gray-200 dark:border-gray-700 ml-2 space-y-5">
+                            <li v-for="evento in historial" :key="evento.id" class="ml-5">
+                                <span class="absolute -left-[5px] w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+
+                                <p class="text-sm text-gray-800 dark:text-gray-100">
+                                    {{ etiquetaDeEvento(evento) }}
+                                </p>
+
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {{ actorDe(evento) }} · {{ formatDateBogota(evento.created_at) }}
+                                </p>
+                            </li>
+                        </ol>
+
+                        <button
+                            v-if="historialHayMas"
+                            type="button"
+                            @click="cargarHistorial(historialPagina + 1)"
+                            :disabled="historialCargando"
+                            class="mt-5 text-sm text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                        >
+                            {{ historialCargando ? 'Cargando…' : 'Ver movimientos anteriores' }}
+                        </button>
+                    </div>
+                    </div>
+
+                    <!-- Modal de Visualización de Imagen (Estilo Manual) -->
+                    <Teleport to="body">
+                        <div 
+                          v-if="lightboxImage" 
+                          class="fixed inset-0 z-app-modal flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+                          @click="lightboxImage = null"
+                        >
+                          <div 
+                            class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-5xl w-full mx-4 overflow-hidden transform transition-all border border-gray-100 dark:border-gray-700 mx-auto"
+                            @click.stop
+                          >
+                            <div class="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-start bg-indigo-50/50 dark:bg-gray-700/30">
+                              <div>
+                                <h3 class="text-xl font-bold text-gray-900 dark:text-white">Vista Previa</h3>
+                                 <span class="text-xs text-indigo-500 dark:text-indigo-300 uppercase font-semibold tracking-wider mt-1 block">Imagen Adjunta</span>
+                              </div>
+                              <button 
+                                @click="lightboxImage = null"
+                                class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+                              >
+                                <v-icon name="io-close" class="w-6 h-6" />
+                              </button>
+                            </div>
+                            
+                            <div class="p-0 bg-gray-50 dark:bg-gray-900/50 flex justify-center items-center min-h-[8rem]">
+                                <!-- Si el archivo ya no está en el almacenamiento, el
+                                     endpoint responde 404 y el <img> mostraría el icono
+                                     roto sin decir por qué. Se sustituye por un aviso. -->
+                                <div v-if="lightboxError" class="p-8 text-center">
+                                    <p class="text-gray-700 dark:text-gray-200 font-medium">
+                                        No se pudo cargar la vista previa.
+                                    </p>
+                                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                        El archivo ya no está disponible en el almacenamiento.
+                                    </p>
+                                </div>
+                                <img
+                                    v-else
+                                    :src="lightboxImage"
+                                    @error="lightboxError = true"
+                                    class="max-w-full max-h-[80vh] rounded-none shadow-sm"
+                                    alt="Vista previa"
+                                />
+                            </div>
+
+                            <div class="p-6 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex justify-end gap-3">
+                               <a
+                                v-if="!lightboxError"
+                                :href="lightboxDownload"
+                                target="_blank"
+                                class="px-5 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-sm transition-colors flex items-center gap-2"
+                              >
+                                <v-icon name="md-download" class="w-4 h-4" />
+                                Descargar
+                              </a>
+                              <button 
+                                @click="lightboxImage = null"
+                                class="px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm transition-colors"
+                              >
+                                Cerrar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                    </Teleport>
                 </div>
 
                 <!-- Columna Lateral -->
                 <div class="space-y-6">
-                    <!-- Info del Cliente -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
-                        <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Cliente</h3>
-                        <div class="space-y-2">
-                            <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Nombre:</span> {{ nombreDelCliente }}
-                            </p>
-                            <!-- Correo y teléfono sólo si el cliente sigue existiendo. Un
-                                 ticket cuyo cliente se dio de baja conserva el expediente,
-                                 pero ya no tiene ficha de contacto que mostrar. -->
-                            <template v-if="ticket.user">
-                                <p class="text-sm text-gray-600 dark:text-gray-300">
-                                    <span class="font-semibold">Email:</span> {{ ticket.user.email }}
-                                </p>
-                                <p class="text-sm text-gray-600 dark:text-gray-300">
-                                    <span class="font-semibold">Teléfono:</span> {{ ticket.user.tel }}
-                                </p>
-                            </template>
-                        </div>
+                    <!-- Ficha técnica del cliente (bitácora § 133): dónde es,
+                         cómo contactarlo, plan, red, estado del servicio y otros
+                         tickets abiertos. Antes: nombre, correo y teléfono. -->
+                    <TicketCustomerCard
+                        v-if="ticket.user_id"
+                        :user-id="ticket.user_id"
+                        :excluir="ticket.id"
+                    />
+                    <!-- Cliente dado de baja: el expediente sobrevive sin ficha. -->
+                    <div v-else class="rounded-xl bg-white p-5 shadow-md dark:bg-gray-800">
+                        <h3 class="mb-2 text-base font-bold text-gray-800 dark:text-white">Cliente</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-300">{{ nombreDelCliente }}</p>
                     </div>
-                    <!-- Staff asignado  -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
-                        <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">Técnico asignado</h3>
-                        <div class="space-y-2">
-                            <p class="text-sm text-gray-600 dark:text-gray-300">
-                                <span class="font-semibold">Nombre:</span> {{ ticket.staff?.user_name || "No asignado"}}
-                            </p>
+
+                    <!-- Atención: técnico y prioridad se cambian AQUÍ, sin ir a
+                         «Editar». Cada cambio pasa por el mismo PUT y sus permisos. -->
+                    <div class="rounded-xl bg-white p-5 shadow-md dark:bg-gray-800" data-testid="attention-card">
+                        <h3 class="mb-3 text-base font-bold text-gray-800 dark:text-white">Atención</h3>
+
+                        <p class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Técnico asignado</p>
+                        <SearchableSelect
+                            v-if="puedeReasignar"
+                            :model-value="ticket.staff_id ?? ''"
+                            @update:model-value="cambiarTecnico"
+                            :items="tecnicosAsignables"
+                            item-key="id"
+                            :item-label="(s) => `${s.user_name} ${s.user_lastname}`"
+                            item-sublabel="role_name"
+                            item-icon="md-supportagent-round"
+                            placeholder="Sin asignar"
+                            search-placeholder="Buscar técnico..."
+                            clearable
+                            clear-label="Sin asignar"
+                            :disabled="guardandoAtencion"
+                            size="sm"
+                        />
+                        <p v-else class="text-sm text-gray-800 dark:text-gray-100">
+                            {{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname || ''}` : 'Sin asignar' }}
+                        </p>
+
+                        <p class="mb-1 mt-4 text-xs font-medium text-gray-500 dark:text-gray-400">Prioridad</p>
+                        <div v-if="puedeCambiarPrioridad" class="grid grid-cols-4 gap-1">
+                            <button
+                                v-for="p in ['low', 'medium', 'high', 'urgent']"
+                                :key="p"
+                                @click="cambiarPrioridad(p)"
+                                :disabled="guardandoAtencion"
+                                class="rounded-md border px-1 py-1.5 text-xs font-medium transition disabled:opacity-50"
+                                :class="ticket.priority === p
+                                    ? priorityBadgeClass(p) + ' !rounded-md justify-center border-transparent ring-2 ring-offset-1 ring-blue-400 dark:ring-offset-gray-800'
+                                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'"
+                            >
+                                {{ priorityLabel(p) || p }}
+                            </button>
                         </div>
+                        <span v-else :class="priorityBadgeClass(ticket.priority)">{{ priorityLabel(ticket.priority) }}</span>
+
+                        <dl class="mt-4 space-y-1 text-xs text-gray-500 dark:text-gray-400">
+                            <div class="flex justify-between gap-2">
+                                <dt>Categoría</dt>
+                                <dd class="text-gray-700 dark:text-gray-300">{{ getCategoryLabel(ticket.category) }}</dd>
+                            </div>
+                            <div v-if="ticket.closed_at" class="flex justify-between gap-2">
+                                <dt>Cerrado</dt>
+                                <dd class="text-gray-700 dark:text-gray-300">{{ formatDate(ticket.closed_at) }}</dd>
+                            </div>
+                        </dl>
                     </div>
                 </div>
             </div>
@@ -1234,9 +1285,86 @@
                                 v-model="revision.diagnostico"
                                 :errores="erroresRevision"
                                 :bloqueados="camposDeDiagnosticoBloqueados"
-                                ayuda="Lo que se encontró y se hizo en la visita. La causa confirmada, la acción y el resultado son requisitos de cierre."
+                                :solo-campos="workflow.mode === 'simple' ? ['solution', 'result'] : null"
+                                :etiquetas="workflow.mode === 'simple' ? { solution: '¿Qué se hizo?', result: '¿Cómo quedó? (opcional)' } : {}"
+                                :obligatorios="workflow.mode === 'simple' ? ['solution'] : ['confirmed_cause', 'solution', 'result']"
+                                :titulo="workflow.mode === 'simple' ? 'Lo que se hizo' : null"
+                                :ayuda="workflow.mode === 'simple'
+                                    ? 'Para cerrar basta con decir qué se hizo.'
+                                    : 'Lo que se encontró y se hizo en la visita. La causa confirmada, la acción y el resultado son requisitos de cierre.'"
                             />
                         </div>
+
+                        <!-- «Resolver y cerrar» (§ 133): lo que va a pasar, antes de
+                             pulsar. Nada de esto se salta reglas: cada paso es una
+                             transición normal y el cierre lo vuelve a validar el
+                             servidor. -->
+                        <div v-if="accion.clave === 'resolve' && workflow.closePath.length"
+                            class="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
+                            Se moverá paso a paso:
+                            {{ workflow.statusLabel }}
+                            <template v-for="paso in workflow.closePath" :key="paso.code"> → <strong>{{ paso.label }}</strong></template>
+                            → <strong>{{ accionFinalDeResolver === 'propose' ? 'Cierre propuesto' : 'Cerrado' }}</strong>.
+                        </div>
+
+                        <div v-if="accion.clave === 'resolve' && faltaMedicionFinal"
+                            class="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/25"
+                            data-testid="resolve-final-test">
+                            <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">Medición final</p>
+                            <div class="flex flex-wrap gap-4 text-sm">
+                                <label v-if="canIntervene" class="flex items-center gap-2 text-gray-800 dark:text-gray-100">
+                                    <input v-model="medicionFinal.modo" type="radio" value="medir" class="text-blue-600" />
+                                    La tomé
+                                </label>
+                                <label class="flex items-center gap-2 text-gray-800 dark:text-gray-100">
+                                    <input v-model="medicionFinal.modo" type="radio" value="exentar" class="text-blue-600" />
+                                    No se pudo medir
+                                </label>
+                            </div>
+
+                            <div v-if="medicionFinal.modo === 'medir' && canIntervene" class="grid grid-cols-1 gap-2 sm:grid-cols-4">
+                                <div class="sm:col-span-2">
+                                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-200">Qué se midió <span class="text-red-500">*</span></label>
+                                    <input v-model="medicionFinal.test_type" list="resolve-test-types" type="text" maxlength="80"
+                                        placeholder="Potencia óptica, velocidad, ping…"
+                                        class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                    <datalist id="resolve-test-types">
+                                        <option v-for="s in sugerenciasDeMedicion" :key="s" :value="s" />
+                                    </datalist>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-200">Valor <span class="text-red-500">*</span></label>
+                                    <input v-model="medicionFinal.value" type="text" maxlength="255" placeholder="-18.5"
+                                        class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-200">Unidad</label>
+                                    <input v-model="medicionFinal.unit" type="text" maxlength="30" placeholder="dBm, Mbps…"
+                                        class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                </div>
+                                <div class="sm:col-span-4">
+                                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-200">Fuente <span class="text-red-500">*</span></label>
+                                    <input v-model="medicionFinal.source" type="text" maxlength="60"
+                                        class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                </div>
+                            </div>
+
+                            <div v-else class="space-y-2">
+                                <select v-model="exencionPruebaFinal.reason"
+                                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                                    <option :value="null">— Razón —</option>
+                                    <option v-for="r in finalTestWaiverReasons" :key="r.code" :value="r.code">{{ r.label }}</option>
+                                </select>
+                                <textarea v-model="exencionPruebaFinal.note" rows="2" placeholder="Por qué no fue posible (mínimo 10 caracteres)"
+                                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 dark:border-gray-600 dark:bg-gray-700 dark:text-white"></textarea>
+                            </div>
+                        </div>
+
+                        <p v-if="accion.clave === 'resolve' && accionFinalDeResolver === 'propose'"
+                            class="rounded-lg bg-indigo-50 p-3 text-xs text-indigo-900 dark:bg-indigo-900/20 dark:text-indigo-200">
+                            Tu rol no puede cerrar<template v-if="puedeCerrarRol"> sin la causa confirmada</template>: el ticket quedará
+                            <strong>en observación</strong> y lo cierra un supervisor. Escribe la observación técnica abajo.
+                        </p>
 
                         <!-- El cierre especial deja constancia de QUÉ faltó: se
                              enseña aquí para que quien autoriza sepa qué firma. -->
@@ -1311,6 +1439,10 @@
                                 · queda en el historial con tu nombre.
                             </p>
                         </div>
+
+                        <p v-if="faltaParaResolver" class="text-xs font-medium text-amber-700 dark:text-amber-300" data-testid="resolve-missing">
+                            {{ faltaParaResolver }}
+                        </p>
                     </div>
 
                     <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
@@ -1326,7 +1458,7 @@
                             class="rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
                             :class="accion.boton"
                         >
-                            {{ ejecutandoAccion ? 'Procesando…' : accion.textoBoton }}
+                            {{ ejecutandoAccion ? 'Procesando…' : textoDelBoton }}
                         </button>
                     </div>
                 </div>
@@ -1349,6 +1481,8 @@ import ticketEquipmentApi from '@/services/api/ticket-equipment'
 import SerialDevicePicker from '../components/SerialDevicePicker.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import ChargeInstallmentsFields from '../components/ChargeInstallmentsFields.vue'
+import TicketCustomerCard from '../components/support/TicketCustomerCard.vue'
+import { groupBadgeClass, groupDotClass, priorityBadgeClass, ageInfo, ageClass } from '@/utils/ticketStyles'
 import { deviceFullLabel, deviceIdsText, deviceModelText } from '@/utils/deviceLabels'
 import { fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityError, quantityStep } from '@/utils/materialQuantity'
 
@@ -1357,9 +1491,11 @@ import { fmtQty, keepKeyAfterError, materialDecimals, newRequestKey, quantityErr
 const {
     statuses,
     cargar: cargarCatalogos,
-    statusLabel, priorityLabel, categoryLabel,
+    statusLabel, statusGroup, priorityLabel, categoryLabel,
     // PR F2 - lista CERRADA de razones para cerrar sin medicion final (§ 13).
     finalTestWaiverReasons,
+    // § 133 - sugerencias para la medición final dentro de «Resolver y cerrar».
+    measurementSuggestions,
 } = useTicketCatalogs()
 
 const router = useRouter()
@@ -1921,6 +2057,8 @@ const cobrarLinea = async (item) => {
     if (!puedeCobrarLineas.value || lineasEnElCargo.value.has(item.id)) return
     showChargeForm.value = true
     agregarLineaAlCargo(item)
+    // Los cobros viven en su pestaña (§ 133): se abre antes de bajar a ella.
+    pestanaDetalle.value = 'cobros'
     await nextTick()
     chargesCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -2448,6 +2586,13 @@ const workflow = ref({
     closePermission: 'ticket_close',
     closePath: [],
     canWalkClosePath: false,
+    // Bitácora § 133 · lo que la tarjeta «Siguiente paso» necesita.
+    cargado: false,
+    statusGroup: null,
+    mode: 'formal',
+    nextStep: null,
+    checklist: [],
+    requiresFinalTest: true,
 })
 
 const algunaAccion = computed(() => Object.values(workflow.value.actions).some(Boolean))
@@ -2471,6 +2616,12 @@ const cargarWorkflow = async () => {
             closePermission: data.close_permission ?? 'ticket_close',
             closePath: data.close_path ?? [],
             canWalkClosePath: data.can_walk_close_path ?? false,
+            cargado: true,
+            statusGroup: data.status_group ?? null,
+            mode: data.workflow_mode ?? 'formal',
+            nextStep: data.next_step ?? null,
+            checklist: data.checklist ?? [],
+            requiresFinalTest: data.requires_final_test ?? true,
         }
     } catch (err) {
         console.error('Error al cargar las acciones del ticket:', err)
@@ -2481,9 +2632,228 @@ const cargarWorkflow = async () => {
             closureRequirements: { missing: [], complete: true },
             isTerminal: false, statusLabel: '', reopenBlockedBy: null, reopenPermission: 'ticket_reopen',
             closeBlockedBy: null, closePermission: 'ticket_close', closePath: [], canWalkClosePath: false,
+            cargado: false, statusGroup: null, mode: 'formal', nextStep: null, checklist: [], requiresFinalTest: true,
         }
     }
 }
+
+// ── Siguiente paso (bitácora § 133) ──────────────────────────────────────
+//
+// Un botón principal en vez de ocho iguales. Todo sale de lo que dijo el
+// servidor (`next_step`, `actions`, `close_path`); aquí sólo se decide CÓMO se
+// presenta. Los permisos del cliente (`hasPermission`) se usan para elegir el
+// texto —«Cerrar» o «Proponer cierre»—, nunca para habilitar algo que el
+// servidor no ofreció: el servidor vuelve a comprobarlo todo.
+
+const tienePermiso = (p) => authStore.hasPermission(p)
+const puedeCerrarRol = computed(() => tienePermiso('ticket_close'))
+const puedeMoverRol = computed(() => tienePermiso('ticket_transition'))
+
+/**
+ * ¿Se puede resolver desde aquí en una sola ventana? Hace falta poder llegar
+ * a un estado cerrable (ya estar, o poder recorrer el camino) y poder cerrar o,
+ * al menos, proponer.
+ */
+const puedeResolver = computed(() => {
+    const w = workflow.value
+    if (!w.cargado || w.isTerminal || ticket.value.is_archived) return false
+    if (!w.closePath.length) return !!(w.actions.close || w.actions.propose_closure)
+    return w.canWalkClosePath && (puedeCerrarRol.value || puedeMoverRol.value)
+})
+
+/**
+ * Lo que hará «Resolver y cerrar» al final: cerrar, si el rol puede y no falta
+ * algo que sólo un supervisor puede poner (la causa confirmada, en el formal);
+ * si no, proponer el cierre para que lo cierre el supervisor.
+ */
+const accionFinalDeResolver = computed(() => {
+    if (!puedeCerrarRol.value) return 'propose'
+    const formal = workflow.value.mode !== 'simple'
+    const sinCausa = !revision.value.diagnostico?.confirmed_cause && !ticket.value.diagnosis?.confirmed_cause?.code
+    if (formal && sinCausa && !canConfirmCause.value) return 'propose'
+    return 'close'
+})
+
+const etiquetaDePaso = (paso) => {
+    if (!paso) return ''
+    if (workflow.value.mode === 'simple' && paso.code === 'en_intervencion') return 'Iniciar trabajo'
+    return `Pasar a «${paso.label}»`
+}
+
+const botonPrincipal = computed(() => {
+    const w = workflow.value
+    if (!w.cargado || ticket.value.is_archived) return null
+
+    if (w.isTerminal) {
+        return w.actions.reopen
+            ? { label: 'Reabrir', icono: 'ri-arrow-go-back-line', clase: 'bg-blue-600 hover:bg-blue-700', ejecutar: () => abrirAccion('reopen') }
+            : null
+    }
+
+    const paso = w.nextStep
+    if (paso?.kind === 'transition') {
+        const destino = w.transitions.find((t) => t.code === paso.code) ?? paso
+        return { label: etiquetaDePaso(paso), icono: 'md-playcircle', clase: 'bg-blue-600 hover:bg-blue-700', ejecutar: () => abrirAccion('transition', destino), esPaso: true }
+    }
+
+    if (puedeResolver.value) {
+        const proponer = accionFinalDeResolver.value === 'propose'
+        return {
+            label: proponer ? 'Proponer cierre' : 'Cerrar ticket',
+            icono: 'md-taskalt',
+            clase: 'bg-emerald-600 hover:bg-emerald-700',
+            ejecutar: () => abrirAccion('resolve'),
+            esResolver: true,
+        }
+    }
+
+    return null
+})
+
+// «Resolver y cerrar» aparte sólo cuando el principal es un paso intermedio.
+const mostrarResolverAparte = computed(() => puedeResolver.value && !!botonPrincipal.value?.esPaso)
+
+const masAcciones = computed(() => {
+    const w = workflow.value
+    if (!w.cargado || ticket.value.is_archived) return []
+
+    const principal = w.nextStep?.kind === 'transition' ? w.nextStep.code : null
+    const lista = []
+
+    for (const t of w.transitions) {
+        if (t.code === principal) continue
+        lista.push({
+            key: `t-${t.code}`,
+            label: t.label,
+            grupo: t.group,
+            seccion: t.group === 'en_espera' ? 'Poner en espera' : (t.code === 'duplicado' ? 'Otros' : 'Mover a'),
+            ejecutar: () => abrirAccion('transition', t),
+        })
+    }
+
+    if (w.canWalkClosePath && w.closePath.length > 1) {
+        const ultimo = w.closePath[w.closePath.length - 1]
+        lista.push({ key: 'walk', label: `Avanzar hasta «${ultimo.label}» sin cerrar`, seccion: 'Cierre', ejecutar: () => abrirAccion('walk') })
+    }
+    if (w.actions.propose_closure && puedeCerrarRol.value) {
+        lista.push({ key: 'propose', label: 'Proponer cierre (lo cierra un supervisor)', seccion: 'Cierre', ejecutar: () => abrirAccion('propose') })
+    }
+    if (w.actions.close_exception) {
+        lista.push({ key: 'exception', label: 'Cierre especial (sin todos los requisitos)', seccion: 'Cierre', ejecutar: () => abrirAccion('exception') })
+    }
+    if (w.actions.reopen && !w.isTerminal) {
+        lista.push({ key: 'reopen', label: 'Reabrir', seccion: 'Otros', ejecutar: () => abrirAccion('reopen') })
+    }
+
+    return lista
+})
+
+const masAccionesAgrupadas = computed(() => {
+    const orden = ['Mover a', 'Poner en espera', 'Cierre', 'Otros']
+    return orden
+        .map((titulo) => ({ titulo, acciones: masAcciones.value.filter((a) => a.seccion === titulo) }))
+        .filter((g) => g.acciones.length)
+})
+
+const menuAcciones = ref(false)
+
+const textoSiguientePaso = computed(() => {
+    const w = workflow.value
+    if (w.isTerminal) {
+        return ticket.value.closed_at ? `Cerrado el ${formatDate(ticket.value.closed_at)}.` : 'Este ticket ya no se trabaja.'
+    }
+    const faltan = w.checklist.filter((c) => !c.ok)
+    if (w.nextStep?.kind === 'transition') {
+        return w.mode === 'simple'
+            ? 'Cuando alguien empiece a trabajarlo, márcalo «En proceso». Si ya está resuelto, ciérralo directamente.'
+            : `Va por «${w.statusLabel}». El paso normal es «${w.nextStep.label}»; con «Resolver y cerrar» se hace todo de una vez.`
+    }
+    if (!faltan.length) return 'Todo listo: ya se puede cerrar.'
+    return `Para cerrar falta: ${faltan.map((c) => c.label.toLowerCase()).join(', ')}.`
+})
+
+/** Tocar un requisito pendiente abre la ventana de cierre, donde se completa. */
+const resolverRequisito = (item) => {
+    if (item.ok) return
+    if (puedeResolver.value) {
+        abrirAccion('resolve')
+        return
+    }
+    toast.value?.error('Sin permiso', 'Tu rol no puede cerrar ni proponer el cierre de este ticket.')
+}
+
+// ── Pestañas del detalle ────────────────────────────────────────────────
+
+const pestanaDetalle = ref('resumen')
+
+const pestanasDetalle = computed(() => [
+    { key: 'resumen', label: 'Resumen' },
+    { key: 'trabajo', label: 'Trabajo', count: (interventionsForSelect.value?.length || 0) + (equipmentItems.value?.filter((i) => !i.is_reversed).length || 0) },
+    ...(canEdit.value ? [{ key: 'cobros', label: 'Cobros', count: ticketCharges.value?.length || 0 }] : []),
+    { key: 'notas', label: 'Notas y archivos', count: (ticket.value.messages?.length || 0) + (ticket.value.attachments?.length || 0) },
+    ...(canViewHistory.value ? [{ key: 'historial', label: 'Historial' }] : []),
+])
+
+const edadDelTicket = computed(() => ageInfo(ticket.value.created_at))
+
+// ── Atención: técnico y prioridad desde la columna lateral ──────────────
+
+const canAssign = computed(() => tienePermiso('ticket_assign'))
+const puedeReasignar = computed(() => canAssign.value && !ticket.value.is_archived && !workflow.value.isTerminal)
+const puedeCambiarPrioridad = computed(() => tienePermiso('ticket_set_priority') && !ticket.value.is_archived && !workflow.value.isTerminal)
+const tecnicosAsignables = computed(() => staffList.value.filter((s) => s.can_intervene || s.id === ticket.value.staff_id))
+const guardandoAtencion = ref(false)
+
+/** Recarga sin la pantalla de carga: un cambio pequeño no debe parpadear todo. */
+const refrescarTicket = async () => {
+    const { data } = await api.support.getOne(ticketId)
+    ticket.value = data
+}
+
+const guardarAtencion = async (cambios, exito) => {
+    if (guardandoAtencion.value) return
+    guardandoAtencion.value = true
+    try {
+        await api.support.update(ticketId, cambios)
+        await refrescarTicket()
+        await cargarWorkflow()
+        await cargarHistorial(1)
+        toast.value?.success('Guardado', exito)
+    } catch (err) {
+        const detalle = err.response?.data?.errors
+            ? Object.values(err.response.data.errors)[0]?.[0]
+            : err.response?.data?.message
+        toast.value?.error('No se guardó', detalle || 'No se pudo guardar el cambio.')
+    } finally {
+        guardandoAtencion.value = false
+    }
+}
+
+const cambiarTecnico = (id) => {
+    const nuevo = id === '' || id === null ? null : Number(id)
+    if (nuevo === (ticket.value.staff_id ?? null)) return
+    const quien = staffList.value.find((s) => s.id === nuevo)
+    guardarAtencion({ staff_id: nuevo }, nuevo ? `Asignado a ${quien ? `${quien.user_name} ${quien.user_lastname}` : 'el técnico'}.` : 'El ticket quedó sin técnico.')
+}
+
+const cambiarPrioridad = (codigo) => {
+    if (codigo === ticket.value.priority) return
+    guardarAtencion({ priority: codigo }, `Prioridad: ${priorityLabel(codigo) || codigo}.`)
+}
+
+// ── Medición final dentro de «Resolver y cerrar» (sólo flujo formal) ─────
+
+const medicionFinal = ref({ modo: canIntervene.value ? 'medir' : 'exentar', test_type: '', value: '', unit: '', source: 'Técnico en sitio' })
+
+const faltaMedicionFinal = computed(() =>
+    workflow.value.requiresFinalTest
+    && workflow.value.checklist.some((c) => c.key === 'prueba_final' && !c.ok),
+)
+
+const sugerenciasDeMedicion = computed(() => {
+    const s = measurementSuggestions.value || {}
+    return [...new Set(Object.values(s).flat().map((x) => (typeof x === 'string' ? x : x?.label)).filter(Boolean))]
+})
 
 /**
  * Lo único que cambia entre las cinco acciones.
@@ -2551,6 +2921,21 @@ const ACCIONES = {
         cabecera: 'bg-emerald-50/60 dark:bg-gray-700/30',
         boton: 'bg-emerald-600 hover:bg-emerald-700',
     },
+    // Bitácora § 133 · TODO en una ventana: revisar asunto y diagnóstico,
+    // recorrer los estados que falten, registrar la medición final (o decir
+    // por qué no se pudo) y cerrar —o proponer el cierre si el rol no cierra—.
+    // Cada parte usa su endpoint de siempre y deja su evento en el historial.
+    resolve: {
+        clave: 'resolve',
+        titulo: 'Resolver y cerrar',
+        descripcion: 'Registra lo que se hizo y cierra el ticket en un solo paso. Cada parte queda en el historial con tu nombre.',
+        etiquetaMotivo: 'Observación de cierre (opcional)',
+        placeholder: 'Por ejemplo: el cliente confirma que ya navega…',
+        motivoObligatorio: false,
+        textoBoton: 'Cerrar ticket',
+        cabecera: 'bg-emerald-50/60 dark:bg-gray-700/30',
+        boton: 'bg-emerald-600 hover:bg-emerald-700',
+    },
     reopen: {
         clave: 'reopen',
         titulo: 'Reabrir el ticket',
@@ -2576,7 +2961,7 @@ const ejecutandoAccion = ref(false)
 // con el `PUT` de siempre ANTES de la acción: los requisitos de cierre (causa
 // confirmada, acción, resultado) se evalúan sobre lo guardado, así que el
 // orden importa.
-const ACCIONES_DE_CIERRE = ['propose', 'close', 'exception']
+const ACCIONES_DE_CIERRE = ['propose', 'close', 'exception', 'resolve']
 const revisaAlCerrar = computed(() => ACCIONES_DE_CIERRE.includes(accion.value?.clave))
 
 const CAMPOS_DIAGNOSTICO = ['symptom', 'suspected_cause', 'confirmed_cause', 'solution', 'result']
@@ -2637,7 +3022,39 @@ const accionLista = computed(() => {
         if (!a.subject_id && !(a.subject || '').trim()) return false
     }
 
+    if (accion.value.clave === 'resolve') {
+        // Lo que se hizo es lo mínimo en los dos flujos.
+        if (!revision.value.diagnostico?.solution && !camposDeDiagnosticoBloqueados.value.includes('solution')) return false
+
+        if (faltaMedicionFinal.value) {
+            const m = medicionFinal.value
+            const ok = m.modo === 'medir'
+                ? !!(m.test_type.trim() && String(m.value).trim() && m.source.trim())
+                : !!(exencionPruebaFinal.value.reason && exencionPruebaFinal.value.note.trim().length >= 10)
+            if (!ok) return false
+        }
+
+        // Proponer exige la observación técnica (≥ 10), como siempre.
+        if (accionFinalDeResolver.value === 'propose') return motivoAccion.value.trim().length >= 10
+        return true
+    }
+
     return !accion.value.motivoObligatorio || motivoAccion.value.trim().length >= 10
+})
+
+/** Por qué el botón de la ventana está apagado (sólo «Resolver y cerrar»). */
+const faltaParaResolver = computed(() => {
+    if (accion.value?.clave !== 'resolve') return ''
+    if (!revision.value.diagnostico?.solution && !camposDeDiagnosticoBloqueados.value.includes('solution')) {
+        return workflow.value.mode === 'simple' ? 'Indica qué se hizo.' : 'Indica la acción realizada.'
+    }
+    if (faltaMedicionFinal.value) {
+        const m = medicionFinal.value
+        if (m.modo === 'medir' && !(m.test_type.trim() && String(m.value).trim() && m.source.trim())) return 'Completa la medición final (tipo, valor y fuente) o marca que no se pudo medir.'
+        if (m.modo !== 'medir' && !(exencionPruebaFinal.value.reason && exencionPruebaFinal.value.note.trim().length >= 10)) return 'Indica por qué no se pudo medir (razón y al menos 10 caracteres).'
+    }
+    if (accionFinalDeResolver.value === 'propose' && motivoAccion.value.trim().length < 10) return 'La propuesta de cierre necesita una observación de al menos 10 caracteres.'
+    return ''
 })
 
 const abrirAccion = (clave, destino = null) => {
@@ -2660,6 +3077,7 @@ const cerrarAccion = () => {
     accion.value = null
     accionDestino.value = null
     exencionPruebaFinal.value = { reason: null, note: '' }
+    medicionFinal.value = { modo: canIntervene.value ? 'medir' : 'exentar', test_type: '', value: '', unit: '', source: 'Técnico en sitio' }
 }
 
 /**
@@ -2682,6 +3100,81 @@ const exencion = () => {
         final_test_waiver_note: exencionPruebaFinal.value.note,
     }
 }
+
+/**
+ * «Resolver y cerrar» (bitácora § 133). La revisión del asunto y el
+ * diagnóstico ya se guardó antes de llegar aquí (es común a las acciones de
+ * cierre). Después, en orden:
+ *
+ *   1 · los estados que falten hasta uno cerrable (formal), uno por uno;
+ *   2 · la medición final, si falta y se tomó (o la justificación viaja con
+ *       el cierre);
+ *   3 · cerrar o, si el rol no cierra, proponer el cierre.
+ *
+ * No es atómico, y no hace falta que lo sea: cada paso es válido por sí solo y
+ * queda en el historial. Si uno falla, la ventana sigue abierta, la pantalla
+ * se refresca con lo que sí avanzó y el error del servidor dice qué falta.
+ */
+const ejecutarResolver = async (motivo) => {
+    let avanzo = false
+
+    try {
+        for (const paso of [...workflow.value.closePath]) {
+            await api.support.updateStatus(ticketId, paso.code, motivo)
+            avanzo = true
+        }
+
+        let exencionDeCierre = {}
+
+        if (faltaMedicionFinal.value) {
+            const m = medicionFinal.value
+
+            if (m.modo === 'medir') {
+                await api.support.createMeasurement(ticketId, {
+                    test_type: m.test_type.trim(),
+                    value: String(m.value).trim(),
+                    unit: m.unit.trim() || null,
+                    measured_at: new Date().toISOString(),
+                    source: m.source.trim(),
+                    phase: 'final',
+                })
+                avanzo = true
+            } else {
+                exencionDeCierre = {
+                    final_test_waiver_reason: exencionPruebaFinal.value.reason,
+                    final_test_waiver_note: exencionPruebaFinal.value.note.trim(),
+                }
+            }
+        }
+
+        const { data } = accionFinalDeResolver.value === 'propose'
+            ? await api.support.proposeClosure(ticketId, motivo, exencionDeCierre)
+            : await api.support.closeTicket(ticketId, motivo, exencionDeCierre)
+
+        cerrarAccion()
+        toast.value?.success('Listo', data.message || 'El ticket quedó resuelto.')
+
+        await refrescarTicket()
+        await cargarWorkflow()
+        await cargarHistorial(1)
+        await loadAvailableEquipment()
+        measurementsRef.value?.cargar?.()
+    } catch (err) {
+        if (avanzo) {
+            await refrescarTicket()
+            await cargarWorkflow()
+            await cargarHistorial(1)
+            measurementsRef.value?.cargar?.()
+        }
+        throw err
+    }
+}
+
+/** Texto del botón de la ventana: «Resolver» cierra o propone según el rol. */
+const textoDelBoton = computed(() => {
+    if (accion.value?.clave !== 'resolve') return accion.value?.textoBoton
+    return accionFinalDeResolver.value === 'propose' ? 'Proponer cierre' : 'Cerrar ticket'
+})
 
 const ejecutarAccion = async () => {
     if (!accion.value || !accionLista.value || ejecutandoAccion.value) return
@@ -2718,6 +3211,11 @@ const ejecutarAccion = async () => {
                     return
                 }
             }
+        }
+
+        if (accion.value.clave === 'resolve') {
+            await ejecutarResolver(motivo)
+            return
         }
 
         if (accion.value.clave === 'walk') {
@@ -2780,7 +3278,8 @@ onMounted(() => {
     cargarHistorial(1)
     cargarWorkflow()
     // PR F1: solo hace falta para poblar los desplegables de la intervencion.
-    if (canIntervene.value) loadStaff()
+    // § 133: también para reasignar el técnico desde la columna lateral.
+    if (canIntervene.value || canAssign.value) loadStaff()
     loadEquipment()
     loadAvailableEquipment()
 })

@@ -11,19 +11,20 @@
         />
 
         <!-- Header -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-3">
             <div>
                 <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 dark:text-gray-100">Soporte</h1>
-                <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">Gestión de tickets de soporte</p>
+                <p class="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-1">
+                    {{ vistaArchivados ? 'Expedientes archivados' : 'Tickets por atender' }}
+                </p>
             </div>
-            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <div class="flex w-full flex-wrap gap-2 sm:w-auto">
                 <!-- PR C · La vista de archivados sólo existe para quien puede
-                     archivar o restaurar. No se oculta un botón a quien podría
-                     usarlo: se oculta a quien la API le respondería 403. -->
+                     archivar o restaurar. -->
                 <button
                     v-if="canSeeArchived"
                     @click="alternarVista"
-                    class="flex w-full items-center justify-center gap-2 rounded-lg border px-4 py-2.5 transition sm:w-auto sm:px-6 sm:py-3"
+                    class="flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition sm:flex-none sm:px-4"
                     :class="vistaArchivados
                         ? 'border-amber-600 bg-amber-600 text-white hover:bg-amber-700'
                         : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'"
@@ -35,7 +36,7 @@
                 <button
                     v-if="canManageSubjects"
                     @click="gestorAsuntosAbierto = true"
-                    class="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-700 transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:w-auto sm:px-6 sm:py-3"
+                    class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:flex-none sm:px-4"
                 >
                     <v-icon name="hi-ticket" class="h-4 w-4" />
                     Asuntos
@@ -43,7 +44,7 @@
                 <button
                     v-if="canCreate && !vistaArchivados"
                     @click="router.push('/support/create')"
-                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg flex items-center justify-center gap-2 transition w-full sm:w-auto"
+                    class="order-first w-full bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2.5 rounded-lg flex items-center justify-center gap-2 transition sm:order-none sm:w-auto font-semibold"
                 >
                     <icon-lucide-plus class="w-4 h-4" />
                     Nuevo Ticket
@@ -51,237 +52,252 @@
             </div>
         </div>
 
-        <!-- Buscador y Filtros -->
-        <div class="mb-6 flex flex-col gap-3 sm:gap-4 items-stretch">
-            <!-- Buscador -->
-            <div class="relative flex-1">
+        <!-- Pestañas de la cola. Los números vienen del servidor y respetan
+             los filtros de abajo (búsqueda, asunto, prioridad, técnico). -->
+        <div v-if="!vistaArchivados" class="-mx-3 mb-4 overflow-x-auto px-3 sm:mx-0 sm:px-0" data-testid="ticket-tabs">
+            <div class="flex min-w-max gap-1 rounded-xl bg-white p-1 shadow-sm dark:bg-gray-800">
+                <button
+                    v-for="t in PESTANAS"
+                    :key="t.key"
+                    @click="cambiarPestana(t.key)"
+                    :data-testid="`tab-${t.key}`"
+                    class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition"
+                    :class="pestana === t.key
+                        ? 'bg-blue-600 text-white shadow'
+                        : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'"
+                >
+                    <span v-if="t.grupo" :class="groupDotClass(t.grupo)"></span>
+                    <v-icon v-else :name="t.icono" class="h-4 w-4" />
+                    {{ t.label }}
+                    <span
+                        class="rounded-full px-1.5 text-xs font-semibold"
+                        :class="pestana === t.key ? 'bg-white/25 text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'"
+                    >{{ contadores[t.key] ?? 0 }}</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Buscador y filtros -->
+        <div class="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-6">
+            <div class="relative col-span-2">
                 <input
                     v-model="searchQuery"
                     type="text"
-                    placeholder="Buscar por asunto o descripción..."
-                    class="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white px-4 py-2.5 sm:py-3 pl-11 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 text-sm sm:text-base"
+                    placeholder="Buscar: #número, cliente, teléfono, dirección…"
+                    class="w-full bg-white dark:bg-gray-800 text-gray-800 dark:text-white px-4 py-2.5 pl-10 rounded-lg border border-gray-300 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
-                <v-icon name="io-search" class="absolute left-3 top-2.5 sm:top-3.5 w-5 h-5 text-gray-400" />
+                <v-icon name="io-search" class="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                 <button
                     v-if="searchQuery"
                     @click="searchQuery = ''"
-                    class="absolute right-3 top-2 sm:top-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    class="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    title="Limpiar"
                 >
-                    <v-icon name="io-close-circle" class="w-6 h-6" />
+                    <v-icon name="io-close-circle" class="w-5 h-5" />
                 </button>
             </div>
 
-            <!-- Filtros -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-                <!-- Asunto del catálogo. «Otro» agrupa los escritos a mano y los
-                     tickets anteriores al catálogo. -->
-                <select
-                    v-model="filters.subject"
-                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                    <option value="all">Todos los asuntos</option>
-                    <option v-for="s in asuntosParaFiltrar" :key="s.id" :value="String(s.id)">
-                        {{ s.name }}{{ s.is_active === false ? ' (desactivado)' : '' }}
-                    </option>
-                    <option value="other">Otro (escrito a mano)</option>
-                </select>
+            <!-- Asunto del catálogo. «Otro» agrupa los escritos a mano. -->
+            <select v-model="filters.subject" class="filtro">
+                <option value="all">Asunto: todos</option>
+                <option v-for="s in asuntosParaFiltrar" :key="s.id" :value="String(s.id)">
+                    {{ s.name }}{{ s.is_active === false ? ' (desactivado)' : '' }}
+                </option>
+                <option value="other">Otro (escrito a mano)</option>
+            </select>
 
-                <select
-                    v-model="filters.status"
-                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                    <!-- R2: las opciones salen del catálogo, no de una lista en duro -->
-                    <option value="all">Todos los estados</option>
-                    <option v-for="s in statuses" :key="s.code" :value="s.code">{{ s.label }}</option>
-                </select>
+            <select v-model="filters.priority" class="filtro">
+                <option value="all">Prioridad: todas</option>
+                <option v-for="p in priorities" :key="p.code" :value="p.code">{{ p.label }}</option>
+            </select>
 
-                <select
-                    v-model="filters.priority"
-                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                    <option value="all">Todas las prioridades</option>
-                    <option v-for="p in priorities" :key="p.code" :value="p.code">{{ p.label }}</option>
-                </select>
+            <select v-if="!vistaArchivados" v-model="filters.staff" class="filtro">
+                <option value="all">Técnico: todos</option>
+                <option value="unassigned">Sin asignar</option>
+                <option v-for="staff in staffList" :key="staff.id" :value="String(staff.id)">
+                    {{ staff.user_name }} {{ staff.user_lastname }}
+                </option>
+            </select>
 
-                <select
-                    v-model="filters.category"
-                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                    <option value="all">Todas las categorías</option>
-                    <option v-for="c in categories" :key="c.code" :value="c.code">{{ c.label }}</option>
-                </select>
-
-                <select
-                    v-model="filters.staff"
-                    class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                >
-                    <option value="all">Todos los técnicos</option>
-                    <option value="unassigned">Sin asignar</option>
-                    <option
-                        v-for="staff in staffList"
-                        :key="staff.id"
-                        :value="staff.id"
-                    >
-                        {{ staff.user_name }} {{ staff.user_lastname }}
-                    </option>
-                </select>
-            </div>
+            <select v-if="!vistaArchivados" v-model="orden" class="filtro" title="Orden">
+                <option value="urgency">Urgentes primero</option>
+                <option value="recent">Recientes primero</option>
+            </select>
         </div>
 
         <template v-if="!vistaArchivados">
-        <!-- Loading -->
-        <div v-if="loading" class="text-center py-12">
-            <div class="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-            <p class="text-gray-500 dark:text-gray-400 mt-4">Cargando tickets...</p>
-        </div>
-
-        <!-- Error -->
-        <div v-else-if="error" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
-            {{ error }}
-        </div>
-
-        <!-- Tabla / Cards -->
-        <div v-else class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-gray-700">
-
-            <!-- Desktop table -->
-            <div class="hidden md:block overflow-x-auto">
-                <table class="w-full">
-                    <thead class="bg-gray-50 dark:bg-gray-700">
-                        <tr>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">ID</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Asunto</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Cliente</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Categoría</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Estado</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Prioridad</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Técnico</th>
-                            <th class="px-6 py-4 text-left text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Fecha</th>
-                            <th class="px-6 py-4 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                        <tr v-for="ticket in filteredTickets" :key="ticket.id" class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                            <td class="px-6 py-4 text-sm text-gray-800 dark:text-white">#{{ ticket.id }}</td>
-                            <td class="px-6 py-4 text-sm text-gray-800 dark:text-white font-medium">
-                                {{ ticket.subject }}
-                                <span v-if="ticket.no_charge"
-                                    :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
-                                    class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                                    Sin cobro
-                                </span>
-                            </td>
-                            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
-                                {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
-                            </td>
-                            <td class="px-6 py-4 text-sm">
-                                <span :class="getCategoryBadgeClass(ticket.category)">{{ getCategoryLabel(ticket.category) }}</span>
-                            </td>
-                            <td class="px-6 py-4 text-sm">
-                                <span :class="getStatusBadgeClass(ticket.status)">{{ getStatusLabel(ticket.status) }}</span>
-                            </td>
-                            <td class="px-6 py-4 text-sm">
-                                <span :class="getPriorityBadgeClass(ticket.priority)">{{ getPriorityLabel(ticket.priority) }}</span>
-                            </td>
-                            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
-                                {{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname}` : 'Sin asignar' }}
-                            </td>
-                            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
-                                {{ formatDate(ticket.created_at) }}
-                            </td>
-                            <td class="px-6 py-4 text-center">
-                                <div class="flex justify-center gap-2 flex-wrap">
-                                    <button
-                                        @click="router.push(`/support/${ticket.id}`)"
-                                        class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
-                                            bg-blue-50 text-blue-700 border border-blue-200
-                                            hover:bg-blue-100 hover:scale-[1.03] transition-all
-                                            dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-800/50"
-                                    >
-                                        <icon-lucide-eye class="w-4 h-4" /> Ver
-                                    </button>
-                                    <button
-                                        v-if="canEdit"
-                                        @click="router.push(`/support/${ticket.id}/edit`)"
-                                        class="px-3 py-1.5 text-xs font-medium rounded-lg flex items-center gap-1
-                                            bg-green-50 text-green-700 border border-green-200
-                                            hover:bg-green-100 hover:scale-[1.03] transition-all
-                                            dark:bg-green-900/30 dark:text-green-300 dark:border-green-800 dark:hover:bg-green-800/50"
-                                    >
-                                        <icon-lucide-pencil class="w-4 h-4" /> Editar
-                                    </button>
-                                    <!-- El botón «Eliminar» se retiró: el ticket es un
-                                         expediente y su historial no puede destruirse. El
-                                         archivado reversible llega en una fase posterior.
-                                         Ver docs/cliente/CNO/DISENO_PERMISOS_Y_ARCHIVADO.md -->
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- Error -->
+            <div v-if="error" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg">
+                {{ error }}
+                <button @click="cargarTablero" class="ml-2 underline">Reintentar</button>
             </div>
 
-            <!-- Mobile cards -->
-            <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
-                <div v-for="ticket in filteredTickets" :key="ticket.id" class="p-4">
-                    <div class="space-y-3">
-                        <div class="flex justify-between items-start gap-2">
+            <div class="relative bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-100 dark:border-gray-700">
+                <!-- Cargando: velo sobre la tabla, sin vaciarla (cambiar de
+                     pestaña no debe hacer parpadear la página entera). -->
+                <div v-if="loading" class="absolute inset-0 z-10 flex items-start justify-center bg-white/60 pt-16 dark:bg-gray-800/60">
+                    <div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
+                </div>
+
+                <!-- Desktop table -->
+                <div class="hidden md:block overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50 dark:bg-gray-700">
+                            <tr>
+                                <th class="th">#</th>
+                                <th class="th">Asunto</th>
+                                <th class="th">Cliente</th>
+                                <th class="th">Estado</th>
+                                <th class="th">Prioridad</th>
+                                <th class="th">Técnico</th>
+                                <th class="th">{{ pestana === 'closed' ? 'Cerrado' : 'Antigüedad' }}</th>
+                                <th class="th w-12"><span class="sr-only">Acciones</span></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                            <tr
+                                v-for="ticket in tickets"
+                                :key="ticket.id"
+                                @click="abrir(ticket)"
+                                class="cursor-pointer hover:bg-blue-50/60 dark:hover:bg-gray-700 transition"
+                                :data-testid="`ticket-row-${ticket.id}`"
+                            >
+                                <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">#{{ ticket.id }}</td>
+                                <td class="px-4 py-3 text-sm text-gray-800 dark:text-white">
+                                    <span class="font-medium">{{ ticket.subject }}</span>
+                                    <span v-if="ticket.no_charge"
+                                        :title="ticket.no_charge_reason || 'Esta visita no se le cobra al cliente'"
+                                        class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                        Sin cobro
+                                    </span>
+                                    <p v-if="ticket.customer_address" class="mt-0.5 max-w-xs truncate text-xs text-gray-500 dark:text-gray-400">
+                                        <v-icon name="md-locationon" class="inline h-3 w-3" /> {{ ticket.customer_address }}
+                                    </p>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                                    {{ nombreCliente(ticket) }}
+                                    <p v-if="ticket.user?.tel" class="text-xs text-gray-500 dark:text-gray-400">{{ ticket.user.tel }}</p>
+                                    <span v-if="ticket.service_status === 'suspendido'" class="mt-0.5 inline-block rounded bg-red-100 px-1.5 text-[10px] font-semibold uppercase text-red-700 dark:bg-red-900/30 dark:text-red-300">Cortado</span>
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    <span :class="groupBadgeClass(ticket.status_group)">{{ ticket.status_label }}</span>
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    <span :class="priorityBadgeClass(ticket.priority)">{{ ticket.priority_label || priorityLabel(ticket.priority) }}</span>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                                    <span v-if="ticket.staff">{{ ticket.staff.user_name }} {{ ticket.staff.user_lastname }}</span>
+                                    <span v-else class="italic text-gray-400">Sin asignar</span>
+                                </td>
+                                <td class="px-4 py-3 text-sm whitespace-nowrap" :title="formatDate(ticket.created_at)">
+                                    <template v-if="pestana === 'closed'">
+                                        <span class="text-gray-500 dark:text-gray-400">{{ formatDate(ticket.closed_at) }}</span>
+                                    </template>
+                                    <span v-else :class="ageClass(edad(ticket).nivel)">{{ edad(ticket).texto }}</span>
+                                </td>
+                                <td class="px-2 py-3 text-right">
+                                    <button
+                                        v-if="canEdit"
+                                        @click.stop="router.push(`/support/${ticket.id}/edit`)"
+                                        class="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-green-700 dark:hover:bg-gray-600"
+                                        title="Editar"
+                                    >
+                                        <icon-lucide-pencil class="h-4 w-4" />
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Mobile cards: lo que necesita el técnico en la calle. -->
+                <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+                    <div v-for="ticket in tickets" :key="ticket.id" class="p-4" @click="abrir(ticket)">
+                        <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0">
-                                <span class="text-xs text-gray-400 dark:text-gray-500">#{{ ticket.id }}</span>
-                                <h3 class="font-semibold text-gray-800 dark:text-white text-sm leading-snug">
-                                {{ ticket.subject }}
-                                <span v-if="ticket.no_charge"
-                                    class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                                    Sin cobro
-                                </span>
-                            </h3>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                    {{ ticket.user?.user_name }} {{ ticket.user?.user_lastname }}
+                                <p class="text-xs text-gray-400 dark:text-gray-500">
+                                    #{{ ticket.id }} ·
+                                    <span :class="ageClass(edad(ticket).nivel)">{{ pestana === 'closed' ? formatDate(ticket.closed_at) : edad(ticket).texto }}</span>
+                                </p>
+                                <h3 class="text-sm font-semibold leading-snug text-gray-800 dark:text-white">
+                                    {{ ticket.subject }}
+                                    <span v-if="ticket.priority === 'urgent' || ticket.priority === 'high'" :class="priorityBadgeClass(ticket.priority)" class="ml-1">
+                                        {{ ticket.priority_label }}
+                                    </span>
+                                </h3>
+                                <p class="mt-0.5 text-xs text-gray-600 dark:text-gray-300">{{ nombreCliente(ticket) }}</p>
+                                <p v-if="ticket.customer_address" class="text-xs text-gray-500 dark:text-gray-400">
+                                    <v-icon name="md-locationon" class="inline h-3 w-3" /> {{ ticket.customer_address }}
+                                </p>
+                                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Técnico: {{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname}` : 'Sin asignar' }}
                                 </p>
                             </div>
-                            <span :class="getStatusBadgeClass(ticket.status)" class="shrink-0 text-xs">
-                                {{ getStatusLabel(ticket.status) }}
-                            </span>
+                            <span :class="groupBadgeClass(ticket.status_group)" class="shrink-0">{{ ticket.status_label }}</span>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-1.5 text-xs">
-                            <div><span class="text-gray-400">Categoría:</span> <span class="ml-1">{{ getCategoryLabel(ticket.category) }}</span></div>
-                            <div><span class="text-gray-400">Prioridad:</span> <span class="ml-1">{{ getPriorityLabel(ticket.priority) }}</span></div>
-                            <div class="col-span-2"><span class="text-gray-400">Técnico:</span> <span class="ml-1">{{ ticket.staff ? `${ticket.staff.user_name} ${ticket.staff.user_lastname}` : 'Sin asignar' }}</span></div>
-                            <div class="col-span-2"><span class="text-gray-400">Fecha:</span> <span class="ml-1">{{ formatDate(ticket.created_at) }}</span></div>
-                        </div>
-
-                        <div class="flex flex-wrap gap-2 pt-1">
+                        <div class="mt-3 flex gap-2">
                             <button
-                                @click="router.push(`/support/${ticket.id}`)"
-                                class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
-                                    bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-all
-                                    dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800"
+                                @click.stop="abrir(ticket)"
+                                class="flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
                             >
-                                <icon-lucide-eye class="w-3.5 h-3.5" /> Ver
+                                Abrir
                             </button>
-                            <button
-                                v-if="canEdit"
-                                @click="router.push(`/support/${ticket.id}/edit`)"
-                                class="flex-1 min-w-[80px] px-3 py-2 text-xs font-medium rounded-lg flex items-center justify-center gap-1
-                                    bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 transition-all
-                                    dark:bg-green-900/30 dark:text-green-300 dark:border-green-800"
+                            <a
+                                v-if="telUrl(ticket.user?.tel)"
+                                :href="telUrl(ticket.user?.tel)"
+                                @click.stop
+                                class="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 dark:border-gray-600 dark:text-gray-200"
                             >
-                                <icon-lucide-pencil class="w-3.5 h-3.5" /> Editar
-                            </button>
+                                <v-icon name="md-phone" class="h-4 w-4" /> Llamar
+                            </a>
+                            <a
+                                v-if="whatsappUrl(ticket.user?.tel)"
+                                :href="whatsappUrl(ticket.user?.tel)"
+                                target="_blank"
+                                rel="noopener"
+                                @click.stop
+                                class="flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-300"
+                            >
+                                <v-icon name="bi-whatsapp" class="h-4 w-4" /> WhatsApp
+                            </a>
                         </div>
                     </div>
                 </div>
 
-                <div v-if="filteredTickets.length === 0 && !loading" class="p-8 text-center text-gray-500 dark:text-gray-400">
-                    {{ searchQuery ? 'No se encontraron resultados' : 'No hay tickets registrados' }}
+                <div v-if="!loading && tickets.length === 0" class="p-10 text-center text-gray-500 dark:text-gray-400" data-testid="board-empty">
+                    <template v-if="hayFiltros">No hay tickets con esos filtros.</template>
+                    <template v-else>{{ VACIO[pestana] }}</template>
+                </div>
+
+                <!-- Paginación -->
+                <div
+                    v-if="ultimaPagina > 1"
+                    class="flex items-center justify-between border-t border-gray-100 px-4 py-3 dark:border-gray-700"
+                >
+                    <button
+                        :disabled="pagina <= 1 || loading"
+                        @click="irAPagina(pagina - 1)"
+                        class="rounded-lg px-3 py-1.5 text-sm text-gray-600 transition hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                        Anterior
+                    </button>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                        Página {{ pagina }} de {{ ultimaPagina }} · {{ total }} tickets
+                    </span>
+                    <button
+                        :disabled="pagina >= ultimaPagina || loading"
+                        @click="irAPagina(pagina + 1)"
+                        class="rounded-lg px-3 py-1.5 text-sm text-gray-600 transition hover:bg-gray-100 disabled:opacity-40 dark:text-gray-300 dark:hover:bg-gray-700"
+                    >
+                        Siguiente
+                    </button>
                 </div>
             </div>
-        </div>
         </template>
 
         <!-- ── PR C · Expedientes archivados ────────────────────────────────
-             Sólo para quien puede archivar o restaurar. Paginado en el servidor:
-             los archivados sólo crecen y una consulta sin límite envejece mal. -->
+             Sólo para quien puede archivar o restaurar. Paginado en el servidor. -->
         <template v-if="vistaArchivados">
             <div v-if="cargandoArchivados" class="py-12 text-center">
                 <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-amber-500 border-t-transparent"></div>
@@ -293,14 +309,14 @@
                     <table class="w-full">
                         <thead class="bg-amber-50 dark:bg-gray-700">
                             <tr>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">ID</th>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Asunto</th>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Cliente</th>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Estado al archivar</th>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Motivo</th>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Archivado por</th>
-                                <th class="px-4 py-4 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Fecha</th>
-                                <th class="px-4 py-4 text-center text-xs font-medium uppercase text-gray-600 dark:text-gray-300">Acciones</th>
+                                <th class="th">ID</th>
+                                <th class="th">Asunto</th>
+                                <th class="th">Cliente</th>
+                                <th class="th">Estado al archivar</th>
+                                <th class="th">Motivo</th>
+                                <th class="th">Archivado por</th>
+                                <th class="th">Fecha</th>
+                                <th class="th text-center">Acciones</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
@@ -315,7 +331,7 @@
                                     {{ t.user?.user_name }} {{ t.user?.user_lastname }}
                                 </td>
                                 <td class="px-4 py-4 text-sm">
-                                    <span :class="getStatusBadgeClass(t.status)">{{ getStatusLabel(t.status) }}</span>
+                                    <span :class="groupBadgeClass(statusGroup(t.status))">{{ statusLabel(t.status) }}</span>
                                 </td>
                                 <td class="max-w-xs px-4 py-4 text-sm text-gray-600 dark:text-gray-300">
                                     {{ t.archived_reason }}
@@ -443,31 +459,134 @@ import { usePermissions } from '@/composables/usePermissions'
 import { useTicketCatalogs } from '@/composables/useTicketCatalogs'
 import NotificationToast from '../components/NotificationToast.vue'
 import TicketSubjectsManager from '../components/TicketSubjectsManager.vue'
+import {
+    groupBadgeClass, groupDotClass, priorityBadgeClass,
+    ageInfo, ageClass, telUrl, whatsappUrl,
+} from '@/utils/ticketStyles'
 
 const { can } = usePermissions()
 
 const router = useRouter()
+const toast = ref(null)
 
+// ── La cola (bitácora § 133) ─────────────────────────────────────────────
+//
+// Antes se pedían TODOS los tickets —abiertos y cerrados, con sus notas y
+// adjuntos— y se filtraba en el navegador. Ahora el servidor pagina, filtra
+// por pestaña y cuenta cuántos hay en cada una en una sola consulta.
+
+const PESTANAS = [
+    { key: 'open', label: 'Abiertos', icono: 'hi-ticket' },
+    { key: 'mine', label: 'Mis tickets', icono: 'bi-person' },
+    { key: 'unassigned', label: 'Sin asignar', icono: 'md-personoff' },
+    { key: 'waiting', label: 'En espera', grupo: 'en_espera' },
+    { key: 'to_close', label: 'Para cerrar', grupo: 'para_cerrar' },
+    { key: 'closed', label: 'Cerrados', grupo: 'cerrado' },
+]
+
+const VACIO = {
+    open: 'No hay tickets abiertos. 🎉',
+    mine: 'No tienes tickets asignados abiertos.',
+    unassigned: 'Todos los tickets abiertos tienen técnico.',
+    waiting: 'Ningún ticket está en espera.',
+    to_close: 'No hay tickets esperando cierre.',
+    closed: 'Todavía no hay tickets cerrados.',
+}
+
+// La pestaña elegida se recuerda por navegador (comodidad, no dato): si el
+// almacenamiento no está disponible, se empieza en «Abiertos».
+const CLAVE_PESTANA = 'ispwatch.support.tab'
+const leerPestana = () => {
+    try {
+        const guardada = localStorage.getItem(CLAVE_PESTANA)
+        return PESTANAS.some((t) => t.key === guardada) ? guardada : 'open'
+    } catch {
+        return 'open'
+    }
+}
+
+const pestana = ref(leerPestana())
 const tickets = ref([])
-const staffList = ref([])
+const contadores = ref({})
+const pagina = ref(1)
+const ultimaPagina = ref(1)
+const total = ref(0)
 const loading = ref(true)
 const error = ref('')
-const toast = ref(null)
 const searchQuery = ref('')
+const orden = ref('urgency')
 const filters = ref({
     subject: 'all',
-    status: 'all',
     priority: 'all',
-    category: 'all',
-    staff: 'all'
+    staff: 'all',
 })
+
+const hayFiltros = computed(() =>
+    !!searchQuery.value.trim()
+    || filters.value.subject !== 'all'
+    || filters.value.priority !== 'all'
+    || filters.value.staff !== 'all',
+)
+
+// Respuestas viejas que llegan tarde no pisan a la nueva.
+let peticion = 0
+
+const cargarTablero = async () => {
+    const mia = ++peticion
+    loading.value = true
+    error.value = ''
+
+    const params = { tab: pestana.value, page: pagina.value, per_page: 25, sort: orden.value }
+    if (searchQuery.value.trim()) params.search = searchQuery.value.trim()
+    if (filters.value.subject !== 'all') params.subject_id = filters.value.subject
+    if (filters.value.priority !== 'all') params.priority = filters.value.priority
+    if (filters.value.staff !== 'all') params.staff_id = filters.value.staff
+
+    try {
+        const { data } = await api.support.getBoard(params)
+        if (mia !== peticion) return
+        tickets.value = data.data ?? []
+        contadores.value = data.counts ?? {}
+        pagina.value = data.current_page ?? 1
+        ultimaPagina.value = data.last_page ?? 1
+        total.value = data.total ?? 0
+    } catch (err) {
+        if (mia !== peticion) return
+        console.error('Error al cargar tickets:', err)
+        error.value = 'No se pudieron cargar los tickets.'
+    } finally {
+        if (mia === peticion) loading.value = false
+    }
+}
+
+const cambiarPestana = (key) => {
+    if (pestana.value === key) return
+    pestana.value = key
+    try { localStorage.setItem(CLAVE_PESTANA, key) } catch { /* sin almacenamiento */ }
+    pagina.value = 1
+    cargarTablero()
+}
+
+const irAPagina = (n) => {
+    pagina.value = n
+    cargarTablero()
+}
+
+const abrir = (ticket) => router.push(`/support/${ticket.id}`)
+
+const nombreCliente = (t) => {
+    const n = `${t.user?.user_name ?? ''} ${t.user?.user_lastname ?? ''}`.trim()
+    return n || 'Cliente eliminado'
+}
+
+// La edad se recalcula al cargar; no hace falta un reloj por fila.
+const ahora = ref(Date.now())
+const edad = (t) => ageInfo(t.created_at, ahora.value)
 
 // ── Asuntos frecuentes ───────────────────────────────────────────────────
 //
 // El filtro usa la lista COMPLETA, desactivados incluidos: un asunto retirado
-// ya no se ofrece al radicar, pero sus tickets viejos se tienen que poder
-// seguir encontrando. Por eso no sale del catálogo de los desplegables (que
-// sólo trae los vigentes) sino de `/support/subjects`.
+// ya no se ofrece al radicar, pero sus tickets viejos se siguen encontrando.
 const canManageSubjects = computed(() => can('ticket_manage_catalogs'))
 const gestorAsuntosAbierto = ref(false)
 const asuntosParaFiltrar = ref([])
@@ -477,75 +596,25 @@ const cargarAsuntos = async () => {
         const { data } = await api.support.getSubjects()
         asuntosParaFiltrar.value = data
     } catch (err) {
-        // Sin la lista el filtro sólo ofrece «Todos» y «Otro»: se puede seguir
-        // trabajando, así que no se interrumpe con un aviso.
         console.error('Error al cargar los asuntos:', err)
     }
 }
 
 const alCambiarAsuntos = () => {
     cargarAsuntos()
-    // Los desplegables de alta y edición leen el catálogo del composable.
     cargarCatalogos(true)
 }
 
-// PR B · Capacidades separadas. No hay respaldo a `view_support`: si un rol
-// tuviera el permiso antiguo y le faltara el granular —datos inconsistentes,
-// backfill no ejecutado— la acción se OCULTA. Es la experiencia segura; elevar
-// el privilegio en silencio dejaría el panel ofreciendo lo que la API rechaza.
+// PR B · Capacidades separadas: la acción se OCULTA si falta el permiso.
 const canCreate = computed(() => can('ticket_create'))
 const canEdit = computed(() => can('ticket_edit'))
-// `canDelete` se eliminó junto con el botón: no existe borrado de tickets.
-// Lo que sí existe desde el PR C es ARCHIVAR, más abajo.
 
-const filteredTickets = computed(() => {
-    let result = tickets.value
-
-    // Filtro de búsqueda
-    if (searchQuery.value) {
-        const query = searchQuery.value.toLowerCase().trim()
-        result = result.filter(ticket => {
-            return (
-                ticket.subject?.toLowerCase().includes(query) ||
-                ticket.description?.toLowerCase().includes(query) ||
-                ticket.user?.user_name?.toLowerCase().includes(query) ||
-                ticket.user?.user_lastname?.toLowerCase().includes(query)
-            )
-        })
-    }
-
-    // Filtros
-    if (filters.value.subject === 'other') {
-        result = result.filter(t => !t.subject_id)
-    } else if (filters.value.subject !== 'all') {
-        result = result.filter(t => t.subject_id === Number(filters.value.subject))
-    }
-    if (filters.value.status !== 'all') {
-        result = result.filter(t => t.status === filters.value.status)
-    }
-    if (filters.value.priority !== 'all') {
-        result = result.filter(t => t.priority === filters.value.priority)
-    }
-    if (filters.value.category !== 'all') {
-        result = result.filter(t => t.category === filters.value.category)
-    }
-    if (filters.value.staff !== 'all') {
-        if (filters.value.staff === 'unassigned') {
-            result = result.filter(t => !t.staff_id)
-        } else {
-            result = result.filter(t => t.staff_id === parseInt(filters.value.staff))
-        }
-    }
-
-    return result
-})
+const staffList = ref([])
 
 const loadStaff = async () => {
     try {
-        // Sólo alimenta el filtro «Todos los técnicos». Sale de
-        // `/support/staff-options` y no de `/staff` (que exige `view_staff`):
-        // técnico es quien puede registrar intervenciones, no quien tenga un
-        // rol llamado exactamente «Técnico» (P-56).
+        // `/support/staff-options` y no `/staff` (que exige `view_staff`):
+        // técnico es quien puede registrar intervenciones (P-56).
         const response = await api.support.getStaffOptions()
         const allUsers = response.data.data || []
         staffList.value = allUsers.filter(user => user.can_intervene)
@@ -554,78 +623,21 @@ const loadStaff = async () => {
     }
 }
 
-const loadTickets = async () => {
-    try {
-        loading.value = true
-        const response = await api.support.getAll()
-        tickets.value = response.data
-    } catch (err) {
-        console.error('Error al cargar tickets:', err)
-        toast.value?.error('Error', 'No se pudieron cargar los tickets de soporte.')
-        error.value = 'Error al cargar los tickets.'
-    } finally {
-        loading.value = false
-    }
-}
-
-// R2: las ETIQUETAS vienen del catálogo; los COLORES se quedan aquí porque se
-// deciden por código —que es estable— y son presentación, no dato de negocio.
+// R2: las ETIQUETAS vienen del catálogo; los COLORES, de utils/ticketStyles.
 const {
-    statuses, priorities, categories,
+    priorities,
     cargar: cargarCatalogos,
-    statusLabel, priorityLabel, categoryLabel,
+    statusLabel, statusGroup, priorityLabel,
 } = useTicketCatalogs()
 
-// Helper functions (Badges and Labels)
-const getStatusBadgeClass = (status) => {
-    const classes = {
-        open: 'px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-        in_progress: 'px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-        resolved: 'px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-        closed: 'px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-    }
-    return classes[status] || classes.open
-}
-
-const getStatusLabel = (status) => statusLabel(status)
-
-const getPriorityBadgeClass = (priority) => {
-    const classes = {
-        low: 'px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-        medium: 'px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-        high: 'px-3 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
-        urgent: 'px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-    }
-    return classes[priority] || classes.medium
-}
-
-const getPriorityLabel = (priority) => priorityLabel(priority)
-
-const getCategoryBadgeClass = (category) => {
-    const classes = {
-        technical: 'px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-        billing: 'px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-        services: 'px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
-        general: 'px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-    }
-    return classes[category] || classes.general
-}
-
-const getCategoryLabel = (category) => categoryLabel(category)
-
 const formatDate = (date) => {
-    if (!date) return '-'
-    return new Date(date).toLocaleDateString('es-ES', {
+    if (!date) return '—'
+    return new Date(date).toLocaleDateString('es-CO', {
         year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     })
 }
 
 // ── PR C · Expedientes archivados ────────────────────────────────────────
-//
-// El listado ordinario filtra en el cliente porque trae todos los tickets de
-// una vez. Éste NO: los archivados sólo crecen —nada los saca de ahí salvo
-// restaurarlos— así que va paginado en el servidor y los filtros viajan como
-// parámetros. Es la misma pantalla, con otra fuente de datos.
 
 const vistaArchivados = ref(false)
 const archivados = ref([])
@@ -634,8 +646,6 @@ const archivadosPagina = ref(1)
 const archivadosPaginas = ref(1)
 const archivadosTotal = ref(0)
 
-// Ver archivados va con cualquiera de los dos permisos: hoy los dos van al
-// mismo rol y el cliente pidió simplicidad. Ver DISENO §0, supuesto S-3.
 const canSeeArchived = computed(() => can('ticket_archive') || can('ticket_restore'))
 const canRestore = computed(() => can('ticket_restore'))
 
@@ -644,19 +654,19 @@ const alternarVista = () => {
 
     if (vistaArchivados.value) {
         cargarArchivados(1)
+    } else {
+        cargarTablero()
     }
 }
 
-const cargarArchivados = async (pagina = 1) => {
+const cargarArchivados = async (numero = 1) => {
     try {
         cargandoArchivados.value = true
 
-        const params = { page: pagina }
+        const params = { page: numero }
 
         if (searchQuery.value.trim()) params.search = searchQuery.value.trim()
-        if (filters.value.status !== 'all') params.status = filters.value.status
         if (filters.value.priority !== 'all') params.priority = filters.value.priority
-        if (filters.value.category !== 'all') params.category = filters.value.category
         if (filters.value.subject !== 'all') params.subject_id = filters.value.subject
 
         const { data } = await api.support.getArchived(params)
@@ -673,13 +683,23 @@ const cargarArchivados = async (pagina = 1) => {
     }
 }
 
-// Los filtros de arriba son los mismos para las dos vistas; en la de
-// archivados hay que volver a preguntar al servidor porque no están en memoria.
-watch([searchQuery, filters], () => {
+const recargar = () => {
     if (vistaArchivados.value) {
         cargarArchivados(1)
+    } else {
+        pagina.value = 1
+        cargarTablero()
     }
-}, { deep: true })
+}
+
+// Filtros y orden: al instante. La búsqueda espera a que se deje de teclear.
+watch([filters, orden], recargar, { deep: true })
+
+let esperaBusqueda = null
+watch(searchQuery, () => {
+    clearTimeout(esperaBusqueda)
+    esperaBusqueda = setTimeout(recargar, 350)
+})
 
 // ── Restaurar desde el listado ──
 
@@ -709,9 +729,7 @@ const restaurarTicket = async () => {
         toast.value?.success('Ticket restaurado', data.message || 'El expediente vuelve a la operación.')
         ticketARestaurar.value = null
 
-        // Las dos listas cambian: uno sale de archivados y entra en activos.
         await cargarArchivados(archivadosPagina.value)
-        await loadTickets()
     } catch (err) {
         console.error('Error al restaurar el ticket:', err)
         const errores = err.response?.data?.errors
@@ -729,6 +747,15 @@ onMounted(() => {
     cargarCatalogos()
     cargarAsuntos()
     loadStaff()
-    loadTickets()
+    cargarTablero()
 })
 </script>
+
+<style scoped>
+.th {
+    @apply px-4 py-3 text-left text-xs font-medium uppercase text-gray-600 dark:text-gray-300;
+}
+.filtro {
+    @apply w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm;
+}
+</style>

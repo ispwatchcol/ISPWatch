@@ -11311,3 +11311,106 @@ cuentan para el tope; cambiar número/modo/quitar; lo pagado queda fijo; plan in
 cargo; lista con el plan; cargo de otro ticket → 404. Libros (C1, C2, C3, C4, C13) cierran en
 todos. Suites Support (533), Billing (461) y Unit en verde. Navegador: cargo en 3 cuotas aparte
 y cambio a 2 dentro de la mensualidad.
+
+## 133. Tickets más fáciles de abrir y de cerrar: cola de trabajo, flujo simple por ISP y «Resolver y cerrar» — 2026-11-25
+
+### Pedido
+
+«Hay que facilitar la vista de tickets y la creación de tickets, tanto para la persona que crea
+como para la que los va a cerrar, porque está muy complejo.» Se analizó, se propusieron mejoras
+y el usuario pidió hacerlas todas.
+
+### Diagnóstico (lo que lo hacía complejo)
+
+- **La causa de fondo:** el flujo de 22 códigos y las reglas del § 15 salieron de la Solicitud
+  Maestra de CNO y se aplicaban a **todos** los ISP. Desde «Radicado» había cuatro transiciones
+  obligatorias antes de poder cerrar, más causa confirmada, acción, resultado y medición final.
+- **Alta:** el «Nuevo ticket» de la ficha del cliente mandaba `?customer_id=` y la página no lo
+  leía; el cliente se buscaba sólo por nombre en `/customers` (exige `view_clients`); se pedían
+  los cinco campos de diagnóstico; la prioridad se descartaba en silencio (siempre «Media») y la
+  categoría siempre «General»; no avisaba de un ticket abierto del mismo cliente; asignar técnico
+  no movía el estado.
+- **Lista:** abiertos y cerrados mezclados; los colores sólo conocían los 4 estados viejos y los
+  18 nuevos caían al mismo azul; sin «mis tickets», contadores ni antigüedad; no se buscaba por
+  `#número` ni teléfono; traía todos los tickets con notas y adjuntos.
+- **Detalle:** 8 botones iguales en «Mover a»; requisitos de cierre repartidos en tres bloques;
+  ~13 tarjetas apiladas; la ficha del cliente sólo con nombre, correo y teléfono; técnico y
+  prioridad sólo desde *Editar*; códigos internos (`AC02`) a la vista; cabecera sin `flex-wrap`.
+
+### Qué se hizo
+
+**Flujo simple por ISP.** `tenant.ticket_workflow_mode` (`formal` por defecto). El simple no tiene
+estados propios: reutiliza los códigos y cambia matriz (`destinosSimples`), desde dónde se cierra
+(cualquier estado vivo), requisitos (sólo `solution`), y etiquetas (`ETIQUETAS_SIMPLES`). Todos los
+métodos de `TicketWorkflow` que deciden algo reciben el modo; `transitions`, `updateStatus`,
+`proposeClosure` y `cerrar` lo resuelven del tenant del ticket. Interruptor en *Configuración →
+Sistema* (`TicketWorkflowSection.vue`, `manage_tenant`).
+
+**Grupos de estado** (`TicketWorkflow::GRUPOS`: nuevo, en curso, en espera, para cerrar,
+cerrado) para pestañas, contadores y colores (`utils/ticketStyles.js`).
+
+**Cola de trabajo** (`App\Support\TicketBoard`): `GET /support?page|tab` pagina en el servidor,
+seis pestañas visibles con contador, búsqueda por `#número`/teléfono/cédula/nombre
+completo/dirección/IP, orden por urgencia y antigüedad, fila liviana con dirección y estado del
+servicio. Sin `page`/`tab` responde el arreglo de siempre.
+
+**Alta en tres pasos** (`SupportCreate.vue`): cliente desde `/support/customer-options` (cédula,
+teléfono, dirección, IP, plan, cortado, tickets abiertos), ficha del cliente con aviso de ticket
+abierto, asuntos frecuentes como botones (por uso), sólo el síntoma, prioridad con 4 botones
+(`priority` aceptada por `store`, distinta de Media exige `ticket_set_priority`), técnico. Lee
+`?customer_id=`.
+
+**Asignar es clasificar:** en el formal, recibir el primer técnico estando en
+`radicado`/`en_clasificacion`/`open`/`reabierto` lleva a `asignado` con transiciones reales
+(`pasosAlAsignar`), al crear y al editar.
+
+**Detalle:** tarjeta «Siguiente paso» con un botón principal (`next_step` del servidor),
+«Resolver y cerrar» y «Más acciones» agrupadas; casillas ✓/○ (`checklist`); pestañas Resumen ·
+Trabajo · Cobros · Notas y archivos · Historial (con `v-show`, para que intervenciones y
+mediciones sigan montadas); ficha técnica del cliente (`TicketCustomerCard.vue` sobre
+`/support/customer-context/{user}`); técnico y prioridad editables en «Atención»; sin códigos
+internos; cabecera adaptable al celular. La lista y la ficha del cliente en el celular traen
+*Llamar* y *WhatsApp*.
+
+**«Resolver y cerrar»:** una ventana que guarda la revisión, recorre el camino, registra la
+medición final (o la exención) y cierra — o propone, si el rol no cierra o (formal) no puede
+confirmar la causa y está vacía.
+
+### Decisiones
+
+- **Formal por defecto para todos, incluidos los existentes.** Encender el simple relajaría en
+  silencio las reglas de un ISP que las exige por contrato. Desplegar no cambia nada: cada ISP lo
+  activa. (Pendiente de producto: decidir con cada cliente.)
+- **El simple no crea estados.** Así el historial, los reportes, la API de socios y los tickets
+  que pasen de un modo a otro siguen hablando el mismo idioma.
+- **Los permisos no cambian con el modo.**
+- **`statuses` del catálogo intacto.** Dos pruebas fijan su forma (contrato con integradores): el
+  nombre mostrado y el grupo viajan aparte, en `status_display`.
+- **Contadores en una consulta** agrupada por `(status_id, quién)`. El id de quien pide va escrito
+  en el `CASE` (entero de la sesión): con parámetros, PostgreSQL no reconoce iguales las
+  expresiones del `SELECT` y del `GROUP BY`.
+- **Orden de la cola: urgencia y luego el más viejo**, como una cola; «Recientes primero» queda
+  como opción. Los cerrados, por fecha de cierre.
+- **«Resolver y cerrar» no es atómico, a propósito:** orquesta los endpoints de siempre; cada paso
+  es válido solo y deja su evento. Si uno falla, la ventana queda abierta con lo avanzado guardado.
+- **El saldo sólo con `view_billing`/`view_invoices`**; `billing: null` significa «no puedes
+  verlo». Nunca credenciales PPPoE/HotSpot.
+- **El buscador del alta no exige `view_clients`** (sí `ticket_create` o `ticket_edit`): quien
+  radica tickets necesita encontrar al cliente aunque no administre la cartera.
+- `SupportTicketModuleTest::la_prioridad_enviada_al_crear_se_ignora_hoy` fijaba el defecto y pedía
+  actualizarse «de forma consciente» cuando cambiara: ahora es `…_se_respeta`.
+
+### Verificación
+
+Pruebas nuevas: `TicketSimpleWorkflowTest` (15: el modo, el interruptor, moverse y cerrar en los dos
+modos, permisos intactos, `transitions` y catálogo, todo código con grupo y nombre),
+`TicketBoardTest` (9), `SupportCustomerContextTest` (5), `TicketQuickCreateTest` (6). Suite de
+Soporte completa en verde. Recorrido de navegador `tests/Browser/tickets-simplificados.mjs`
+(12 pasos, backend aislado): cola, búsqueda por teléfono, «Resolver y cerrar» formal con medición,
+alta desde la ficha con aviso y técnico → Asignado, cambio a simple, cierre simple, celular a
+390 px sin desbordar, técnico con «Mis tickets» y «Proponer cierre».
+
+### Deuda aceptada
+
+P-122 (búsqueda sin tildes), P-123 (buscador del alta trae todos los clientes), P-124 (*Editar*
+y «Atención» se solapan).

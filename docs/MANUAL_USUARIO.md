@@ -1839,21 +1839,59 @@ Dos opciones importantes:
 
 **Soporte → Tickets.**
 
+### 14.0 La lista: qué hay que atender
+
+La lista de tickets es una **cola de trabajo** (desde 2026-11). Arriba hay pestañas, cada una con
+cuántos tickets tiene:
+
+| Pestaña | Qué muestra |
+|---|---|
+| **Abiertos** | Todo lo que no está cerrado. Es la que se abre por defecto |
+| **Mis tickets** | Los abiertos asignados a ti. La que usa el técnico |
+| **Sin asignar** | Los abiertos que todavía no tienen técnico |
+| **En espera** | Los detenidos por algo ajeno: el cliente, material, un tercero… |
+| **Para cerrar** | Los resueltos que esperan su cierre |
+| **Cerrados** | Los terminados, el último cerrado arriba |
+
+La pestaña que elijas se recuerda en tu navegador.
+
+- **El color del estado** dice en qué va: azul claro *nuevo*, morado *en curso*, ámbar *en
+  espera*, verde *para cerrar*, gris *cerrado*.
+- **Antigüedad**: cuánto lleva abierto. A las 24 h se pone ámbar y a las 72 h rojo.
+- **Orden**: por defecto, **lo urgente primero** y, a igual urgencia, lo que lleva más tiempo
+  esperando. En el último filtro puedes cambiar a *Recientes primero*.
+- **Buscar**: escribe `#123` para ir a un ticket por su número, o parte del nombre, el
+  teléfono, la cédula, la dirección o la IP del cliente. No importan las mayúsculas (las tildes
+  sí: «Garcia» no encuentra «García»).
+- **Clic en la fila** abre el ticket. El lápiz de la derecha lleva a *Editar*.
+- En el **celular**, cada ticket trae la dirección del cliente y los botones **Llamar** y
+  **WhatsApp**.
+
 ### 14.1 Crear un ticket
 
-1. **Soporte → Nuevo Ticket.**
-2. Elige el **cliente**.
-3. Elige el **asunto** de la lista (por ejemplo *Sin internet*, *Internet lento*, *Traslado*) y
-   escribe la **descripción**. Si ninguno sirve, elige **Otro…** y escríbelo a mano.
+El alta tiene tres pasos y lo demás se completa después:
+
+1. **¿Quién es el cliente?** Búscalo por nombre, cédula, teléfono, dirección o IP: la lista
+   muestra debajo de cada nombre su cédula, dirección, plan y si está **cortado**. Al elegirlo
+   aparece su **ficha** (estado del servicio, dirección, teléfono, IP) y —lo más importante— si
+   **ya tiene un ticket abierto**. Si es el mismo problema, abre ese ticket y agrega una nota en
+   vez de crear otro.
+   > Si llegas desde **Nuevo ticket** en la ficha del cliente, ya viene elegido.
+2. **¿Qué le pasa?** Toca uno de los **asuntos más usados** (botones) o elígelo de la lista; si
+   ninguno sirve, **Otro…** y escríbelo. Escribe lo que cuenta el cliente en la descripción. Si
+   ya sabes el **síntoma**, elígelo (opcional). La causa y la solución **no** se piden aquí: se
+   registran al cerrar.
    > Elegir de la lista es lo que permite después **filtrar los tickets por asunto**: «SIN
    > INTERNET», «sin internet» y «no tiene internet» escritos a mano son tres asuntos distintos
    > para el sistema. Los escritos a mano se agrupan como **Otro** en el filtro.
-4. Elige **categoría** (Técnico, Facturación, Servicios, General) y **prioridad**
-   (Baja, Media, Alta, Urgente).
-5. Si el problema es de un elemento de red concreto, selecciona el **sectorial** afectado.
-6. Si la visita **no se le cobra al cliente**, marca **Sin cobro al cliente** en el bloque
-   *Cargo Asociado*. Con eso el ticket no podrá generar cargos — ni hoy ni dentro de un mes.
-7. Guarda.
+3. **Prioridad y técnico.** Elige la **prioridad** con los cuatro botones (Baja, Media, Alta,
+   Urgente; cambiarla de *Media* exige el permiso *Tickets · cambiar prioridad*) y, si ya lo
+   sabes, el **técnico**. Con técnico, el ticket nace directamente **Asignado** (en el flujo
+   formal; ver 14.6).
+4. **Cobro (opcional).** Si la visita lleva un cobro, actívalo y llena los ítems. Si **no se le
+   cobra al cliente**, marca **Sin cobro al cliente**: con eso el ticket no podrá generar cargos
+   — ni hoy ni dentro de un mes.
+5. **Crear ticket.**
 
 > **Los desplegables largos tienen buscador** (desde 2026-11): el técnico asignado —al crear, en
 > *Editar ticket* y en las intervenciones—, los cinco campos del **Diagnóstico técnico** (síntoma,
@@ -1890,6 +1928,23 @@ uno, o **Otro (escrito a mano)** para ver los que no tienen asunto de la lista (
 tickets anteriores a este cambio).
 
 ### 14.2 Trabajar el ticket
+
+**Cómo está organizado el ticket** (desde 2026-11):
+
+- **Arriba**, el asunto, el estado (con su color), la prioridad y cuánto lleva abierto.
+- **Siguiente paso**: un recuadro con **un botón principal** —el paso normal, por ejemplo
+  *Iniciar trabajo* o *Pasar a «En clasificación»*, o **Cerrar ticket** cuando ya toca—, el botón
+  **Resolver y cerrar** (ver 14.3) y **Más acciones** con el resto: poner en espera, marcar
+  duplicado, cierre especial, proponer cierre, reabrir. Debajo, **Para cerrar** muestra cada
+  requisito con ✓ (cumplido) o ○ (falta); tocar uno que falta abre la ventana de cierre.
+- **Pestañas**: *Resumen* (descripción y diagnóstico) · *Trabajo* (intervenciones, mediciones y
+  equipos de la visita) · *Cobros* · *Notas y archivos* (bitácora, adjuntos y subir evidencia) ·
+  *Historial*.
+- **A la derecha**, la **ficha del cliente** —dirección con enlace al mapa, teléfono con
+  *Llamar* y *WhatsApp*, plan, estado del servicio, IP, router y caja/NAP con su puerto, y sus
+  otros tickets abiertos— y el recuadro **Atención**, donde se **cambia el técnico y la
+  prioridad sin entrar a Editar**. El **saldo y las facturas vencidas** sólo los ve quien tiene
+  permiso de facturación.
 
 Dentro del ticket puedes:
 
@@ -2010,7 +2065,7 @@ puestos, y los puedes cambiar antes de generar la factura.
 
 **Ya no se elige el estado de una lista.** Antes se podía pasar de un ticket recién recibido a
 «Cerrado» de un clic, sin causa, sin acción y sin resultado. Ahora el ticket **avanza por
-pasos**, y en el bloque **Ciclo de vida** sólo aparecen los que caben desde donde está.
+pasos**, y en el recuadro **Siguiente paso** sólo aparecen los que caben desde donde está: el normal como botón principal y el resto en **Más acciones**.
 
 Los pasos son los del acuerdo con CNO:
 
@@ -2029,6 +2084,10 @@ cualquier punto del trabajo y se vuelve cuando la espera termina.
 > **«Servicio restablecido» no es «Cerrado».** Restablecido es el momento en que vuelve la
 > conectividad. Cerrado significa que la causa, la acción y el resultado quedaron documentados.
 > Son dos fechas distintas y el sistema guarda las dos.
+
+> **Todo esto es el flujo FORMAL.** Si tu ISP usa el **flujo simple** (ver 14.6), los estados se
+> llaman *Abierto → En proceso → En espera → Resuelto → Cerrado* y se puede cerrar desde
+> cualquiera de ellos.
 
 ### 14.2.2 Registrar una intervención
 
@@ -2115,11 +2174,13 @@ prueba, para ver de un vistazo si el servicio mejoró.
 
 Desde ahora, **un ticket no se cierra sin medición final** — o sin explicar por qué no fue
 posible tomarla. Es una regla del documento del cliente, no una decisión de la herramienta.
+Aplica al **flujo formal**; en el simple (ver 14.6) la medición es opcional. La forma más
+rápida de cumplirla es registrarla dentro de **Resolver y cerrar** (ver 14.3).
 
 El aviso aparece en dos sitios, siempre **antes** de intentar cerrar:
 
 - En el bloque de Pruebas técnicas, si todavía no hay ninguna final.
-- En la lista de «requisitos que faltan» del panel de gestión del ticket.
+- En **Para cerrar**, dentro del recuadro **Siguiente paso** del ticket (casilla «Medición final»).
 
 Si no pudiste medir, al proponer o cerrar el ticket la pantalla te pedirá dos cosas:
 
@@ -2143,16 +2204,27 @@ si de verdad hace falta, primero hay que reabrir el ticket, y eso también queda
 
 ### 14.3 Cerrar y reabrir un ticket
 
-> **¿No ves el botón «Cerrar ticket»?** Sólo aparece cuando el ticket está en **Servicio
-> restablecido** (o En observación, Solución temporal, Asociado a incidente masivo). En cualquier
-> otro estado, el recuadro verde del **Ciclo de vida** te muestra los pasos que faltan —por
-> ejemplo *Radicado → En clasificación → Asignado → En intervención → Servicio restablecido →
-> Cerrar ticket*— y el botón **Avanzar hasta «Servicio restablecido»** los hace por ti, uno por
-> uno, dejando cada paso en el historial. Si tu rol no tiene el permiso *Tickets · cerrar*, el
-> panel te lo dice y te queda **Proponer cierre**.
->
-> La causa confirmada, la acción y el resultado no hace falta llenarlos antes: se eligen en la
-> misma ventana de **Cerrar ticket**, y si no hubo medición final, ahí mismo indicas por qué.
+**Resolver y cerrar (desde 2026-11).** Es la forma corta de terminar un ticket, en **una sola
+ventana**:
+
+1. Revisas el **asunto** y lo que se hizo (en el flujo formal: causa confirmada, acción y
+   resultado; en el simple, basta con **¿Qué se hizo?**).
+2. Si el ticket todavía no está en *Servicio restablecido*, la ventana te dice los pasos que va
+   a dar (*Radicado → En clasificación → Asignado → En intervención → Servicio restablecido*) y
+   los hace por ti, uno por uno, dejando cada uno en el historial.
+3. Si falta la **medición final** (flujo formal), la registras ahí mismo —qué se midió, valor,
+   unidad y fuente— o marcas **No se pudo medir** con la razón y la justificación.
+4. Pulsas **Cerrar ticket**.
+
+Si tu rol no tiene el permiso *Tickets · cerrar* (o, en el flujo formal, no puedes confirmar la
+causa y está vacía), el mismo botón dice **Proponer cierre**: el ticket queda *En observación*
+y lo cierra un supervisor. En ese caso la observación técnica es obligatoria.
+
+Si algo falla a mitad de camino, la ventana sigue abierta, lo que sí se alcanzó a hacer queda
+guardado y el aviso dice qué falta.
+
+> **¿No ves «Resolver y cerrar»?** Hace falta poder mover el estado (*Tickets · cambiar
+> estado*) o cerrar. El recuadro *Siguiente paso* te dice qué permiso falta.
 
 **Proponer el cierre.** Cuando el técnico termina, pulsa **Proponer cierre**. Esto **no cierra**
 el ticket: lo deja *En observación*, esperando al supervisor, con la acción, el resultado y una
@@ -2165,7 +2237,7 @@ que está bien hecho.
 2. **Acción o solución registrada**
 3. **Resultado técnico**
 
-Si falta algo, el bloque **Ciclo de vida** te lo dice **antes** de abrir el cuadro de cierre, con
+Si falta algo, **Para cerrar** (en el recuadro **Siguiente paso**) te lo dice **antes** de abrir el cuadro de cierre, con
 la lista de lo que falta. Cerrar **no borra nada**: la causa sospechada, las notas, los adjuntos
 y los estados anteriores se quedan.
 
@@ -2187,7 +2259,7 @@ el sistema lo rechaza y te manda al cierre normal.
 El ticket vuelve al estado *Reabierto* y sigue el flujo desde ahí. **La fecha del cierre anterior
 no se borra**: queda como parte del histórico.
 
-> **¿No ves el botón «Reabrir» en un ticket cerrado?** El bloque **Ciclo de vida** te dice por
+> **¿No ves el botón «Reabrir» en un ticket cerrado?** El recuadro **Siguiente paso** te dice por
 > qué. Si dice que hace falta el permiso **«Tickets · reabrir»**, pídeselo a quien administre los
 > roles: **Configuración → Roles**, marcar esa casilla en el rol correspondiente.
 >
@@ -2231,6 +2303,27 @@ Los tickets archivados **no** cuentan en estas cifras.
 
 Los estados nuevos se agrupan con los de siempre: *Radicado* y *En clasificación* cuentan como
 **abiertos**; *Asignado*, *En intervención* y las esperas, como **en progreso**.
+
+### 14.6 Flujo simple o formal
+
+**Configuración → Sistema → Flujo de los tickets de soporte.** Lo cambia quien administra la
+empresa (permiso *Administrar empresa*).
+
+| | **Simple** | **Formal** |
+|---|---|---|
+| Estados | Abierto → En proceso → (En espera) → Resuelto → Cerrado | Radicado → Clasificación → Asignado → (Visita) → Intervención → Restablecido → (Observación) → Cerrado |
+| Desde dónde se cierra | Desde cualquier estado | Sólo desde *Servicio restablecido* (y los equivalentes); *Resolver y cerrar* recorre los pasos |
+| Para cerrar hace falta | Decir **qué se hizo** | Causa confirmada, acción, resultado y **medición final** (o por qué no se pudo) |
+| Solución temporal | Se cierra normal | Exige *cierre especial* |
+| Para quién | La mayoría de los ISP | Mesas de ayuda con proceso formal por contrato o auditoría |
+
+- **Todos los ISP empiezan en Formal**, que es el comportamiento de siempre: actualizar no le
+  cambia nada a nadie. Pasar a Simple es una decisión de cada empresa.
+- Cambiarlo **no toca los tickets existentes ni su historial**: sólo cambia qué pasos se
+  ofrecen y qué se exige para cerrar desde ese momento.
+- **Los permisos son los mismos** en los dos: quién cierra, quién reabre, quién archiva.
+- En el simple, un ticket que tenía un estado del formal (por ejemplo *En clasificación*) se
+  muestra con el nombre corto (*Abierto*) y se puede seguir trabajando o cerrar.
 
 ---
 

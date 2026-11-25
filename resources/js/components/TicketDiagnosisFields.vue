@@ -1,7 +1,7 @@
 <template>
     <fieldset class="border border-gray-200 dark:border-gray-700 rounded-lg p-5">
         <legend class="px-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-            Diagnóstico técnico
+            {{ titulo ?? 'Diagnóstico técnico' }}
         </legend>
 
         <p class="text-xs text-gray-500 dark:text-gray-400 -mt-1 mb-5">
@@ -43,10 +43,11 @@
             </p>
         </div>
 
-        <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div v-else class="grid grid-cols-1 gap-5" :class="campos.length > 1 ? 'md:grid-cols-2' : ''">
             <div v-for="campo in campos" :key="campo.clave" :class="campo.ancho">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ campo.etiqueta }}
+                    <span v-if="obligatorios.includes(campo.clave)" class="text-red-500">*</span>
                 </label>
 
                 <!-- Con buscador: el síntoma tiene más de quince códigos y se
@@ -57,7 +58,8 @@
                     @update:model-value="actualizar(campo.clave, $event)"
                     :items="campo.opciones"
                     item-key="code"
-                    :item-label="etiquetaDe"
+                    item-label="label"
+                    :item-search="(fila) => fila.code"
                     item-icon=""
                     placeholder="— Sin definir —"
                     search-placeholder="Buscar por código o texto…"
@@ -132,13 +134,24 @@ const props = defineProps({
     bloqueados: { type: Array, default: () => [] },
     /** Texto de ayuda bajo el título; null deja el de siempre. */
     ayuda: { type: String, default: null },
+    /**
+     * Bitácora § 133 · Qué campos mostrar (claves), en ese orden. null = los
+     * cinco. El alta pide sólo el síntoma; el cierre simple, lo que se hizo.
+     */
+    soloCampos: { type: Array, default: null },
+    /** Título del recuadro; null deja «Diagnóstico técnico». */
+    titulo: { type: String, default: null },
+    /** Etiquetas propias por clave, p. ej. { solution: '¿Qué se hizo?' }. */
+    etiquetas: { type: Object, default: () => ({}) },
+    /** Claves que se marcan como obligatorias (asterisco). */
+    obligatorios: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:modelValue', 'reintentar'])
 
 const { symptoms, causes, actions, results, error } = useTicketCatalogs()
 
-const campos = computed(() => [
+const todos = computed(() => [
     { clave: 'symptom', etiqueta: 'Síntoma reportado', opciones: symptoms.value, ancho: '' },
     { clave: 'suspected_cause', etiqueta: 'Causa sospechada', opciones: causes.value, ancho: '', esCausa: true },
     { clave: 'confirmed_cause', etiqueta: 'Causa confirmada', opciones: causes.value, ancho: '', esCausa: true },
@@ -146,13 +159,27 @@ const campos = computed(() => [
     { clave: 'result', etiqueta: 'Resultado del cierre', opciones: results.value, ancho: 'md:col-span-2' },
 ])
 
+const campos = computed(() => {
+    const lista = props.soloCampos
+        ? props.soloCampos.map((c) => todos.value.find((t) => t.clave === c)).filter(Boolean)
+        : todos.value
+
+    return lista.map((c) => ({
+        ...c,
+        etiqueta: props.etiquetas[c.clave] ?? c.etiqueta,
+        // Con uno o dos campos, cada uno a su ancho natural: el col-span del
+        // resultado sólo tiene sentido en la rejilla completa.
+        ancho: props.soloCampos && lista.length < 3 ? '' : c.ancho,
+    }))
+})
+
 const sinVocabulario = computed(
     () => symptoms.value.length === 0 && causes.value.length === 0
         && actions.value.length === 0 && results.value.length === 0,
 )
 
-/** «código · etiqueta»: el código sigue a la vista y también se puede buscar. */
-const etiquetaDe = (fila) => `${fila.code} · ${fila.label}`
+// Se muestra sólo la etiqueta: el código interno (`AC02`, `RF`) no le dice
+// nada a quien atiende (bitácora § 133). Sigue sirviendo para buscar.
 
 /**
  * Nombre visible (el de la pantalla de Roles) del permiso que desbloquea el
