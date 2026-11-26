@@ -36,6 +36,7 @@
               <option value="instalacion">Instalación</option>
               <option value="devolucion">Devolución</option>
               <option value="baja">Baja</option>
+              <option value="ajuste">Ajuste (corrección)</option>
             </select>
           </div>
           <div>
@@ -329,6 +330,8 @@ const typeLabel = (type) => ({
   instalacion: 'Instalación',
   devolucion: 'Devolución',
   baja: 'Baja',
+  // Corrección de un ingreso digitado de más: sale del saldo, pero no es pérdida.
+  ajuste: 'Ajuste',
 }[type] ?? type)
 
 const typeClass = (type) => ({
@@ -337,6 +340,7 @@ const typeClass = (type) => ({
   instalacion: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   devolucion:  'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   baja:        'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+  ajuste:      'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
 }[type] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300')
 
 const load = async () => {

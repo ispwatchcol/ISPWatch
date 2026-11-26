@@ -21,7 +21,21 @@
 
     <!-- Filtros -->
     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 mb-6 max-w-7xl mx-auto">
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <!-- Buscar: a quién, dónde, quién la hace o el número de la orden.
+             Filtra lo ya cargado, sin tildes ni mayúsculas. -->
+        <div class="sm:col-span-3 lg:col-span-2">
+          <label for="installations-search" class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Buscar</label>
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"/>
+            </svg>
+            <input id="installations-search" v-model="search" type="search" data-testid="installations-search"
+              placeholder="Nombre, cédula, teléfono o dirección"
+              title="Busca por nombre, cédula, teléfono, correo, dirección, técnico, equipo o número de orden (#12)"
+              class="w-full bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg pl-9 pr-3 py-2.5 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+        </div>
         <div>
           <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Estado</label>
           <select v-model="filters.status" @change="load"
@@ -63,6 +77,14 @@
         </button>
       </div>
 
+      <div v-else-if="visibleInstallations.length === 0" class="text-center py-16 text-gray-500 dark:text-gray-400"
+        data-testid="installations-no-match">
+        <p class="mb-3">Ninguna orden coincide con «{{ search.trim() }}».</p>
+        <button @click="search = ''" class="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium">
+          Limpiar búsqueda
+        </button>
+      </div>
+
       <div v-else class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
@@ -77,7 +99,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-            <tr v-for="inst in installations" :key="inst.id"
+            <tr v-for="inst in visibleInstallations" :key="inst.id"
               class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
               <td class="px-4 py-3">
                 <span :class="statusBadge(inst.status)" class="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase">
@@ -137,9 +159,14 @@
         </table>
       </div>
 
-      <div v-if="!loading && installations.length > 0"
+      <div v-if="!loading && visibleInstallations.length > 0" data-testid="installations-count"
         class="px-4 py-3 border-t border-gray-100 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-        {{ installations.length }} orden{{ installations.length !== 1 ? 'es' : '' }}
+        <template v-if="visibleInstallations.length !== installations.length">
+          {{ visibleInstallations.length }} de {{ installations.length }} órdenes
+        </template>
+        <template v-else>
+          {{ installations.length }} {{ installations.length === 1 ? 'orden' : 'órdenes' }}
+        </template>
         <span v-if="filters.status" class="ml-1 font-medium">· {{ filters.status }}</span>
       </div>
     </div>
@@ -409,9 +436,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { ref, computed, watch, onMounted } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import api from '@/services/api'
+import { searchIndex, searchTerms, matchesIndex } from '@/utils/textSearch'
 import NotificationToast from '@/components/NotificationToast.vue'
 import ConfirmModal from '@/components/ui/ConfirmModal.vue'
 import InstallationPlanEditor from '@/components/InstallationPlanEditor.vue'
@@ -425,11 +453,40 @@ import {
 } from '@/utils/installationPlan'
 
 const router = useRouter()
+const route = useRoute()
 const toast = ref(null)
 const installations = ref([])
 const loading = ref(true)
 
 const filters = ref({ status: '', from: '', to: '' })
+
+// ── Buscar ───────────────────────────────────────────────────────────────
+// Lo que el operador recuerda de una orden: a quién (nombre, cédula, teléfono,
+// correo), dónde, quién la hace, el equipo o su número. La lista ya viene
+// entera del servidor, así que se filtra aquí y responde al teclear.
+// Va en la URL (?q=): al volver del detalle la búsqueda sigue ahí.
+const search = ref(typeof route.query.q === 'string' ? route.query.q : '')
+
+const searchTextsOf = (inst) => [
+  `#${inst.id}`,
+  inst.customer_name, inst.prospect_name, inst.customer_email, inst.customer_tel,
+  inst.customer?.customer_profile?.cedula, inst.prospect?.cedula,
+  inst.address, inst.prospect?.city, inst.technician_name,
+  equipmentSummary(inst),
+]
+
+const indexedInstallations = computed(() =>
+  installations.value.map(inst => ({ inst, index: searchIndex(searchTextsOf(inst)) })))
+
+const visibleInstallations = computed(() => {
+  const terms = searchTerms(search.value)
+  if (!terms.length) return installations.value
+  return indexedInstallations.value.filter(row => matchesIndex(terms, row.index)).map(row => row.inst)
+})
+
+watch(search, (q) => {
+  router.replace({ query: { ...route.query, q: q.trim() ? q : undefined } }).catch(() => {})
+})
 
 const technicians = ref([])
 

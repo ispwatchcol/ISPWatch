@@ -48,6 +48,20 @@ class InventoryMovement extends Model
     public const TYPE_INSTALACION = 'instalacion';  // se fue con el cliente
     public const TYPE_DEVOLUCION  = 'devolucion';   // volvió del cliente
     public const TYPE_BAJA        = 'baja';         // dañado / perdido
+    // Corrección de una entrada que se digitó de más. Sale del saldo igual que
+    // una baja, pero NO es una pérdida: separarlas evita que un error de
+    // digitación se cuente como material dañado o perdido.
+    public const TYPE_AJUSTE      = 'ajuste';
+
+    /** Todos los tipos, en el orden en que se ofrecen como filtro. */
+    public const TYPES = [
+        self::TYPE_ENTRADA,
+        self::TYPE_TRASPASO,
+        self::TYPE_INSTALACION,
+        self::TYPE_DEVOLUCION,
+        self::TYPE_BAJA,
+        self::TYPE_AJUSTE,
+    ];
 
     // Extremos de un movimiento.
     public const HOLDER_BRANCH   = 'branch';

@@ -4,7 +4,7 @@
 > Complementa a [`ARQUITECTURA.md`](ARQUITECTURA.md) (diseño) y
 > [`BITACORA_TECNICA.md`](BITACORA_TECNICA.md) (inventario de código).
 
-**Última actualización:** 2026-07-30 (post-remediación)
+**Última actualización:** 2026-11-26 (descontar material, `utils/textSearch.js`, recorrido § 136)
 
 ---
 
@@ -1314,7 +1314,20 @@ $this->ledger->returnDeviceFromTicket($ticket, $device, 'branch', $branch->id, $
 // Deshacer, en cualquiera de los dos sentidos: una entrega vuelve a quien la
 // aportó, un retiro vuelve a casa del cliente.
 $this->ledger->releaseFromTicket($item, $actor);
+
+// ── Bajar un saldo de material sin entregárselo a nadie (2026-11-26) ──
+// AJUSTE = la entrada se digitó de más; BAJA = dañado, perdido, devuelto.
+$this->ledger->writeOffQuantity($stock, 'branch', $branch->id, 450.0, InventoryMovement::TYPE_AJUSTE, $actor, 'Corrección: se ingresó de más');
 ```
+
+**`ajuste` y `baja` no se mezclan.** Los dos salen del saldo hacia `scrap`, pero un error de
+digitación no es una pérdida: si algún día se hace un informe de mermas, suma sólo `baja`. El
+motivo que ve el usuario (`ingreso_de_mas`, `danado`, `perdido`, `devuelto`) y su tipo viven en
+`InventoryMovementController::WRITE_OFF_REASONS`. **Un tipo nuevo del kardex** se agrega en
+`InventoryMovement::TYPES` (el filtro de `GET /inventory/movements` se valida contra esa lista) y en
+los dos mapas de `pages/InventoryMovements.vue`; `tests/Feature/Ui/InventoryAndInstallationsScreensTest`
+falla si la pantalla no lo conoce. El descuento **no** toca el gasto automático de la entrada
+(P-125): si lo resuelves, hazlo sobre la entrada concreta, no adivinando.
 
 **El ticket mueve inventario en dos sentidos; la instalación sólo en uno.** Por eso
 `ticket_equipment` es una tabla propia con `direction` (`out`/`in`) y no una columna más en
@@ -1425,6 +1438,15 @@ Reglas que ya costaron un fallo:
 - En los recorridos de navegador se maneja con `choose()` de `tests/Browser/material-por-cantidad.mjs`
   (abrir, escribir, pulsar la opción), no con `selectedIndex`.
 
+**Buscar en una lista que filtra en el navegador: `utils/textSearch.js` (2026-11-26).** Es la misma
+regla que usan `SearchableSelect` y `SearchPickerModal` —sin tildes ni mayúsculas, sin separadores
+(«rgew300» encuentra «RG-EW300»), varias palabras y todas deben aparecer—, en una sola utilidad para
+las páginas de listas (*Equipos y existencias*, *Entregas y traspasos*, *Instalaciones*). Arma el
+índice de cada fila **una vez al cargar** con `searchIndex([...campos])` y filtra con
+`matchesIndex(searchTerms(q), fila._search)`; no pliegues texto en cada tecla. Si una lista con
+buscador también pagina, **el total y las páginas salen de lo filtrado** y un `watch` sobre los
+filtros vuelve a la página 1 (lo que faltaba en *Equipos y existencias*, § 136).
+
 **Ingresar al inventario (2026-11-23).** `pages/InventoryIntake.vue` (`/inventory/ingreso`,
 `name: 'InventoryIntake'`) es la única pantalla de alta de mercancía y no tiene endpoint propio:
 material → un `POST /inventory/transfers` sin origen con todas las líneas (atómico en el backend);
@@ -1509,8 +1531,11 @@ orden y ticket, precisión, saldo, tenants, reenvío, cable) y `QuantityDecimals
 **Catálogo ≠ existencia; serial ≠ material (2026-10-11).**
 
 - Un material nace en dos pasos: `inventory_stock` con `is_serialized = false` (pantalla Stock →
-  «Agregar material») y una **entrada** por `InventoryLedger::transferQuantity()` sin origen
-  (Entregas y traspasos → «Entrada de material»). No hay otra puerta para su existencia.
+  «Agregar material», o en línea desde *Ingresar al inventario*) y una **entrada** por
+  `InventoryLedger::transferQuantity()` sin origen (*Ingresar al inventario* → «Material por
+  cantidad»; hasta el PR #344 era Entregas y traspasos → «Entrada de material»). No hay otra
+  puerta para su existencia. La única forma de **bajarla** sin entregarla ni consumirla es
+  `writeOffQuantity()` (*Entregas y traspasos* → «Descontar…», § 136).
 - `inventory_device` es sólo para modelos por serial. Lo exigen
   `InventoryDeviceController::onlySerializedStock()` (alta, y edición si cambia el modelo) e
   `InventoryImport` (fila rechazada). Si agregas otra forma de crear equipos, aplica la misma regla.
@@ -1528,6 +1553,17 @@ formal (camino + diagnóstico + medición final), el alta desde la ficha del cli
 flujo simple en Configuración, el cierre simple, el celular a 390 px y la vista del técnico. Se
 corre igual que el de abajo, contra un backend aislado sembrado con los datos que describe su
 cabecera (`WAIT_MS=30000` con `php -S`).
+
+**Recorrido de navegador del reporte de Chaguaní (§ 136).** `tests/Browser/inventario-conteos-y-descontar.mjs`
+recorre las tarjetas por estado y el paginador de *Equipos y existencias* (ir a la última página
+del inventario completo y buscar: vuelve a la 1 y nunca queda en blanco), el origen por defecto y el
+aviso de materiales de *Entregas y traspasos*, «Descontar…» (tope de saldo, motivo obligatorio,
+ajuste en *Movimientos*, y la **respuesta perdida**: `Fetch.enable` en etapa *Response* +
+`Fetch.failRequest` deja que el servidor grabe y corta la respuesta), el buscador de
+*Instalaciones* con `?q=` y la vista a 390 px. Ese truco de `Fetch` sirve para probar cualquier
+pantalla contra «se grabó pero el navegador no se enteró». Se corre
+igual que el de abajo, contra un backend aislado sembrado con los datos que describe su cabecera
+(`WAIT_MS=30000` con `php -S`); **modifica datos**, así que para repetirlo hay que volver a sembrar.
 
 **Recorrido de navegador del material por cantidad.** `tests/Browser/material-por-cantidad.mjs`
 recorre por pantalla *Ingresar al inventario* (crea «Fibra drop» ahí mismo, entran 100 m, y un

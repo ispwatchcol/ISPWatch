@@ -5,7 +5,7 @@
 > validación reales de cada `FormRequest` o `$request->validate()`.
 > Cuando un endpoint no declara validación explícita se indica así en lugar de inventar campos.
 
-**Última actualización:** 2026-11-17 (Partner API 1.3.0) · Prefijo base: `/api`
+**Última actualización:** 2026-11-26 (inventario: descontar material y resumen por custodio) · Prefijo base: `/api`
 
 ---
 
@@ -2115,8 +2115,10 @@ con el error en `numero`, no un 500.
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
 | `GET` | `/api/inventory/holdings?holder_type=&holder_id=` | `view_inventory` | Qué tiene encima una sucursal o una persona: equipos con serial + saldos de material |
+| `GET` | `/api/inventory/holders-summary` | `view_inventory` | Cuántos equipos y cuántos materiales con saldo tiene cada bodega o persona. Sólo los custodios con algo (ver 15.1.1) |
 | `POST` | `/api/inventory/transfers` | `view_inventory` | Entrega/traspaso. Sin `source_type` en un material, el movimiento se registra como **entrada** desde el proveedor |
-| `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
+| `POST` | `/api/inventory/write-offs` | `view_inventory` | **Descontar material** de una bodega o persona: corrección de un ingreso digitado de más (`ajuste`) o baja de lo dañado, perdido o devuelto (`baja`). Ver 15.1.2 |
+| `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type` (`entrada`, `traspaso`, `instalacion`, `devolucion`, `baja`, `ajuste`), `from`, `to` |
 | `GET` | `/api/inventory/orphan-balances` | `view_inventory` | Material cuyo custodio fue eliminado: saldos con `quantity > 0` cuya sucursal o usuario ya no existe |
 | `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto). `422` si está **instalado** (se retira del cliente desde un ticket) o ya dado de baja (no duplica la línea del kardex) |
 
@@ -2129,9 +2131,69 @@ con el error en `numero`, no un 500.
 > `installation_id` se muestra con el cliente de la orden (si ya se convirtió) o como
 > `"Prospecto: Nombre (orden #N)"`.
 
-> **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/transfers`,
-> `/orphan-balances`) se registran **antes** de `/api/inventory/{inventory}`; al revés, el
-> parámetro las capturaría y `movements` llegaría como si fuera un id.
+> **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/holders-summary`,
+> `/transfers`, `/write-offs`, `/orphan-balances`) se registran **antes** de
+> `/api/inventory/{inventory}`; al revés, el parámetro las capturaría y `movements` llegaría como
+> si fuera un id.
+
+#### 15.1.1 `GET /api/inventory/holders-summary`
+
+Lo usa *Entregas y traspasos* para abrir en un origen que tenga algo y para poner los conteos en
+el desplegable. Antes la pantalla abría siempre en «Bodega (sin sucursal)», que **nunca** tiene
+materiales (un saldo siempre es de una bodega o de una persona), y la sección de materiales no
+aparecía.
+
+```json
+[
+  { "type": "branch", "id": null, "devices": 2,  "materials": 0 },
+  { "type": "branch", "id": 1,    "devices": 42, "materials": 2 },
+  { "type": "user",   "id": 12,   "devices": 3,  "materials": 1 }
+]
+```
+
+Cuenta exactamente lo que `GET /holdings` listaría al elegir ese custodio: equipos `stock` por
+`branch_id` (`null` = sin sucursal), equipos `assigned` por `user_id`, y materiales con
+`quantity > 0`. Los instalados y los dados de baja no cuentan. Dos consultas agrupadas, con el
+tenant explícito además del scope global.
+
+#### 15.1.2 `POST /api/inventory/write-offs` — descontar material
+
+```json
+{
+  "stock_id": 3,
+  "holder_type": "branch",          // branch | user
+  "holder_id": 1,
+  "quantity": 450,
+  "reason": "ingreso_de_mas",       // ingreso_de_mas | danado | perdido | devuelto
+  "notes": "se digitó 500 en vez de 50"   // opcional, máx. 200
+}
+```
+
+Respuesta `201`:
+
+```json
+{
+  "message": "Corrección registrada.",
+  "movement_id": 88,
+  "type": "ajuste",                 // ajuste (ingreso_de_mas) | baja (el resto)
+  "remaining": 50,                  // saldo que le queda a ese custodio
+  "warnings": []
+}
+```
+
+- **Nada se borra.** El saldo baja y queda una línea en el kardex desde el custodio hacia
+  `scrap`, con quien lo hizo y la nota `"<motivo> · <nota>"`. La entrada original sigue intacta.
+- **`ajuste` no es `baja`:** los metros que se digitaron de más nunca existieron; contarlos como
+  material perdido falsearía cualquier informe de mermas. En el kardex el destino de un ajuste se
+  lee **«Corrección de inventario»**, no «Baja».
+- `422` si la cantidad supera el saldo del custodio (`errors.quantity`, con el disponible), si no
+  respeta la precisión del producto, si el producto es **por serial** (`errors.stock_id`: esos se
+  dan de baja equipo por equipo con `/retire`) o si falta el motivo (`errors.reason`). `404` si el
+  producto es de otra empresa. Un custodio ya borrado sí se puede descontar mientras tenga saldo,
+  igual que en el traspaso (P-19).
+- **No toca el gasto automático de la entrada** (KAN-91): no sabe cuál de las entradas fue la
+  equivocada. Si la empresa tiene ese gasto activo, un `ajuste` devuelve en `warnings` el aviso
+  de corregirlo a mano en Gastos (P-125).
 
 > **Nombre del parámetro:** el comodín `{inventory}` y el argumento del controlador
 > (`InventoryDevice $inventory`) tienen que llamarse **igual**. El nombre no se ve en la URL, pero

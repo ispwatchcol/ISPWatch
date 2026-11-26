@@ -728,10 +728,14 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
     Route::middleware('permission:view_inventory')->group(function () {
         Route::get('/inventory/movements', [InventoryMovementController::class, 'index']);
         Route::get('/inventory/holdings', [InventoryMovementController::class, 'holdings']);
+        // Qué tiene cada bodega o persona (conteos), para que Entregas abra donde hay algo.
+        Route::get('/inventory/holders-summary', [InventoryMovementController::class, 'holdersSummary']);
         // Material cuyo custodio se borró. Va acá arriba, entre las literales:
         // debajo del comodin /inventory/{inventory} se lo tragaria como un id.
         Route::get('/inventory/orphan-balances', [InventoryMovementController::class, 'orphanBalances']);
         Route::post('/inventory/transfers', [InventoryMovementController::class, 'store']);
+        // Descontar material: corregir una entrada digitada de más, o dar de baja.
+        Route::post('/inventory/write-offs', [InventoryMovementController::class, 'writeOff']);
         Route::post('/inventory/{inventory}/retire', [InventoryMovementController::class, 'retire']);
     });
     // Va DESPUÉS de las rutas literales de arriba: registrada antes, /inventory/{inventory}

@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-11-17 · Rama: `feat/partner-routers-and-access-authority`
+**Última actualización:** 2026-11-26 · Rama: `fix/inventario-conteos-entregas-instalaciones`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
@@ -11511,3 +11511,107 @@ Con este cambio se publica **1.2.0** (`config/version.php` + `CHANGELOG.md`). La
 `v1.1.0` y `v1.1.1` nunca se crearon en el remoto. La entrada del CHANGELOG resume ese periodo
 completo. El tag `v1.2.0` se crea a mano sobre `main` después del merge (P-34).
 
+
+---
+
+## 136. Reporte de Chaguaní: cuántos hay de un modelo, materiales en Entregas, descontar y buscar instalaciones — 2026-11-26
+
+### Pedido
+
+Cuatro puntos de un mismo cliente (Chaguaní), con captura de *Equipos y existencias* filtrada por
+«RG-EW300»:
+
+1. «En instalaciones poner un buscador.»
+2. «En Entregas y traspasos deben estar también los materiales de cantidad», y «no veo una forma de
+   descontar: mi usuario ingresó mal la cantidad pero no puede quitarlos».
+3. «Al filtrar RG-EW300 no me aparece en ningún lado cuántos tengo», y «cuando voy paginando y me
+   paso a una página donde ya no hay más, no muestra nada».
+4. «Hay más RG-EW300 de los que tengo.»
+
+### Causas
+
+- **(3) El paginador contaba el inventario entero.** En `Inventory.vue`, `totalDevices` y
+  `totalPages` salían de `devices` (todo), no de lo filtrado; la página tampoco volvía a 1 al
+  buscar. Con 244 equipos y una búsqueda de 25 ofrecía 25 páginas; desde la 4 la tabla quedaba
+  vacía y, como el paginador sólo se pinta si hay filas, **sin forma de volver**. Y ninguna cifra
+  respondía «cuántos»: las tarjetas contaban **catálogos** (§ 22: *En stock* = modelos, 43), no
+  equipos, y no miraban la búsqueda.
+- **(4) Probablemente lo mismo, no duplicados.** La lista mezcla los cuatro estados (en bodega, con
+  técnicos, instalados, de baja) sin desglose, y el pie decía «de 244 dispositivos» con cualquier
+  búsqueda. Duplicados exactos de serial no pueden existir desde el índice único por
+  `LOWER(serial)` de KAN-100 (P-44, 2026-09-21). **No se consultó producción** para confirmarlo (las lecturas a `public` se piden
+  explícitamente); con el arreglo, las tarjetas dicen cuántos están en bodega, con técnicos,
+  instalados y de baja, y la cifra de *disponibles* coincide con la *Existencia* del catálogo.
+- **(2a) Entregas abría siempre en «Bodega (sin sucursal)»**, y `holdings()` no devuelve materiales
+  para un custodio sin id: un saldo siempre tiene dueño. Antes del PR #344 la página tenía al pie
+  la «Entrada de material» con todo el catálogo de materiales; al moverla a *Ingresar al
+  inventario*, lo único que quedaba era el panel del origen… que por defecto nunca los tiene.
+- **(2b) No existía bajar un saldo de material.** El ledger sólo sabía entrar, traspasar y
+  consumir; la baja existía sólo para equipos con serial (`retireDevice`). Un ingreso de 500 m en
+  vez de 50 quedaba para siempre (ya anotado para tickets en P-57).
+- **(1)** `Installations.vue` sólo filtraba por estado y fechas.
+
+### Qué se hizo
+
+- **Equipos y existencias.** Cinco tarjetas por estado (*Todos/Coinciden*, *En bodega*, *Con
+  técnicos*, *Instalados*, *De baja*) calculadas sobre búsqueda + proveedor + sucursal; la primera
+  dice cuántos están **disponibles** (bodega + técnicos). Pulsar una filtra la tabla por ese estado.
+  Total, páginas y «Mostrando a - b de N (filtrados de M)» salen de lo filtrado; cambiar un filtro
+  vuelve a la página 1 y la página nunca queda más allá de la última. Vacío con filtros ofrece
+  «Limpiar filtros». Las tarjetas de catálogo (*Proveedores*, *Sucursales*, *En stock*) se quitan:
+  esos números viven en *Catálogo* y el menú ya no tiene una sección «Stock» que § 22 usaba de
+  argumento. Sustituye la decisión de § 22.
+- **Entregas y traspasos.** `GET /api/inventory/holders-summary` (conteo de equipos y materiales
+  por custodio). La página abre en la bodega con más existencias, el desplegable *Sale de* dice qué
+  tiene cada origen, y si el origen no tiene materiales un aviso lista dónde hay y lleva allá.
+- **Descontar material.** `POST /api/inventory/write-offs` → `InventoryLedger::writeOffQuantity()`:
+  baja el saldo del custodio hacia `scrap` con motivo obligatorio. **Tipo nuevo `ajuste`** para
+  «se ingresó de más»; *dañado / perdido / devuelto* quedan como `baja`. En el kardex el ajuste se
+  lee «Corrección de inventario». Botón «Descontar…» en cada material de Entregas, con tope de
+  saldo y precisión del producto (`quantityError` de `materialQuantity.js`) y sin perder lo que el
+  usuario iba seleccionando para la entrega. **Sin respuesta del servidor** (la petición pudo
+  grabarse y perderse la respuesta), la ventana recarga el saldo real y pide revisarlo antes de
+  repetir: el kardex no tiene clave de idempotencia y repetir a ciegas descontaría dos veces (el
+  mismo riesgo que ya tenía la entrega; P-91 trata su atomicidad, no esto).
+- **Instalaciones.** Buscador que filtra lo ya cargado por nombre, cédula, teléfono, correo,
+  dirección, técnico, equipo o `#orden`, sin tildes ni separadores, con varias palabras; vive en
+  `?q=` para sobrevivir al *Atrás* del navegador.
+- `utils/textSearch.js`: la regla de búsqueda que ya tenían copiada `SearchableSelect`,
+  `SearchPickerModal` y `InventoryTransfers`, para las páginas de listas (los dos componentes no se
+  tocaron).
+
+### Decisiones
+
+| Decisión | Por qué |
+|---|---|
+| `ajuste` separado de `baja` | Un error de digitación no es una merma. Sumados, cualquier informe de pérdidas mentiría. La columna es `varchar(20)`: **sin migración** |
+| El descuento **no** corrige el gasto automático de la entrada (KAN-91) | Descuenta del saldo del custodio, no de una entrada concreta: no sabe cuál fue la equivocada, y adivinar sería mover dinero a ciegas. Si el tenant tiene el gasto activo, la respuesta lo avisa (`warnings`). Queda P-125 |
+| Se puede descontar de un custodio borrado | Igual que el traspaso (P-19): lo que manda es la fila de saldo del tenant, que `decrementBalance` ya exige |
+| Descontar va en Entregas, no en una pantalla nueva | Lo pidió el cliente «en este mismo apartado», y es la preferencia del usuario: sumar a una pantalla existente antes que agregar menú |
+| Búsqueda de Instalaciones en el navegador | La página ya trae todas las órdenes (`GET /installations` sin paginar); buscar en el servidor exigiría paginarla primero. Queda P-126 |
+| El enlace «Instalaciones» del detalle no conserva la búsqueda | Sólo el *Atrás* del navegador; llevar `?q=` entre dos pantallas no compensaba |
+
+### Pruebas
+
+- `tests/Feature/Inventory/MaterialWriteOffTest.php` (11): ajuste y baja, tope de saldo, motivo
+  obligatorio, precisión, producto por serial, otra empresa (404 / 422 sin tocar su saldo), permiso
+  (403 con sólo `view_support`), custodio borrado, gasto automático (avisa y no lo toca) y el
+  kardex (`type=ajuste`, «Corrección de inventario»).
+- `tests/Feature/Inventory/InventoryHoldersSummaryTest.php` (3): conteos por custodio iguales a
+  lo que lista `holdings()`, sin mezclar tenants, permiso.
+- `tests/Feature/Ui/InventoryAndInstallationsScreensTest.php` (4): guardas de fuente de las tres
+  causas (habrían fallado en `main`) y que Movimientos conozca todos los `InventoryMovement::TYPES`.
+- Recorrido de navegador `tests/Browser/inventario-conteos-y-descontar.mjs` (14 pasos, con
+  capturas) contra un backend aislado SQLite: los 14 pasaron. La respuesta perdida se simula con
+  `Fetch.enable` en etapa *Response* + `Fetch.failRequest`: la petición llega al servidor y se
+  graba, y lo que se corta es la respuesta.
+- **Lo que encontró el recorrido:** tras un descuento exitoso la ventana se cerraba pero
+  `writingOff` seguía en `true` hasta terminar las recargas de saldo; un segundo «Descontar…»
+  abierto en ese lapso nacía como «Descontando…» y bloqueado. Ahora se suelta antes de recargar y
+  el disponible de la fila se actualiza al instante con `remaining`. El paso lo vigila.
+
+Sin migraciones: se despliega sin `migrate:both`.
+
+### Versión 1.3.0
+
+Función nueva compatible (descontar material, resumen por custodio, buscador): **1.3.0**.
