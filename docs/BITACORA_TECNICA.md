@@ -11504,3 +11504,10 @@ ticket, que es donde queda la firma y el kardex.
 revertida que no cuenta y un equipo de otro cliente que no sale), cliente sin equipos, cliente
 de otro tenant (`404`) y permiso (`403` sin permisos, `200` con `view_support`).
 
+### Versión 1.2.0
+
+Con este cambio se publica **1.2.0** (`config/version.php` + `CHANGELOG.md`). La versión llevaba en
+1.1.1 desde el 2026-08-21 con más de 140 PRs encima (§ 52 a § 135) sin numerar, y los tags
+`v1.1.0` y `v1.1.1` nunca se crearon en el remoto. La entrada del CHANGELOG resume ese periodo
+completo. El tag `v1.2.0` se crea a mano sobre `main` después del merge (P-34).
+
