@@ -11414,3 +11414,59 @@ alta desde la ficha con aviso y técnico → Asignado, cambio a simple, cierre s
 
 P-122 (búsqueda sin tildes), P-123 (buscador del alta trae todos los clientes), P-124 (*Editar*
 y «Atención» se solapan).
+
+## 134. «Instalado · cliente» sin nombre: equipos en órdenes de prospecto (P-74) — 2026-11-25
+
+### Pedido
+
+Un MIKROTIK LDF 5 (serial `HJ80A5E3779`, Chaguaní) salía en el inventario como *Instalado ·
+cliente*, sin nombre. «Hay que poner que está como cliente tal cliente, o que está como
+prospecto, porque uno se pierde.»
+
+### Causa raíz
+
+La orden #72 era de un **prospecto** (Javier Manuel Gutiérrez García), no de un cliente.
+`InventoryLedger::assignDeviceToInstallation()` copia `installation.customer_id` al equipo y al
+kardex, y en una orden de prospecto ese valor es `null`: el equipo quedó `installed` «en casa de
+nadie». La etiqueta caía en el genérico *cliente*. Y aunque se convirtiera al prospecto,
+`ProspectController::markConverted` le pasaba el cliente a la orden y a sus documentos, **no a
+los equipos**: el MikroTik habría seguido sin dueño para siempre, sin salir en la ficha ni poder
+retirarse en un ticket. Era P-74, documentado en § 84 y pendiente de decisión.
+
+### Decisión
+
+No se bloquea registrar equipos en la orden de un prospecto (el técnico lo hace en la visita,
+antes del alta). En su lugar:
+
+- **Inventario:** `GET /api/inventory` devuelve `installed_for` (`customer`/`prospect`/`unknown`)
+  y `holder_label` = *Instalado · Prospecto: Nombre (orden #N)* o *Instalado · Cliente: Nombre*.
+  Se resuelve con la relación nueva `InventoryDevice::latestInstallationLine` (la línea de la
+  hoja → orden → prospecto). La lista muestra *Aún no es cliente*, el buscador encuentra por
+  nombre, y la ventana de eliminar explica qué hacer con un equipo de prospecto.
+- **Conversión:** `markConverted` llama a `InventoryLedger::adoptInstallationCustomer()`, que pone
+  el cliente de la orden a los equipos de esa hoja que **siguen** `installed` sin cliente (si uno
+  ya se movió, su estado actual manda).
+- **Kardex:** es append-only, así que **no** se rellena el id. Al leer, un extremo `customer` sin
+  id con `installation_id` se nombra con el cliente de la orden (si ya se convirtió) o con el
+  prospecto.
+- **Pasivo:** `inventory:adopt-converted-prospect-devices` (dry-run; `--apply`) para los prospectos
+  convertidos antes del arreglo.
+
+Sin migraciones.
+
+### Detalle técnico
+
+`latestOfMany()` hace un join de la tabla consigo misma: seleccionar `id,device_id` a secas da
+*ambiguous column* (sqlite y pgsql). Las columnas del eager load van calificadas con
+`installation_equipment.`.
+
+### Pruebas
+
+`tests/Feature/Inventory/ProspectInstalledDeviceTest.php`: etiqueta del prospecto en la lista y
+en el kardex, la conversión pasa el equipo al cliente, no se lleva un equipo que ya cambió de
+dueño, y el comando de pasivo respeta el dry-run.
+
+### Deuda aceptada
+
+Un equipo de prospecto sigue sin poder retirarse desde un ticket hasta que se convierta (no hay
+ticket sin cliente); si el prospecto se rechaza, hay que quitarlo de la hoja antes de firmar.

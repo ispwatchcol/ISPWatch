@@ -204,6 +204,12 @@
                   <div class="mt-1 text-xs text-gray-600 dark:text-gray-300 max-w-[14rem] truncate" :title="device.holder_label">
                     {{ device.holder_label || device.branch_name || 'Bodega' }}
                   </div>
+                  <!-- Orden de prospecto: todavía no hay cliente. Sin esta
+                       línea se leía «Instalado · cliente» y nadie sabía de quién. -->
+                  <div v-if="device.installed_for?.type === 'prospect'" data-testid="installed-for-prospect"
+                    class="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                    Aún no es cliente · pasa a su ficha al darlo de alta
+                  </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <span class="text-sm font-bold text-green-600 dark:text-green-400">
@@ -337,8 +343,11 @@
             <div>
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Dónde está</p>
               <span class="text-[11px] font-medium px-2 py-0.5 rounded-full" :class="statusClass(device.status)">{{ statusLabel(device.status) }}</span>
-              <p class="mt-1 text-xs text-gray-800 dark:text-gray-200 truncate">
+              <p class="mt-1 text-xs text-gray-800 dark:text-gray-200 break-words">
                 {{ device.holder_label || device.branch_name || 'Bodega' }}
+              </p>
+              <p v-if="device.installed_for?.type === 'prospect'" class="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                Aún no es cliente
               </p>
             </div>
           </div>
@@ -447,7 +456,12 @@
             <div v-if="deviceToDelete?.status === 'installed'" data-testid="delete-installed"
               class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 text-sm text-amber-900 dark:text-amber-200">
               <p class="font-medium">Este equipo está instalado: {{ deviceToDelete?.holder_label }}.</p>
-              <p class="mt-1">
+              <p v-if="deviceToDelete?.installed_for?.type === 'prospect'" class="mt-1" data-testid="delete-installed-prospect">
+                Se registró en la orden #{{ deviceToDelete?.installed_for?.installation_id }} de un prospecto que todavía no es
+                cliente. Al darlo de alta, el equipo pasa a su ficha. Si se cargó por error y la orden aún no está firmada,
+                quítalo desde la hoja (<em>Equipos y materiales usados</em> → <em>Quitar</em>).
+              </p>
+              <p v-else class="mt-1">
                 No se puede eliminar ni dar de baja mientras siga en casa del cliente. Retíralo desde un
                 <strong>ticket de ese cliente</strong> → <em>Equipos de la visita</em> → <em>Retirar equipo del
                 cliente</em>: elige si vuelve a la bodega o si se da de baja (dañado).
@@ -612,6 +626,8 @@ const filteredDevices = computed(() => {
       (d.mac?.toLowerCase().includes(search)) ||
       (d.stock_model?.toLowerCase().includes(search)) ||
       (d.stock_brand?.toLowerCase().includes(search)) ||
+      // «¿qué tiene instalado Javier?»: el nombre del cliente o del prospecto.
+      (d.holder_label?.toLowerCase().includes(search)) ||
       (d.id?.toString().includes(search))
     )
   }

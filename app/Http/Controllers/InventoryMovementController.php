@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CustomerInstallation;
 use App\Models\InventoryBalance;
 use App\Models\InventoryBranch;
 use App\Models\InventoryDevice;
@@ -68,6 +69,19 @@ class InventoryMovementController extends Controller
 
         $labels = $this->holderLabels($movements->getCollection());
 
+        // «→ Cliente» sin id = la orden era de un prospecto. El kardex es
+        // append-only, así que el id no se rellena después: se resuelve al
+        // leer, con el cliente de la orden si ya se convirtió o el prospecto si no.
+        $prospectByInstallation = $this->prospectLabelsFor($movements->getCollection());
+        $partyLabel = function (?string $type, $id, ?int $installationId) use ($labels, $prospectByInstallation) {
+            if ($type === InventoryMovement::HOLDER_CUSTOMER && $id === null && $installationId
+                && isset($prospectByInstallation[$installationId])) {
+                return $prospectByInstallation[$installationId];
+            }
+
+            return $this->holderLabel($labels, $type, $id);
+        };
+
         $movements->getCollection()->transform(fn (InventoryMovement $m) => [
             'id'            => $m->id,
             'type'          => $m->type,
@@ -78,8 +92,8 @@ class InventoryMovementController extends Controller
             'stock_id'      => $m->stock_id,
             'item'          => trim(($m->stock?->brand ?? '') . ' ' . ($m->stock?->model ?? '')) ?: 'Equipo',
             'unit'          => $m->stock?->unit,
-            'from'          => $this->holderLabel($labels, $m->from_type, $m->from_id),
-            'to'            => $this->holderLabel($labels, $m->to_type, $m->to_id),
+            'from'          => $partyLabel($m->from_type, $m->from_id, $m->installation_id),
+            'to'            => $partyLabel($m->to_type, $m->to_id, $m->installation_id),
             'installation_id' => $m->installation_id,
             'support_ticket_id' => $m->support_ticket_id,
             'notes'         => $m->notes,
@@ -402,6 +416,54 @@ class InventoryMovementController extends Controller
                 ->toArray();
 
         return ['branch' => $branches, 'user' => $users, 'customer' => $users];
+    }
+
+    /**
+     * Quién es el «cliente» anónimo de las órdenes de prospecto que aparecen en
+     * esta página del kardex: «Nombre del cliente» si el prospecto ya se
+     * convirtió, o «Prospecto: Nombre (orden #N)» si todavía no. Dos consultas.
+     *
+     * @return array<int, string> installation_id => etiqueta
+     */
+    private function prospectLabelsFor($movements): array
+    {
+        $ids = $movements
+            ->filter(fn (InventoryMovement $m) => $m->installation_id && (
+                ($m->to_type === InventoryMovement::HOLDER_CUSTOMER && $m->to_id === null)
+                || ($m->from_type === InventoryMovement::HOLDER_CUSTOMER && $m->from_id === null)
+            ))
+            ->pluck('installation_id')
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return CustomerInstallation::with([
+                'prospect:id,name,last_name',
+                'customer:id,user_name,user_lastname,name',
+            ])
+            ->whereIn('id', $ids)
+            ->get(['id', 'customer_id', 'prospect_id'])
+            ->mapWithKeys(function ($i) {
+                if ($i->customer) {
+                    $u = $i->customer;
+
+                    return [$i->id => trim(($u->user_name ?? '') . ' ' . ($u->user_lastname ?? '')) ?: $u->name];
+                }
+
+                if ($i->prospect) {
+                    $p = $i->prospect;
+
+                    return [$i->id => 'Prospecto: '
+                        . (trim(($p->name ?? '') . ' ' . ($p->last_name ?? '')) ?: "#{$p->id}")
+                        . " (orden #{$i->id})"];
+                }
+
+                return [];
+            })
+            ->toArray();
     }
 
     private function holderLabel(array $labels, ?string $type, ?int $id): string

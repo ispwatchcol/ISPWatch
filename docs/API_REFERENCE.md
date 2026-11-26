@@ -670,7 +670,10 @@ Encola un job por cliente y devuelve un `jobId` (UUID). El progreso se consulta 
 
 **`mark-converted`** — cuerpo `{ "user_id": 123 }`. Devuelve **422** si el usuario no
 pertenece al tenant. En transacción, fija `status = convertido`, `converted_user_id` y
-`converted_at`.
+`converted_at`. Las instalaciones de ese prospecto que no tenían cliente reciben
+`customer_id`, igual que sus documentos y, desde P-74, **los equipos con serial que el técnico dejó
+instalados en esas órdenes** (`inventory_device.customer_id`, sólo los que siguen `installed` sin
+cliente). El kardex no se reescribe: es append-only y nombra al cliente al leer.
 
 ### Instalaciones
 
@@ -2013,7 +2016,7 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
-| `GET` | `/api/inventory` | `view_inventory` ∪ `view_support` | Equipos (con serial y MAC) |
+| `GET` | `/api/inventory` | `view_inventory` ∪ `view_support` | Equipos (con serial y MAC). Cada fila trae `holder_label` y, si está instalado, `installed_for` (ver abajo) |
 | `POST` | `/api/inventory` | `view_inventory` | Alta de equipo |
 | `GET` | `/api/inventory/{id}` | `view_inventory` ∪ `view_support` | Detalle |
 | `PUT/PATCH` | `/api/inventory/{id}` | `view_inventory` | Actualiza |
@@ -2093,6 +2096,15 @@ con el error en `numero`, no un 500.
 | `GET` | `/api/inventory/movements` | `view_inventory` | Kardex paginado. Filtros: `device_id`, `stock_id`, `holder_type`+`holder_id`, `type`, `from`, `to` |
 | `GET` | `/api/inventory/orphan-balances` | `view_inventory` | Material cuyo custodio fue eliminado: saldos con `quantity > 0` cuya sucursal o usuario ya no existe |
 | `POST` | `/api/inventory/{id}/retire` | `view_inventory` | Baja de un equipo (dañado, perdido, devuelto). `422` si está **instalado** (se retira del cliente desde un ticket) o ya dado de baja (no duplica la línea del kardex) |
+
+> **`installed_for` y el «→ Cliente» de un prospecto (P-74).** En una orden de **prospecto** el
+> equipo queda `installed` con `customer_id = null`. `GET /api/inventory` devuelve entonces
+> `installed_for = { type: "prospect", id, name, installation_id }` y `holder_label =
+> "Instalado · Prospecto: Nombre (orden #N)"`; con cliente, `type: "customer"` y
+> `"Instalado · Cliente: Nombre"`; sin ninguno de los dos, `type: "unknown"`. `installed_for` es
+> `null` si el equipo no está instalado. En el kardex, un extremo `customer` sin id con
+> `installation_id` se muestra con el cliente de la orden (si ya se convirtió) o como
+> `"Prospecto: Nombre (orden #N)"`.
 
 > **Orden de rutas:** las rutas literales (`/movements`, `/holdings`, `/transfers`,
 > `/orphan-balances`) se registran **antes** de `/api/inventory/{inventory}`; al revés, el
