@@ -2677,6 +2677,10 @@ No es urgente —la papelera + volver a cargar la cifra correcta resuelve el cas
 aparezca el primer inventario descuadrado por esto, la respuesta es una corrección de cantidad
 sobre la línea, no un retiro de material.
 
+> **2026-11-26 (§ 136):** *Entregas y traspasos → Descontar…* resolvió el error del lado de la
+> **bodega** (un ingreso digitado de más). Esto sigue abierto: lo consumido en un ticket ya está en
+> casa del cliente y no lo alcanza ese descuento.
+
 ### 📋 P-50 · El `$` sigue sin escaparse en el COMANDO, sólo en la contraseña
 
 El arreglo del 2026-09-22 neutraliza `\`, `$` y `"` en la contraseña, pero el comando que
@@ -3003,6 +3007,37 @@ por el mismo `PUT` y sus permisos— pero son dos sitios para lo mismo.
 *Editar* a lo que no está en el detalle (asunto, descripción, sectorial, sin cobro) y llevarlo a
 un modal.
 
+### 📋 P-125 · Corregir un ingreso de más no corrige su gasto automático
+
+Visto en la bitácora § 136. *Descontar… → Se ingresó de más* (`POST /inventory/write-offs`,
+tipo `ajuste`) baja el **saldo del custodio**, no una entrada concreta. Si la empresa tiene
+activo el **gasto automático al ingresar inventario** (KAN-91), la entrada equivocada ya creó un
+gasto por la cantidad completa (500 m × precio) y ese gasto queda igual. La respuesta lo avisa en
+`warnings` y la pantalla lo muestra, pero la corrección del dinero es manual en *Gastos*.
+
+No se resolvió a propósito: el descuento no sabe cuál de las entradas fue la equivocada, y elegir
+una (la última, la más grande) sería mover dinero adivinando. Hoy el interruptor viene apagado y
+ningún tenant lo tenía encendido al diseñarse KAN-91.
+
+**Recomendación.** Una acción «Corregir cantidad» sobre la **línea de entrada** del kardex (en
+*Movimientos* o en *Últimos ingresos*): descuenta la diferencia del custodio que la recibió (si
+todavía la tiene) y, si había gasto, lo **anula** y emite uno nuevo por la cantidad correcta al
+precio congelado del original (`amount / quantity`), enlazado al movimiento de corrección. Nunca
+editar el gasto original.
+
+### 📋 P-126 · Equipos y existencias e Instalaciones traen la lista entera y filtran en el navegador
+
+Visto en la bitácora § 136. `GET /inventory` y `GET /installations` no paginan: devuelven todas
+las filas del tenant y la pantalla busca, cuenta y pagina en el navegador. Para el volumen actual
+(cientos de equipos, decenas de órdenes) es instantáneo y por eso el buscador de Instalaciones se
+hizo así; con decenas de miles de equipos la primera carga pesaría (mismo patrón que P-123).
+
+**Recomendación.** Cuando un ISP pase de unos 10.000 equipos u órdenes, paginar en el servidor con
+`?search=`, `?status=` y los **conteos por estado** calculados en la misma consulta (agrupados),
+para que las tarjetas sigan respondiendo «cuántos hay» sin traer las filas. Paginar sin mover los
+conteos al servidor haría que las tarjetas cuenten sólo la página visible (la misma trampa que
+evitó Gastos en la Fase 1).
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3168,6 +3203,8 @@ un modal.
 | **P-122** | La búsqueda de la cola de tickets (`TicketBoard`) no ignora tildes | «Garcia» no encuentra «García» | 🟢 Baja | 📋 Pendiente · requiere `unaccent` en PostgreSQL o columna normalizada (§ 133) |
 | **P-123** | `/support/customer-options` trae todos los clientes del ISP para filtrar en el navegador | Lento en ISP de decenas de miles de clientes | 🟢 Baja | 📋 Pendiente · búsqueda en servidor cuando haga falta (§ 133) |
 | **P-124** | «Editar ticket» y el recuadro «Atención» del detalle cambian lo mismo | Dos sitios para lo mismo | 🟢 Baja | 📋 Pendiente · reducir *Editar* tras validarlo con los operadores (§ 133) |
+| **P-125** | *Descontar… → Se ingresó de más* baja el saldo del custodio pero no corrige el **gasto automático** de la entrada equivocada (KAN-91) | Con el gasto automático encendido, el gasto de la compra queda inflado hasta que alguien lo ajuste a mano (la pantalla lo avisa) | 🟡 Media | 📋 Pendiente · aceptado conscientemente (§ 136): no se adivina qué entrada fue; candidato: «Corregir cantidad» sobre la línea de entrada, anulando y reemitiendo su gasto |
+| **P-126** | `GET /inventory` y `GET /installations` devuelven todas las filas; buscar, contar y paginar es en el navegador | Primera carga lenta en un ISP de decenas de miles de equipos u órdenes | 🟢 Baja | 📋 Pendiente · paginar en servidor con los conteos por estado en la misma consulta (§ 136) |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

@@ -27,32 +27,33 @@
         </button>
       </div>
 
-      <!-- Statistics Cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
-        <StatCard
-          title="Total Dispositivos"
-          :value="stats.totalDevices"
-          icon="bi-box-seam"
-          color="purple"
-        />
-        <StatCard
-          title="En Stock"
-          :value="stats.totalStock"
-          icon="md-inventory-round"
-          color="green"
-        />
-        <StatCard
-          title="Proveedores"
-          :value="stats.totalProviders"
-          icon="bi-building"
-          color="blue"
-        />
-        <StatCard
-          title="Sucursales"
-          :value="stats.totalBranches"
-          icon="md-storemalldirectory"
-          color="orange"
-        />
+      <!-- Cuántos hay y dónde. Las cifras respetan la búsqueda y los filtros de
+           proveedor y sucursal, y cada tarjeta filtra la tabla por su estado.
+           Antes contaban el catálogo («En stock» eran MODELOS) y al buscar
+           «RG-EW300» ninguna cifra decía cuántos había ni cuántos estaban
+           instalados (Chaguaní, 2026-11-26). -->
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-6" data-testid="status-cards">
+        <button
+          v-for="card in statusCards"
+          :key="card.key || 'all'"
+          type="button"
+          @click="setStatus(card.key)"
+          :aria-pressed="filters.status === card.key"
+          :data-testid="`status-card-${card.key || 'all'}`"
+          class="text-left rounded-xl bg-white dark:bg-gray-800 shadow-md p-4 border-l-4 transition-all
+                 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+          :class="[
+            card.border,
+            card.key === '' ? 'col-span-2 lg:col-span-1' : '',
+            filters.status === card.key ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-gray-50 dark:ring-offset-gray-900' : ''
+          ]"
+        >
+          <span class="block text-xs font-medium text-gray-600 dark:text-gray-400 uppercase tracking-wide">{{ card.label }}</span>
+          <span class="block text-2xl md:text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" :data-testid="`status-count-${card.key || 'all'}`">
+            {{ loading ? '…' : card.count }}
+          </span>
+          <span class="block text-[11px] text-gray-500 dark:text-gray-400 mt-1">{{ card.hint }}</span>
+        </button>
       </div>
 
       <!-- Filters and Search -->
@@ -70,8 +71,9 @@
               </div>
               <input
                 v-model="filters.search"
-                type="text"
-                placeholder="Buscar por serial, MAC, modelo..."
+                type="search"
+                data-testid="inventory-search"
+                placeholder="Modelo, serial, MAC, cliente o técnico…"
                 class="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 
                        rounded-xl bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100
                        focus:ring-2 focus:ring-purple-500 focus:border-transparent
@@ -155,7 +157,7 @@
             </thead>
             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
               <tr
-                v-for="device in filteredDevices"
+                v-for="device in pageDevices"
                 :key="device.id"
                 class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
               >
@@ -260,36 +262,55 @@
             </tbody>
           </table>
 
+          <div v-if="loading" class="flex items-center justify-center py-16 text-gray-500 dark:text-gray-400">
+            <v-icon name="ri-loader-4-line" animation="spin" class="w-6 h-6 mr-2" /> Cargando equipos…
+          </div>
+
           <!-- Empty State -->
           <div
-            v-if="filteredDevices.length === 0"
+            v-if="!loading && filteredDevices.length === 0"
             class="text-center py-16"
+            data-testid="inventory-empty"
           >
             <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
               <v-icon name="bi-box-seam" class="w-10 h-10 text-gray-400" />
             </div>
-            <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">No se encontraron dispositivos</p>
-            <p class="text-gray-400 dark:text-gray-500 text-sm mt-2">
-              Intenta ajustar los filtros o agrega un nuevo dispositivo
-            </p>
-            <button
-              @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
-              class="mt-6 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
-                     transition-colors text-sm font-medium inline-flex items-center gap-2"
-            >
-              <v-icon name="md-add" class="w-4 h-4 fill-current" />
-              Agregar Primer Dispositivo
-            </button>
+            <template v-if="hasActiveFilters">
+              <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">Ningún equipo coincide con los filtros</p>
+              <button @click="clearFilters" type="button"
+                class="mt-6 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm font-medium">
+                Limpiar filtros
+              </button>
+            </template>
+            <template v-else>
+              <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">No se encontraron dispositivos</p>
+              <p class="text-gray-400 dark:text-gray-500 text-sm mt-2">
+                Intenta ajustar los filtros o agrega un nuevo dispositivo
+              </p>
+              <button
+                @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
+                class="mt-6 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
+                       transition-colors text-sm font-medium inline-flex items-center gap-2"
+              >
+                <v-icon name="md-add" class="w-4 h-4 fill-current" />
+                Agregar Primer Dispositivo
+              </button>
+            </template>
           </div>
         </div>
 
-        <!-- Pagination -->
-        <div v-if="filteredDevices.length > 0" class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 
+        <!-- Pagination: cuenta lo FILTRADO. Antes contaba todo el inventario,
+             así que con una búsqueda ofrecía páginas vacías y, al entrar a una,
+             la tabla quedaba en blanco y sin paginador para volver. -->
+        <div v-if="filteredDevices.length > 0" class="px-6 py-4 border-t border-gray-200 dark:border-gray-700
                     flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-50 dark:bg-gray-900/50">
-          <div class="text-sm text-gray-700 dark:text-gray-300">
-            Mostrando <span class="font-semibold">{{ paginationStart }}</span> - 
-            <span class="font-semibold">{{ paginationEnd }}</span> de 
-            <span class="font-semibold">{{ totalDevices }}</span> dispositivos
+          <div class="text-sm text-gray-700 dark:text-gray-300" data-testid="pagination-summary">
+            Mostrando <span class="font-semibold">{{ paginationStart }}</span> -
+            <span class="font-semibold">{{ paginationEnd }}</span> de
+            <span class="font-semibold">{{ totalDevices }}</span> {{ totalDevices === 1 ? 'equipo' : 'equipos' }}
+            <span v-if="totalDevices !== devices.length" class="text-gray-500 dark:text-gray-400">
+              (filtrados de {{ devices.length }})
+            </span>
           </div>
           <Pagination :current-page="currentPage" :total-pages="totalPages" @change="goToPage" />
         </div>
@@ -298,7 +319,7 @@
       <!-- Mobile Card View -->
       <div class="lg:hidden space-y-4">
         <div
-          v-for="device in filteredDevices"
+          v-for="device in pageDevices"
           :key="device.id"
           class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 hover:shadow-lg transition-all"
         >
@@ -392,35 +413,51 @@
           </div>
         </div>
 
+        <div v-if="loading" class="flex items-center justify-center py-10 text-gray-500 dark:text-gray-400">
+          <v-icon name="ri-loader-4-line" animation="spin" class="w-6 h-6 mr-2" /> Cargando equipos…
+        </div>
+
         <!-- Mobile Empty State -->
         <div
-          v-if="filteredDevices.length === 0"
+          v-if="!loading && filteredDevices.length === 0"
           class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-8 text-center"
         >
           <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center">
             <v-icon name="bi-box-seam" class="w-10 h-10 text-gray-400" />
           </div>
-          <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">Sin dispositivos</p>
-          <p class="text-gray-400 dark:text-gray-500 text-sm mt-2 mb-6">
-            No hay dispositivos en el inventario
-          </p>
-          <button
-            @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
-            class="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
-                   transition-colors text-sm font-medium flex items-center justify-center gap-2"
-          >
-            <v-icon name="md-add" class="w-4 h-4 fill-current" />
-            Agregar Dispositivo
-          </button>
+          <template v-if="hasActiveFilters">
+            <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">Ningún equipo coincide</p>
+            <button @click="clearFilters" type="button"
+              class="mt-6 w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm font-medium">
+              Limpiar filtros
+            </button>
+          </template>
+          <template v-else>
+            <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">Sin dispositivos</p>
+            <p class="text-gray-400 dark:text-gray-500 text-sm mt-2 mb-6">
+              No hay dispositivos en el inventario
+            </p>
+            <button
+              @click="$router.push({ name: 'InventoryIntake', query: { tipo: 'equipo' } })"
+              class="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg
+                     transition-colors text-sm font-medium flex items-center justify-center gap-2"
+            >
+              <v-icon name="md-add" class="w-4 h-4 fill-current" />
+              Agregar Dispositivo
+            </button>
+          </template>
         </div>
 
         <!-- Mobile Pagination -->
-        <div v-if="filteredDevices.length > 0" 
+        <div v-if="filteredDevices.length > 0"
              class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-4 flex flex-col gap-3">
           <div class="text-sm text-center text-gray-700 dark:text-gray-300">
-            <span class="font-semibold">{{ paginationStart }}</span> - 
-            <span class="font-semibold">{{ paginationEnd }}</span> de 
+            <span class="font-semibold">{{ paginationStart }}</span> -
+            <span class="font-semibold">{{ paginationEnd }}</span> de
             <span class="font-semibold">{{ totalDevices }}</span>
+            <span v-if="totalDevices !== devices.length" class="text-gray-500 dark:text-gray-400">
+              (filtrados de {{ devices.length }})
+            </span>
           </div>
           <Pagination :current-page="currentPage" :total-pages="totalPages" @change="goToPage" class="justify-center" />
         </div>
@@ -554,14 +591,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import inventoryApi from '@/services/api/inventory'
 import inventoryProviderApi from '@/services/api/inventory-provider'
 import inventoryBranchApi from '@/services/api/inventory-branch'
-import inventoryStockApi from '@/services/api/inventory-stock'
 import { firstError } from '@/utils/apiError'
-import StatCard from '@/components/StatCard.vue'
+import { searchIndex, searchTerms, matchesIndex } from '@/utils/textSearch'
 import NotificationToast from '@/components/NotificationToast.vue'
 import Pagination from '@/components/ui/Pagination.vue'
 import { usePermissions } from '@/composables/usePermissions'
@@ -573,8 +609,7 @@ const router = useRouter()
 const devices = ref([])
 const providers = ref([])
 const branches = ref([])
-const stocks = ref([])
-const loading = ref(false)
+const loading = ref(true)
 const toast = ref(null)
 
 // Delete modal state
@@ -593,65 +628,94 @@ const getUserTenantId = () => {
   return userData.tenant_id
 }
 
-// Filters
-const filters = ref({
-  search: '',
-  provider: '',
-  branch: ''
-})
+// Filters — `status` lo ponen las tarjetas de arriba ('' = todos).
+const blankFilters = () => ({ search: '', provider: '', branch: '', status: '' })
+const filters = ref(blankFilters())
 
 // Pagination
 const currentPage = ref(1)
 const itemsPerPage = ref(10)
 
-// Stats — cada tarjeta cuenta su propio catálogo, no lo que referencien
-// los dispositivos: proveedores/sucursales/stock existen aunque el
-// inventario esté vacío.
-const stats = computed(() => ({
-  totalDevices: devices.value.length,
-  totalStock: stocks.value.length,
-  totalProviders: providers.value.length,
-  totalBranches: branches.value.length
-}))
+// Un equipo viejo sin estado se trata como en bodega, igual que su etiqueta.
+const STATUS_KEYS = ['stock', 'assigned', 'installed', 'retired']
+const statusOf = (device) => (STATUS_KEYS.includes(device.status) ? device.status : 'stock')
 
-// Computed
-const filteredDevices = computed(() => {
-  let result = devices.value
+// 1) Búsqueda + proveedor + sucursal, SIN el estado: es la base de los conteos
+//    (si el estado también filtrara aquí, al pulsar «En bodega» las demás
+//    tarjetas caerían a cero).
+const matchingDevices = computed(() => {
+  const terms = searchTerms(filters.value.search)
+  const { provider, branch } = filters.value
 
-  // Search filter
-  if (filters.value.search) {
-    const search = filters.value.search.toLowerCase()
-    result = result.filter(d => 
-      (d.serial?.toLowerCase().includes(search)) ||
-      (d.mac?.toLowerCase().includes(search)) ||
-      (d.stock_model?.toLowerCase().includes(search)) ||
-      (d.stock_brand?.toLowerCase().includes(search)) ||
-      // «¿qué tiene instalado Javier?»: el nombre del cliente o del prospecto.
-      (d.holder_label?.toLowerCase().includes(search)) ||
-      (d.id?.toString().includes(search))
-    )
-  }
-
-  // Provider filter
-  if (filters.value.provider) {
-    result = result.filter(d => d.provider_id == filters.value.provider)
-  }
-
-  // Branch filter
-  if (filters.value.branch) {
-    result = result.filter(d => d.branch_id == filters.value.branch)
-  }
-
-  // Pagination
-  const start = (currentPage.value - 1) * itemsPerPage.value
-  const end = start + itemsPerPage.value
-  return result.slice(start, end)
+  return devices.value.filter(d =>
+    (!terms.length || matchesIndex(terms, d._search)) &&
+    (!provider || d.provider_id == provider) &&
+    (!branch || d.branch_id == branch)
+  )
 })
 
-const totalDevices = computed(() => devices.value.length)
-const totalPages = computed(() => Math.ceil(totalDevices.value / itemsPerPage.value))
-const paginationStart = computed(() => (currentPage.value - 1) * itemsPerPage.value + 1)
+const statusCounts = computed(() => {
+  const counts = { stock: 0, assigned: 0, installed: 0, retired: 0 }
+  for (const d of matchingDevices.value) counts[statusOf(d)]++
+  return counts
+})
+
+const hasActiveFilters = computed(() => {
+  const f = filters.value
+  return !!(f.search.trim() || f.provider || f.branch || f.status)
+})
+
+const statusCards = computed(() => {
+  const c = statusCounts.value
+  const disponibles = c.stock + c.assigned
+  const conFiltro = !!(filters.value.search.trim() || filters.value.provider || filters.value.branch)
+
+  return [
+    {
+      key: '', label: conFiltro ? 'Coinciden' : 'Todos', count: matchingDevices.value.length, border: 'border-purple-500',
+      // Lo que el ISP pregunta: «¿cuántos tengo?» = los que puede entregar.
+      hint: `${disponibles} disponible${disponibles === 1 ? '' : 's'} (bodega + técnicos)`,
+    },
+    { key: 'stock',     label: 'En bodega',    count: c.stock,     border: 'border-emerald-500', hint: 'Listos para entregar' },
+    { key: 'assigned',  label: 'Con técnicos', count: c.assigned,  border: 'border-blue-500',    hint: 'En la mochila de alguien' },
+    { key: 'installed', label: 'Instalados',   count: c.installed, border: 'border-violet-500',  hint: 'En casa de clientes' },
+    { key: 'retired',   label: 'De baja',      count: c.retired,   border: 'border-gray-400',    hint: 'Ya no cuentan' },
+  ]
+})
+
+// 2) + estado: lo que lista la tabla.
+const filteredDevices = computed(() => {
+  const status = filters.value.status
+  return status ? matchingDevices.value.filter(d => statusOf(d) === status) : matchingDevices.value
+})
+
+// 3) La página visible.
+const pageDevices = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value
+  return filteredDevices.value.slice(start, start + itemsPerPage.value)
+})
+
+// Todo cuenta sobre lo FILTRADO: antes contaba el inventario entero, así que
+// con una búsqueda el paginador ofrecía páginas que no existían.
+const totalDevices = computed(() => filteredDevices.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalDevices.value / itemsPerPage.value)))
+const paginationStart = computed(() => totalDevices.value === 0 ? 0 : (currentPage.value - 1) * itemsPerPage.value + 1)
 const paginationEnd = computed(() => Math.min(currentPage.value * itemsPerPage.value, totalDevices.value))
+
+// Filtrar vuelve a la primera página, y si la lista se achica (una baja, otra
+// búsqueda) la página actual nunca queda más allá de la última.
+watch(
+  () => [filters.value.search, filters.value.provider, filters.value.branch, filters.value.status],
+  () => { currentPage.value = 1 }
+)
+watch(totalPages, (last) => { if (currentPage.value > last) currentPage.value = last })
+
+const setStatus = (status) => {
+  // Pulsar la tarjeta activa la apaga: vuelve a «todos».
+  filters.value.status = filters.value.status === status ? '' : status
+}
+
+const clearFilters = () => { filters.value = blankFilters() }
 
 // Methods
 const loadDevices = async () => {
@@ -659,14 +723,23 @@ const loadDevices = async () => {
   try {
     const { data } = await inventoryApi.getAll()
 
-    devices.value = (data || []).map(device => ({
-      ...device,
-      stock_brand: device.stock?.brand || null,
-      stock_model: device.stock?.model || null,
-      stock_price: device.stock?.price || 0,
-      provider_name: device.provider?.name || null,
-      branch_name: device.branch?.name || null
-    }))
+    devices.value = (data || []).map(device => {
+      const row = {
+        ...device,
+        stock_brand: device.stock?.brand || null,
+        stock_model: device.stock?.model || null,
+        stock_price: device.stock?.price || 0,
+        provider_name: device.provider?.name || null,
+        branch_name: device.branch?.name || null
+      }
+      // Se indexa una vez al cargar, no en cada tecla. Incluye el custodio:
+      // «¿qué tiene instalado Javier?» o «¿qué hay en Chaguaní?».
+      row._search = searchIndex([
+        row.id, row.stock_brand, row.stock_model, row.serial, row.mac,
+        row.holder_label, row.branch_name, row.provider_name,
+      ])
+      return row
+    })
   } catch (error) {
     console.error('Error loading devices:', error)
     toast.value?.error('Error', 'Error al cargar los dispositivos')
@@ -690,15 +763,6 @@ const loadBranches = async () => {
     branches.value = data || []
   } catch (error) {
     console.error('Error loading branches:', error)
-  }
-}
-
-const loadStocks = async () => {
-  try {
-    const { data } = await inventoryStockApi.getAll()
-    stocks.value = data || []
-  } catch (error) {
-    console.error('Error loading stocks:', error)
   }
 }
 
@@ -809,8 +873,7 @@ onMounted(async () => {
   await Promise.all([
     loadDevices(),
     loadProviders(),
-    loadBranches(),
-    loadStocks()
+    loadBranches()
   ])
 })
 </script>

@@ -5,7 +5,7 @@
 > Cuando algo **no** puede inferirse del código se marca explícitamente como
 > `⚠️ No inferible del código`.
 
-**Última actualización:** 2026-07-30 (post-remediación) · Rama: `feat/first-invoice-free-months`
+**Última actualización:** 2026-11-26 (inventario: ajuste vs. baja de material) · Rama: `fix/inventario-conteos-entregas-instalaciones`
 
 ---
 
@@ -309,6 +309,16 @@ Las pantallas de **Entregas y traspasos** (`/inventory/transfers`) sí pueden mo
 cualquier custodio —recoger lo que un técnico no usó es su función— porque exigen
 `view_inventory` y el movimiento queda escrito. Lo que nunca se permite es *consumir* existencias
 ajenas en silencio.
+
+**Toda salida de un material tiene un tipo que dice por qué (2026-11-26).** Hasta entonces un
+saldo sólo bajaba entregándolo o gastándolo en una orden o ticket: un ingreso digitado de más
+inflaba la existencia para siempre. `writeOffQuantity()` lo descuenta hacia `scrap` con uno de
+dos tipos que **no se mezclan**: `ajuste` (la entrada se digitó de más: esos metros nunca
+existieron) y `baja` (dañado, perdido, devuelto al proveedor). Un informe de mermas que sumara
+los dos contaría los errores de digitación como pérdidas. El descuento **no** toca el gasto
+automático de la entrada: no sabe cuál entrada fue la equivocada, y mover dinero adivinando no
+se hace (P-125). Los equipos con serial siguen con su propia baja (`retireDevice()`), una
+unidad por vez.
 
 **Precisión, reenvío y concurrencia (2026-10-10).** El ledger es también quien valida la
 **cantidad**: `assertQuantityFor()` exige la precisión del producto

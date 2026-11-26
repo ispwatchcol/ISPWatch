@@ -940,6 +940,73 @@ class InventoryLedger
     }
 
     /**
+     * Descuenta material del saldo de un custodio sin entregárselo a nadie.
+     *
+     * Dos casos, y el tipo del kardex los separa a propósito:
+     *  - AJUSTE: la entrada se digitó de más (500 m en vez de 50). Esos metros
+     *    nunca existieron; no son una pérdida.
+     *  - BAJA: el material se dañó, se perdió o volvió al proveedor.
+     *
+     * Antes no había forma de bajar un saldo: la única salida de un material
+     * era entregarlo o gastarlo en una orden, así que un ingreso equivocado
+     * quedaba inflando la existencia para siempre (reporte de Chaguaní,
+     * 2026-11-26). Los equipos con serial ya tenían su baja (retireDevice).
+     *
+     * El origen puede ser un custodio ya borrado, igual que en el traspaso
+     * (P-19): manda que exista la fila de saldo de ESTE tenant, y eso lo exige
+     * decrementBalance — que además impide descontar más de lo que hay.
+     */
+    public function writeOffQuantity(
+        InventoryStock $stock,
+        string $holderType,
+        int $holderId,
+        float $quantity,
+        string $type,
+        ?User $actor = null,
+        ?string $notes = null
+    ): InventoryMovement {
+        if (! in_array($type, [InventoryMovement::TYPE_AJUSTE, InventoryMovement::TYPE_BAJA], true)) {
+            throw new \InvalidArgumentException("Tipo de descuento no válido: {$type}");
+        }
+
+        if ($stock->is_serialized) {
+            throw ValidationException::withMessages([
+                'stock_id' => "{$stock->label()} se maneja por serial: se da de baja equipo por equipo, "
+                    . 'desde Equipos y existencias.',
+            ]);
+        }
+
+        if ($holderType !== InventoryMovement::HOLDER_BRANCH && $holderType !== InventoryMovement::HOLDER_USER) {
+            throw ValidationException::withMessages([
+                'holder_type' => 'El material se descuenta de una bodega o de una persona.',
+            ]);
+        }
+
+        if ($quantity <= 0) {
+            throw ValidationException::withMessages([
+                'quantity' => 'La cantidad debe ser mayor que cero.',
+            ]);
+        }
+
+        $this->assertQuantityFor($stock, $quantity);
+
+        return DB::transaction(function () use ($stock, $holderType, $holderId, $quantity, $type, $actor, $notes) {
+            $this->decrementBalance($stock, $holderType, $holderId, $quantity);
+
+            return $this->record($stock->tenant_id, [
+                'stock_id'  => $stock->id,
+                'type'      => $type,
+                'quantity'  => $quantity,
+                'from_type' => $holderType,
+                'from_id'   => $holderId,
+                'to_type'   => InventoryMovement::HOLDER_SCRAP,
+                'to_id'     => null,
+                'notes'     => $notes,
+            ], $actor);
+        });
+    }
+
+    /**
      * ¿Puede este usuario tomar existencias de ese custodio?
      * Lo suyo siempre; lo del técnico de la orden cuando hay orden; las bodegas
      * sólo con permiso de inventario.

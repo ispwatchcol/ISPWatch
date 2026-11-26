@@ -8,6 +8,7 @@ use App\Models\InventoryBranch;
 use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
@@ -25,6 +26,18 @@ use Illuminate\Validation\ValidationException;
  */
 class InventoryMovementController extends Controller
 {
+    /**
+     * Motivos de «Descontar material»: el tipo con que queda en el kardex y el
+     * texto que encabeza la nota. Un error de digitación es AJUSTE y no BAJA:
+     * los metros que nunca existieron no son material perdido.
+     */
+    private const WRITE_OFF_REASONS = [
+        'ingreso_de_mas' => ['type' => InventoryMovement::TYPE_AJUSTE, 'label' => 'Corrección: se ingresó de más'],
+        'danado'         => ['type' => InventoryMovement::TYPE_BAJA,   'label' => 'Dañado'],
+        'perdido'        => ['type' => InventoryMovement::TYPE_BAJA,   'label' => 'Perdido o faltante'],
+        'devuelto'       => ['type' => InventoryMovement::TYPE_BAJA,   'label' => 'Devuelto al proveedor'],
+    ];
+
     public function __construct(private InventoryLedger $ledger)
     {
     }
@@ -37,7 +50,7 @@ class InventoryMovementController extends Controller
             'stock_id'    => 'nullable|integer',
             'holder_type' => 'nullable|in:branch,user,customer,supplier,scrap',
             'holder_id'   => 'nullable|integer',
-            'type'        => 'nullable|in:entrada,traspaso,instalacion,devolucion,baja',
+            'type'        => 'nullable|in:' . implode(',', InventoryMovement::TYPES),
             'from'        => 'nullable|date',
             'to'          => 'nullable|date',
             'per_page'    => 'nullable|integer|min:1|max:200',
@@ -93,7 +106,11 @@ class InventoryMovementController extends Controller
             'item'          => trim(($m->stock?->brand ?? '') . ' ' . ($m->stock?->model ?? '')) ?: 'Equipo',
             'unit'          => $m->stock?->unit,
             'from'          => $partyLabel($m->from_type, $m->from_id, $m->installation_id),
-            'to'            => $partyLabel($m->to_type, $m->to_id, $m->installation_id),
+            // Un ajuste también sale hacia «baja» (deja de contarse), pero
+            // leer «CHAGUANI → Baja» haría pensar que el material se perdió.
+            'to'            => $m->type === InventoryMovement::TYPE_AJUSTE && $m->to_type === InventoryMovement::HOLDER_SCRAP
+                ? 'Corrección de inventario'
+                : $partyLabel($m->to_type, $m->to_id, $m->installation_id),
             'installation_id' => $m->installation_id,
             'support_ticket_id' => $m->support_ticket_id,
             'notes'         => $m->notes,
@@ -157,6 +174,62 @@ class InventoryMovementController extends Controller
             'devices'   => $devices->values(),
             'materials' => $materials->values(),
         ]);
+    }
+
+    /**
+     * Dónde hay existencias: cuántos equipos y cuántos materiales con saldo
+     * tiene cada bodega o persona. Sólo aparecen los custodios con algo.
+     *
+     * Entregas abría siempre en «Bodega (sin sucursal)», que nunca tiene
+     * materiales —un saldo siempre tiene dueño—, así que la sección de
+     * materiales no salía y el ISP creyó que la pantalla ya no los manejaba
+     * (Chaguaní, 2026-11-26). Con esto la pantalla abre donde hay algo y el
+     * desplegable dice qué tiene cada origen.
+     *
+     * Cuenta exactamente lo que `holdings()` listaría para cada custodio, en dos
+     * consultas agrupadas, con el tenant explícito además del scope global (el
+     * mismo criterio que InventoryAvailability).
+     */
+    public function holdersSummary(Request $request)
+    {
+        $tenantId = (int) $request->user()->tenant_id;
+        $out = [];
+
+        $add = function (string $type, $id, string $field, int $count) use (&$out) {
+            $id  = $id === null ? null : (int) $id;
+            $key = $type . ':' . ($id ?? '');
+            $out[$key] ??= ['type' => $type, 'id' => $id, 'devices' => 0, 'materials' => 0];
+            $out[$key][$field] += $count;
+        };
+
+        InventoryDevice::withoutTenantScope()
+            ->where('tenant_id', $tenantId)
+            ->whereIn('status', [InventoryDevice::STATUS_STOCK, InventoryDevice::STATUS_ASSIGNED])
+            ->selectRaw('status, branch_id, user_id, COUNT(*) AS total')
+            ->groupBy('status', 'branch_id', 'user_id')
+            ->get()
+            ->each(function ($row) use ($add) {
+                // Asignado = en manos de una persona; en bodega = de su sucursal
+                // (o «sin sucursal»), igual que holdings().
+                $row->status === InventoryDevice::STATUS_ASSIGNED
+                    ? $add(InventoryMovement::HOLDER_USER, $row->user_id, 'devices', (int) $row->total)
+                    : $add(InventoryMovement::HOLDER_BRANCH, $row->branch_id, 'devices', (int) $row->total);
+            });
+
+        InventoryBalance::withoutTenantScope()
+            ->where('tenant_id', $tenantId)
+            ->where('quantity', '>', 0)
+            ->selectRaw('holder_type, holder_id, COUNT(*) AS total')
+            ->groupBy('holder_type', 'holder_id')
+            ->get()
+            ->each(fn ($row) => $add($row->holder_type, $row->holder_id, 'materials', (int) $row->total));
+
+        // Un asignado sin persona no lo lista holdings() (exige un id): no se
+        // anuncia un origen que al elegirlo saldría vacío.
+        return response()->json(array_values(array_filter(
+            $out,
+            fn (array $h) => ! ($h['type'] === InventoryMovement::HOLDER_USER && $h['id'] === null)
+        )));
     }
 
     /**
@@ -314,6 +387,63 @@ class InventoryMovementController extends Controller
         $this->ledger->retireDevice($device, $request->user(), $data['notes'] ?? null);
 
         return response()->json(['message' => 'Equipo dado de baja.']);
+    }
+
+    /**
+     * Descontar material de una bodega o persona: corregir una entrada que se
+     * digitó de más (ajuste) o dar de baja lo dañado, perdido o devuelto.
+     *
+     * Nada se borra: el saldo baja y queda la línea en el kardex con el motivo
+     * y quien lo hizo. Lo que sí NO hace es tocar el gasto automático de la
+     * entrada (KAN-91): no sabe cuál de las entradas fue la equivocada, y
+     * adivinarlo sería mover dinero a ciegas. Si la empresa tiene ese gasto
+     * activo, la respuesta lo avisa para que se corrija a mano (P-125).
+     */
+    public function writeOff(Request $request)
+    {
+        $data = $request->validate([
+            'stock_id'    => 'required|integer',
+            'holder_type' => 'required|in:branch,user',
+            'holder_id'   => 'required|integer',
+            'quantity'    => 'required|numeric|min:0.01',
+            'reason'      => 'required|in:' . implode(',', array_keys(self::WRITE_OFF_REASONS)),
+            'notes'       => 'nullable|string|max:200',
+        ], [
+            'reason.required' => 'Elige el motivo del descuento.',
+            'reason.in'       => 'Elige el motivo del descuento.',
+        ]);
+
+        // Con scope de tenant: un producto de otra empresa responde 404.
+        $stock  = InventoryStock::findOrFail($data['stock_id']);
+        $reason = self::WRITE_OFF_REASONS[$data['reason']];
+        $nota   = trim((string) ($data['notes'] ?? ''));
+
+        $movement = $this->ledger->writeOffQuantity(
+            $stock,
+            $data['holder_type'],
+            (int) $data['holder_id'],
+            (float) $data['quantity'],
+            $reason['type'],
+            $request->user(),
+            $nota === '' ? $reason['label'] : "{$reason['label']} · {$nota}"
+        );
+
+        $warnings = [];
+        if ($reason['type'] === InventoryMovement::TYPE_AJUSTE
+            && Tenant::find($stock->tenant_id)?->inventory_entry_creates_expense) {
+            $warnings[] = 'Tu empresa registra un gasto por cada entrada de inventario, y esta corrección no lo '
+                . 'cambia: ajusta ese gasto en Finanzas → Gastos.';
+        }
+
+        return response()->json([
+            'message'     => $reason['type'] === InventoryMovement::TYPE_AJUSTE
+                ? 'Corrección registrada.'
+                : 'Baja registrada.',
+            'movement_id' => $movement->id,
+            'type'        => $movement->type,
+            'remaining'   => $this->ledger->balanceOf($stock, $data['holder_type'], (int) $data['holder_id']),
+            'warnings'    => $warnings,
+        ], 201);
     }
 
     /**

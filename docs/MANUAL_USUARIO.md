@@ -13,7 +13,7 @@
 > seeder: los seeders no corren allí. Va en `database/seeders/content/*.php` —archivo
 > compartido— y una migración lo inserta. Ver § 20.
 
-**Última actualización:** 2026-08-03
+**Última actualización:** 2026-11-26 (inventario: conteos por estado, descontar material; buscador de Instalaciones)
 
 ---
 
@@ -558,10 +558,18 @@ Algunos detalles útiles:
 
 Un **prospecto** es alguien interesado que todavía no es cliente.
 
+> 🔎 **Buscar una orden** (desde noviembre de 2026). En **Soporte → Instalaciones**, el cuadro
+> **Buscar** filtra la lista mientras escribes: por nombre, cédula, teléfono, correo, dirección,
+> técnico, equipo o número de orden (`#12`). No importan las tildes ni las mayúsculas («nunez»
+> encuentra «Núñez») ni los espacios del teléfono («313 888 9900»); con varias palabras tienen
+> que aparecer todas. Se combina con los filtros de estado y fechas, y abajo dice cuántas
+> coinciden («1 de 9 órdenes»). La búsqueda queda en la dirección de la página: si abres el
+> detalle de una orden y vuelves con **Atrás** del navegador, sigue puesta.
+
 ### 6.1 Registrar un prospecto y agendar la instalación
 
 1. Ve a **Soporte → Instalaciones**.
-2. Pulsa **Nueva instalación**.
+2. Pulsa **Agendar instalación**.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
 4. Elige **fecha** y **técnico**.
 5. En **Equipo / Materiales previstos** pulsa **Buscar producto del inventario…**: se abre un
@@ -2482,6 +2490,11 @@ Vale la pena revisar ese aviso después de borrar una sucursal o dar de baja a u
 los equipos y escribes las cantidades de material, eliges a quién entra y registras. *Sale de* y
 *Entra a* tienen buscador.
 
+- La página **abre en la bodega que tiene existencias** (la que más tiene), y el desplegable
+  *Sale de* dice qué tiene cada una: «CHAGUANI · Sucursal / bodega · 43 equipos · 6 materiales».
+- **Los materiales por cantidad siempre están a nombre de una bodega o de una persona**, nunca en
+  *Bodega (sin sucursal)*. Si eliges un origen sin materiales, un aviso dice dónde hay («Hay
+  materiales en: CHAGUANI · 6 materiales») y al pulsarlo te lleva allá.
 - Con muchos equipos en la bodega, el **filtro** de arriba de la lista busca por serial, MAC o
   modelo (también sin los dos puntos: «aabb» encuentra «AA:BB»), y la casilla **Todos** marca de
   una vez los que se ven.
@@ -2495,6 +2508,35 @@ Esta página ya no da de alta mercancía: lo que llega nuevo va por **Ingresar a
 
 **Nada se borra nunca.** Un movimiento equivocado se corrige con el movimiento contrario, y los
 dos quedan en el historial.
+
+#### Descontar material (se ingresó de más, se dañó o se perdió)
+
+Si alguien ingresó **500 m** de cable y eran **50**, o un rollo se mojó, el saldo se baja aquí
+mismo:
+
+1. En *Sale de* elige la bodega o la persona que tiene el material.
+2. En la fila del material, al lado de *Disponible*, pulsa **Descontar…**.
+3. Elige el **motivo** (es obligatorio):
+   - **Se ingresó de más** — un error al digitar la cantidad. Queda como **Ajuste**: no cuenta
+     como pérdida.
+   - **Dañado**, **Perdido o faltante** o **Devuelto al proveedor** — quedan como **Baja**.
+4. Escribe la **cantidad a descontar** (en el ejemplo, 450). La ventana dice cuánto quedará y no
+   deja descontar más de lo que hay. Una nota («se digitó 500 en vez de 50») ayuda a quien revise
+   después.
+5. Pulsa **Descontar**.
+
+El saldo baja y en **Movimientos** queda la línea con tu nombre, el motivo y la nota; un ajuste se
+lee *CHAGUANI → Corrección de inventario*. La entrada original no se borra.
+
+Si se cae la conexión justo al descontar, la ventana trae el saldo real y te pide revisarlo
+**antes de repetir**: el descuento pudo quedar registrado aunque no llegara la respuesta.
+
+> **¿Tu empresa tiene activo el gasto automático al ingresar inventario?** El descuento no cambia
+> ese gasto (el sistema no sabe cuál de las entradas fue la equivocada): al corregir un ingreso
+> de más, la pantalla te avisa para que ajustes el gasto a mano en *Finanzas → Gastos*.
+>
+> **Equipos con serial** no se descuentan aquí: se dan de baja uno por uno desde *Equipos y
+> existencias* (botón ámbar), y uno ingresado por error se elimina desde la misma lista.
 
 ### 15.4 Qué equipos puede usar cada quien
 
@@ -2552,10 +2594,31 @@ distintos, y esas dos filas hacían fallar después la importación masiva sin q
 por qué. El serial se guarda **tal como lo escribes**, para que coincida con la etiqueta del
 equipo; lo único que cambia es cómo se compara.
 
-Las cuatro tarjetas de arriba en **Equipos y existencias** cuentan cada catálogo por separado:
-*Total dispositivos* son los equipos registrados, y *En stock*, *Proveedores* y *Sucursales*
-son cuántos modelos, proveedores y sucursales tienes creados — se ven aunque todavía no hayas
-registrado ningún equipo.
+### 15.6 ¿Cuántos tengo de un modelo?
+
+Las tarjetas de arriba en **Equipos y existencias** cuentan los equipos **por estado** y
+**respetan la búsqueda** y los filtros de proveedor y sucursal. Si buscas `RG-EW300`:
+
+| Tarjeta | Qué cuenta |
+|---|---|
+| **Coinciden** (o *Todos*, sin búsqueda) | Todos los equipos de esa búsqueda, y debajo cuántos están **disponibles** (en bodega + con técnicos): los que puedes entregar |
+| **En bodega** | En una bodega, listos para entregar |
+| **Con técnicos** | En la mochila de alguien |
+| **Instalados** | En casa de clientes (o de prospectos) |
+| **De baja** | Dañados, perdidos o devueltos: ya no cuentan |
+
+**Pulsar una tarjeta filtra la lista** por ese estado (pulsarla otra vez quita el filtro). Si te
+parece que «hay más de los que tienes», casi siempre es que la lista incluye los **instalados** y
+los **de baja**: mira la tarjeta *En bodega* o el número de *disponibles*. Es el mismo número de
+*Existencia* que muestra *Catálogo → Stock / Modelos*.
+
+La búsqueda no distingue tildes ni mayúsculas ni guiones («rgew300» encuentra «RG-EW300») y
+admite varias palabras («ew300 chaguani»). El paginador cuenta **sólo lo encontrado**
+(«Mostrando 1 - 10 de 25 equipos (filtrados de 244)») y al buscar vuelve a la primera página.
+
+> Antes de noviembre de 2026 las tarjetas contaban el catálogo (*En stock* eran **modelos**, no
+> equipos) y el paginador contaba todo el inventario aunque hubiera una búsqueda: ofrecía páginas
+> que no existían y, al entrar a una, la lista quedaba en blanco.
 
 Para cargar muchos equipos de golpe, ve a **Acciones masivas → Importar inventario**.
 
