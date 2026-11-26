@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerProfileController;
 use App\Http\Controllers\CustomerDocumentController;
+use App\Http\Controllers\CustomerEquipmentController;
 use App\Http\Controllers\CustomerInstallationController;
 use App\Http\Controllers\ProspectController;
 use App\Http\Controllers\RouterController;
@@ -249,6 +250,12 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
     });
     Route::delete('/prospects/{prospect}', [ProspectController::class, 'destroy'])
         ->middleware('permission:view_support');
+
+    // ─── CUSTOMER EQUIPMENT (pestaña «Equipos» de la ficha, sólo lectura) ───
+    // Abierta a quien ve la ficha (view_clients), al técnico (view_support) y
+    // al almacenista (view_inventory): los tres necesitan saber qué tiene en casa.
+    Route::get('/customers/{customer}/equipment', [CustomerEquipmentController::class, 'index'])
+        ->middleware('permission:view_clients,view_support,view_inventory');
 
     // ─── CUSTOMER DOCUMENTS & CONTRACT ───
     Route::get('/customers/{customer}/documents', [CustomerDocumentController::class, 'index'])

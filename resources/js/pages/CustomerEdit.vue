@@ -851,6 +851,11 @@
           <CustomerTickets :customer-id="route.params.id" />
         </div>
 
+        <!-- Pestaña: Equipos (qué tiene en casa y qué materiales se le gastaron) -->
+        <div v-if="activeTab === 'equipos'" class="bg-white dark:bg-gray-800 shadow-xl rounded-2xl p-6 md:p-8 max-w-5xl mx-auto">
+          <CustomerEquipment :customer-id="route.params.id" />
+        </div>
+
       </main>
     </div>
 </template>
@@ -865,6 +870,7 @@ import CustomerBilling from '@/components/customer/CustomerBilling.vue'
 import CustomerAdditionalServices from '@/components/customer/CustomerAdditionalServices.vue'
 import CustomerDocuments from '@/components/customer/CustomerDocuments.vue'
 import CustomerTickets from '@/components/customer/CustomerTickets.vue'
+import CustomerEquipment from '@/components/customer/CustomerEquipment.vue'
 import DatePicker from '@/components/DatePicker.vue'
 import { useProvisionPolling } from '@/composables/useProvisionPolling'
 
@@ -878,6 +884,7 @@ const tabs = [
   { key: 'facturacion', label: 'Facturación' },
   { key: 'documentos',  label: 'Documentos' },
   { key: 'tickets',     label: 'Tickets' },
+  { key: 'equipos',     label: 'Equipos' },
 ]
 const activeTab = ref('datos')
 

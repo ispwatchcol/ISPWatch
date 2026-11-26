@@ -17,6 +17,68 @@ y explicada en el [manual del desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
+## [1.2.0] — 2026-11-26
+
+Tres meses de trabajo que no se habían numerado: entre la 1.1.1 y esta versión
+se publicaron más de 140 cambios sin subir el número. Esta entrada los resume
+por tema; el detalle de cada uno está en la bitácora técnica, secciones 52 a 135.
+
+### Añadido
+
+- **Pestaña «Equipos» en la ficha del cliente.** Muestra qué equipos tiene
+  instalados (serial, MAC, desde cuándo y en qué orden o ticket), los
+  materiales que se le han usado sumados por producto, y los equipos que se le
+  retiraron.
+- **Inventario conectado a instalaciones y soporte.** La hoja de instalación y
+  los tickets descargan equipos y materiales del inventario de quien los tiene;
+  los equipos se pueden retirar del cliente desde un ticket; los consumibles se
+  descuentan por cantidad, con unidades de medida; la entrada de inventario
+  puede generar el gasto automáticamente; y todo queda en un kardex.
+- **Ingresar al inventario** como un solo lugar para las compras, y buscador en
+  todas las listas largas de «asignar a», material y diagnóstico.
+- **Tickets más fáciles:** cola de trabajo con pestañas, alta en tres pasos,
+  «Siguiente paso» y «Resolver y cerrar». Cada ISP puede elegir un flujo simple
+  o el formal; el asunto sale de un catálogo.
+- **Acuerdo de pago en cuotas** para la instalación y para los cargos de un ticket.
+- **Archivado de clientes y expedientes** en lugar de borrado, con su historial
+  de facturación y de tickets.
+- **Aviso de llaves de API por vencer**, y el «Estado del Sistema» muestra datos reales.
+- **Corte del panel por falta de pago del ISP** (a través de Converza).
+
+### Cambiado
+
+- **Permisos revisados en toda la aplicación:** permisos de solo lectura ya no
+  permiten borrar ni modificar, y cada pantalla pide el permiso que le corresponde.
+- **La hoja de instalación solo registra lo que existe en el inventario**; ya no
+  se escriben equipos a mano.
+- **Un router RADIUS** ya no obliga a inventar IP, usuario y contraseña.
+
+### Corregido
+
+- **Facturación:** la factura mensual de octubre salió un día tarde por un
+  bloqueo del planificador; mensualidades faltantes; pagos convertidos en saldo
+  a favor sin querer; formas de pago renombradas que dejaban pagos sin forma de
+  pago; la cartera ya no reescribe abonos hechos en Facturación.
+- **Cortes y reconexiones:** el cliente que pagaba podía quedar cortado en el
+  router aunque la pantalla dijera «reactivado»; mudar un cliente de router lo
+  dejaba también en el router viejo.
+- **Inventario:** un equipo instalado en la orden de un prospecto salía como
+  «Instalado · cliente», sin nombre, y no pasaba al cliente al darlo de alta.
+- **Tickets:** el ticket podía cambiar de manos sin rastro o cerrarse de un
+  clic; el técnico no podía elegir técnico ni registrar la visita en algunos
+  roles; editar un ticket como técnico fallaba.
+- Varios errores de pantalla: equipos que no se podían editar, «eliminado
+  correctamente» que no eliminaba, avisos escondidos detrás de ventanas, y el
+  mapa que se movía al alternar una capa.
+
+### Seguridad
+
+- Las contraseñas de routers y elementos de red ya no se devuelven en la API.
+- Ningún listado cruza datos entre ISPs (facturación, inventario, soporte).
+- Las fotos de sectoriales ya no son públicas.
+
+---
+
 ## [1.1.1] — 2026-08-21
 
 ### Corregido

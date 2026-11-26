@@ -343,6 +343,7 @@ más unas pestañas adicionales:
 | **Documentos** | Cédula, contrato y otros archivos |
 | **Instalaciones** | Historial de instalaciones |
 | **Tickets** | Tickets de soporte del cliente |
+| **Equipos** | Qué tiene el cliente en casa: equipos con serial instalados (serial, MAC, desde cuándo y en qué orden o ticket), materiales usados sumados por producto (despliega para ver cada visita) y equipos que se le retiraron. Es sólo de consulta: los equipos se instalan o retiran desde la orden de instalación o desde un ticket |
 
 > **Cambiar a un cliente de router.** Al guardar, ISPWatch retira en segundo plano la
 > configuración del cliente del router **anterior** (cola, usuario PPPoE/HotSpot, IP

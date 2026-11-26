@@ -11470,3 +11470,44 @@ dueño, y el comando de pasivo respeta el dry-run.
 
 Un equipo de prospecto sigue sin poder retirarse desde un ticket hasta que se convierta (no hay
 ticket sin cliente); si el prospecto se rechaza, hay que quitarlo de la hoja antes de firmar.
+
+## 135. Pestaña «Equipos» en la ficha del cliente — 2026-11-26
+
+### Pedido
+
+«Cuando me meto a un cliente me dice qué tickets, documentación, facturación y datos tiene; hay
+que agregar una pestaña para ver qué equipos tiene, qué materiales tiene, etc.» Hasta ahora, para
+saber qué router tenía un cliente había que ir a Inventario y buscar por su nombre, y los
+materiales sólo se veían orden por orden o ticket por ticket.
+
+### Qué se hizo
+
+- **`GET /api/customers/{customer}/equipment`** (`CustomerEquipmentController`, sólo lectura).
+  Permiso `view_clients` ∪ `view_support` ∪ `view_inventory`: los tres perfiles necesitan saber
+  qué tiene el cliente en casa. Devuelve tres listas:
+  - `devices`: equipos con serial `installed` a su nombre, con desde cuándo y en qué orden o
+    ticket llegaron (último movimiento `instalacion`, buscado por tipo y no por `to_id`, porque
+    los de órdenes de prospecto lo tienen en null; § 134).
+  - `materials`: consumibles de sus órdenes y de sus tickets (`out`, sin revertir), sumados por
+    producto con el detalle de cada visita.
+  - `retired`: equipos que se le retiraron en un ticket, con su estado actual.
+- **`CustomerEquipment.vue`** y pestaña **Equipos** en `CustomerEdit.vue`: resumen (equipos en
+  casa, valor, materiales distintos), equipos instalados, materiales desplegables y retirados,
+  con enlace a la orden o al ticket de origen.
+
+Sin migraciones. Es de consulta a propósito: instalar o retirar sigue pasando por la orden o el
+ticket, que es donde queda la firma y el kardex.
+
+### Pruebas
+
+`tests/Feature/Inventory/CustomerEquipmentTabTest.php`: las tres listas (incluye una línea
+revertida que no cuenta y un equipo de otro cliente que no sale), cliente sin equipos, cliente
+de otro tenant (`404`) y permiso (`403` sin permisos, `200` con `view_support`).
+
+### Versión 1.2.0
+
+Con este cambio se publica **1.2.0** (`config/version.php` + `CHANGELOG.md`). La versión llevaba en
+1.1.1 desde el 2026-08-21 con más de 140 PRs encima (§ 52 a § 135) sin numerar, y los tags
+`v1.1.0` y `v1.1.1` nunca se crearon en el remoto. La entrada del CHANGELOG resume ese periodo
+completo. El tag `v1.2.0` se crea a mano sobre `main` después del merge (P-34).
+
