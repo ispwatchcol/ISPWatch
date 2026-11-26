@@ -558,6 +558,7 @@ idioma**. El porqué de cada decisión, las causas raíz y la deuda aceptada van
 | `billing:reconcile-reconnections` | Reabre a los activos en BD cuya reconexión no confirmó el router (P-29) |
 | `billing:verify-cuts` | Auditoría de no-show de cortes |
 | `billing:repair-paid-suspended {--tenant=} {--apply}` | Reconecta a los que ya pagaron pero quedaron marcados suspendidos. **Arranca en dry-run**; delega en `reactivateIfCleared()` para no duplicar reglas |
+| `inventory:adopt-converted-prospect-devices {--tenant=} {--apply}` | Pasa al cliente los equipos instalados en órdenes de prospectos que se convirtieron antes de P-74 (quedaron `installed` con `customer_id` null). **Arranca en dry-run**; delega en `InventoryLedger::adoptInstallationCustomer()`, la misma regla que usa `mark-converted` |
 
 #### Reconexión al pagar: las dos señales
 

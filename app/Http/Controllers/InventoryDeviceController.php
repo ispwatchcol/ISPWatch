@@ -6,6 +6,7 @@ use App\Models\InventoryDevice;
 use App\Models\InventoryMovement;
 use App\Models\InventoryStock;
 use App\Models\TicketEquipment;
+use App\Models\User;
 use App\Services\Inventory\InventoryExpenseRecorder;
 use App\Services\Inventory\InventoryLedger;
 use App\Support\InventoryIdentifier;
@@ -41,14 +42,25 @@ class InventoryDeviceController extends Controller
             'branch:id,name',
             'holder:id,user_name,user_lastname,name',
             'customer:id,user_name,user_lastname,name',
+            // Para un equipo instalado en la orden de un prospecto: el nombre
+            // sólo está en la orden → prospecto (customer_id sigue en null).
+            // Columnas calificadas: latestOfMany() hace un join consigo misma y
+            // un «device_id» a secas es ambiguo.
+            'latestInstallationLine:installation_equipment.id,installation_equipment.device_id,installation_equipment.installation_id',
+            'latestInstallationLine.installation:id,customer_id,prospect_id',
+            'latestInstallationLine.installation.prospect:id,name,last_name',
         ])
             ->when($data['status'] ?? null, fn ($q, $v) => $q->where('status', $v))
             ->when($data['holder_id'] ?? null, fn ($q, $v) => $q->heldByUser((int) $v))
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function (InventoryDevice $device) {
+                $installedFor = $this->installedFor($device);
+
                 $row = $device->toArray();
-                $row['holder_label'] = $this->holderLabel($device);
+                unset($row['latest_installation_line']);
+                $row['installed_for'] = $installedFor;
+                $row['holder_label']  = $this->holderLabel($device, $installedFor);
 
                 return $row;
             });
@@ -333,18 +345,74 @@ class InventoryDeviceController extends Controller
         ];
     }
 
-    /** "Bodega Norte", "Juan Pérez" o "Instalado · María Gómez". */
-    private function holderLabel(InventoryDevice $device): string
+    /**
+     * En casa de quién está un equipo instalado: un cliente, o el prospecto de
+     * la orden cuando todavía no se ha dado de alta como cliente. Antes la
+     * segunda situación salía como «Instalado · cliente», sin nombre, y nadie
+     * sabía dónde estaba el equipo. P-74.
+     *
+     * @return array{type: string, id: int|null, name: string|null, installation_id: int|null}|null
+     */
+    private function installedFor(InventoryDevice $device): ?array
     {
-        $name = fn ($user) => $user
+        if ($device->status !== InventoryDevice::STATUS_INSTALLED) {
+            return null;
+        }
+
+        $installation = $device->latestInstallationLine?->installation;
+
+        if ($device->customer_id) {
+            return [
+                'type'            => 'customer',
+                'id'              => (int) $device->customer_id,
+                'name'            => $this->userName($device->customer),
+                'installation_id' => $installation?->id,
+            ];
+        }
+
+        $prospect = $installation?->prospect;
+
+        if ($prospect) {
+            return [
+                'type'            => 'prospect',
+                'id'              => (int) $prospect->id,
+                'name'            => trim(($prospect->name ?? '') . ' ' . ($prospect->last_name ?? '')) ?: null,
+                'installation_id' => (int) $installation->id,
+            ];
+        }
+
+        return ['type' => 'unknown', 'id' => null, 'name' => null, 'installation_id' => $installation?->id];
+    }
+
+    private function userName(?User $user): ?string
+    {
+        return $user
             ? (trim(($user->user_name ?? '') . ' ' . ($user->user_lastname ?? '')) ?: $user->name)
             : null;
+    }
 
+    /**
+     * "Bodega Norte", "Juan Pérez", "Instalado · Cliente: María Gómez" o
+     * "Instalado · Prospecto: Javier Gutiérrez (orden #72)".
+     */
+    private function holderLabel(InventoryDevice $device, ?array $installedFor = null): string
+    {
         return match ($device->status) {
-            InventoryDevice::STATUS_ASSIGNED  => $name($device->holder) ?? 'Asignado',
-            InventoryDevice::STATUS_INSTALLED => 'Instalado · ' . ($name($device->customer) ?? 'cliente'),
+            InventoryDevice::STATUS_ASSIGNED  => $this->userName($device->holder) ?? 'Asignado',
+            InventoryDevice::STATUS_INSTALLED => $this->installedLabel($installedFor),
             InventoryDevice::STATUS_RETIRED   => 'De baja',
             default                           => $device->branch?->name ?: 'Bodega',
+        };
+    }
+
+    private function installedLabel(?array $for): string
+    {
+        $orden = !empty($for['installation_id']) ? " (orden #{$for['installation_id']})" : '';
+
+        return match ($for['type'] ?? null) {
+            'customer' => 'Instalado · Cliente: ' . ($for['name'] ?? "#{$for['id']}"),
+            'prospect' => 'Instalado · Prospecto: ' . ($for['name'] ?? "#{$for['id']}") . $orden,
+            default    => 'Instalado · sin cliente asignado' . $orden,
         };
     }
 }

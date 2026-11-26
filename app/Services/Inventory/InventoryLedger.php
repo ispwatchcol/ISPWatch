@@ -775,6 +775,64 @@ class InventoryLedger
             ->get();
     }
 
+    /**
+     * Pasa al cliente los equipos que se instalaron cuando la orden todavía era
+     * de un prospecto.
+     *
+     * En una orden de prospecto, assignDeviceToInstallation() deja el equipo
+     * `installed` con customer_id en null: no hay cliente aún. Al convertir el
+     * prospecto, la orden recibe su customer_id (ProspectController::
+     * markConverted) y aquí lo heredan sus equipos. Sin esto el equipo quedaba
+     * instalado «en casa de nadie»: no salía en la ficha del cliente ni se
+     * podía retirar en un ticket. P-74.
+     *
+     * Sólo toca equipos que siguen instalados SIN cliente: si alguno ya se
+     * movió (se quitó de la hoja, se instaló a otro por ticket), su estado
+     * actual manda. El kardex no se reescribe (es append-only): lo nombra al
+     * leer a partir de la orden.
+     *
+     * @param  iterable<int>  $installationIds
+     * @return int Equipos reasignados.
+     */
+    public function adoptInstallationCustomer(iterable $installationIds): int
+    {
+        $ids = collect($installationIds)->filter()->map(fn ($id) => (int) $id)->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+
+        $adopted = 0;
+
+        $installations = CustomerInstallation::withoutTenantScope()
+            ->whereIn('id', $ids)
+            ->whereNotNull('customer_id')
+            ->get(['id', 'tenant_id', 'customer_id']);
+
+        foreach ($installations as $installation) {
+            $deviceIds = InstallationEquipment::withoutTenantScope()
+                ->where('installation_id', $installation->id)
+                ->whereNotNull('device_id')
+                ->pluck('device_id');
+
+            if ($deviceIds->isEmpty()) {
+                continue;
+            }
+
+            $adopted += InventoryDevice::withoutTenantScope()
+                ->whereIn('id', $deviceIds)
+                ->where('tenant_id', $installation->tenant_id)
+                ->where('status', InventoryDevice::STATUS_INSTALLED)
+                ->whereNull('customer_id')
+                ->update([
+                    'customer_id' => $installation->customer_id,
+                    'updated_at'  => now(),
+                ]);
+        }
+
+        return $adopted;
+    }
+
     /** Deja el equipo en manos de un custodio interno (usuario o bodega). */
     private function placeDeviceWith(InventoryDevice $device, ?string $holderType, ?int $holderId): void
     {

@@ -63,6 +63,19 @@ class InventoryDevice extends Model
         return $this->hasMany(InventoryMovement::class, 'device_id');
     }
 
+    /**
+     * Última línea de hoja de instalación que descargó este equipo.
+     *
+     * Es la única pista de a quién se le instaló cuando la orden era de un
+     * PROSPECTO: ahí customer_id queda en null (todavía no hay cliente) y el
+     * nombre sólo vive en installation → prospect. «Quitar» de la hoja borra la
+     * línea, así que si el equipo sigue instalado sin cliente, esta es la suya.
+     */
+    public function latestInstallationLine()
+    {
+        return $this->hasOne(InstallationEquipment::class, 'device_id')->latestOfMany();
+    }
+
     /** Equipos que todavía se pueden entregar o instalar. */
     public function scopeAvailable($query)
     {

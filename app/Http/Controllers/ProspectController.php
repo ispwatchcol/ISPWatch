@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CustomerDocument;
 use App\Models\Prospect;
 use App\Models\User;
+use App\Services\Inventory\InventoryLedger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -173,6 +174,10 @@ class ProspectController extends Controller
                 CustomerDocument::whereIn('installation_id', $installationIds)
                     ->whereNull('customer_id')
                     ->update(['customer_id' => $data['user_id']]);
+
+                // Y los equipos que el técnico dejó instalados en esas órdenes:
+                // estaban «en casa de nadie» (customer_id null). P-74.
+                app(InventoryLedger::class)->adoptInstallationCustomer($installationIds);
             }
         });
 

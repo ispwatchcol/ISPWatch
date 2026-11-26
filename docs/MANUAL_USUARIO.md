@@ -2516,6 +2516,12 @@ sin equipo y nadie podría saber después qué router quedó puesto ahí.
 La columna **Dónde está** de *Equipos y existencias* dice el estado de cada equipo: *En bodega*,
 *Asignado* (a quién), *Instalado* (en casa de qué cliente) o *De baja*.
 
+Si el equipo se registró en la orden de un **prospecto** (alguien que todavía no es cliente),
+dice **Instalado · Prospecto: Nombre (orden #N)** y, debajo, *Aún no es cliente*. Cuando das de
+alta a ese prospecto como cliente, el equipo pasa solo a su ficha y la columna cambia a
+**Instalado · Cliente: Nombre**. El buscador de la lista también encuentra los equipos por el
+nombre del cliente o del prospecto.
+
 Para sacarlo del inventario tienes estos caminos, según lo que haya pasado de verdad:
 
 - **Se dañó, se perdió o se lo devolviste al proveedor** → botón **Dar de baja** (ícono ámbar
@@ -2525,6 +2531,9 @@ Para sacarlo del inventario tienes estos caminos, según lo que haya pasado de v
 - **Está instalado en un cliente** → no se puede eliminar ni dar de baja desde la lista: retíralo
   desde un **ticket de ese cliente** → *Equipos de la visita* → *Retirar equipo del cliente*,
   eligiendo si vuelve a la bodega o si se da de baja. La ventana de eliminar te lo explica.
+  Si es de un **prospecto**, primero hay que darlo de alta como cliente; si se cargó por error y
+  la orden no está firmada, quítalo de la hoja de la orden (*Equipos y materiales usados* →
+  *Quitar*).
 - **Volvió a la bodega** → regístralo en **Entregas y traspasos** (sale de quien lo tenía, entra a
   la bodega). Cuando ya no esté instalado, se puede borrar.
 
