@@ -32,7 +32,7 @@
 
 return [
 
-    'number' => '1.2.0',
+    'number' => '1.3.0',
 
     /*
     | Fecha de publicación de `number`. Es lo que la pantalla de Sistema muestra

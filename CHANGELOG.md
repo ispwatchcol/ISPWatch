@@ -17,6 +17,43 @@ y explicada en el [manual del desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
+## [1.3.0] — 2026-11-26
+
+Respuesta a un reporte de un ISP sobre inventario e instalaciones. Detalle en la
+bitácora técnica, sección 136.
+
+### Añadido
+
+- **Descontar material** desde *Entregas y traspasos*: si se ingresó de más
+  (500 m en vez de 50), o el material se dañó, se perdió o volvió al proveedor,
+  el saldo se baja con un motivo obligatorio. Nada se borra: queda en
+  *Movimientos* con quién lo hizo. Un error de digitación queda como
+  **Ajuste** («Corrección de inventario») y no se cuenta como pérdida.
+- **Buscador en Instalaciones**: por nombre, cédula, teléfono, correo,
+  dirección, técnico, equipo o número de orden, sin importar tildes. Se
+  conserva al volver atrás desde el detalle.
+- **Cuántos hay de un modelo**: en *Equipos y existencias* las tarjetas cuentan
+  los equipos en bodega, con técnicos, instalados y de baja **de lo que estás
+  buscando**, y cuántos están disponibles. Pulsar una tarjeta filtra la lista.
+
+### Corregido
+
+- *Equipos y existencias*: al buscar, el paginador contaba todo el inventario,
+  ofrecía páginas que no existían y la lista quedaba en blanco sin forma de
+  volver. Ahora cuenta sólo lo encontrado y vuelve a la primera página.
+- *Entregas y traspasos* ya muestra los **materiales por cantidad**: abre en la
+  bodega que tiene existencias (antes en «Bodega (sin sucursal)», que nunca
+  tiene materiales), dice qué tiene cada origen y, si el elegido no tiene
+  materiales, indica dónde están.
+
+### Cambiado
+
+- Las tarjetas de *Equipos y existencias* ya no cuentan modelos, proveedores y
+  sucursales (eso está en *Catálogo*): «En stock» mostraba el número de
+  **modelos** y se leía como equipos en bodega.
+
+---
+
 ## [1.2.0] — 2026-11-26
 
 Tres meses de trabajo que no se habían numerado: entre la 1.1.1 y esta versión
