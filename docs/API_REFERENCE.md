@@ -889,10 +889,33 @@ contrato lo comprueba antes de reservar el consecutivo, así que un `409` no gas
 | `GET` | `/api/customers/{customer}/documents` | Lista documentos |
 | `POST` | `/api/customers/{customer}/documents` | Sube documento (`cedula`, `instalacion`, `contrato`, `otros`) |
 | `DELETE` | `/api/customers/documents/{document}` | Elimina |
+| `GET` | `/api/customers/{customer}/equipment` | Pestaña «Equipos» de la ficha (sólo lectura). Permiso `view_clients` ∪ `view_support` ∪ `view_inventory`. Ver abajo |
 | `GET` | `/api/customers/{customer}/contract-data` | Datos para render del contrato |
 | `POST` | `/api/customers/{customer}/contract-sign` | Firma **presencial** del contrato |
 | `GET` | `/api/customers/{customer}/contract-links` | Historial de enlaces de firma remota |
 | `POST` | `/api/customers/{customer}/contract-links` | Emite un enlace de firma remota |
+
+**`GET /api/customers/{customer}/equipment`** — `404` si el cliente es de otro tenant.
+
+```json
+{
+  "devices":   [{ "id": 285, "item": "MIKROTIK LDF 5", "serial": "HJ80A5E3779", "mac": null,
+                  "unit_price": 150000, "since": "2026-11-25T22:06:32Z",
+                  "origin": { "type": "installation", "id": 72, "label": "Orden #72" } }],
+  "materials": [{ "stock_id": 9, "item": "GENÉRICO UTP CAT5E", "unit": "metro", "total": 42.5,
+                  "lines": [{ "quantity": 12.5, "date": "…", "origin": { "type": "ticket", "id": 40, "label": "Ticket #40" } }] }],
+  "retired":   [{ "id": 12, "item": "MIKROTIK LDF 5", "serial": "VIEJO-1", "mac": null, "date": "…",
+                  "status": "retired", "origin": { "type": "ticket", "id": 40, "label": "Ticket #40" } }]
+}
+```
+
+- `devices`: `inventory_device` con `status = installed` y `customer_id` del cliente. `since`/`origin` salen
+  de su último movimiento `instalacion` (se busca por tipo, no por `to_id`: los que vinieron de una
+  orden de prospecto lo tienen en null, P-74).
+- `materials`: líneas sin serial de sus órdenes (`installation_equipment`) y de sus tickets
+  (`ticket_equipment`, `direction = out`, sin revertir), agrupadas por producto.
+- `retired`: equipos retirados en sus tickets (`direction = in`, sin revertir); `status` es el estado
+  actual del equipo (`retired` = dado de baja).
 | `DELETE` | `/api/customers/contract-links/{link}` | Anula un enlace |
 
 Los archivos residen en **S3 privado**. Cada documento expone un atributo `url` que es una

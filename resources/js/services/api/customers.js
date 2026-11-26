@@ -69,6 +69,11 @@ export default {
         return apiClient.delete(`/customers/documents/${documentId}`)
     },
 
+    // ─── Equipos y materiales (pestaña «Equipos», sólo lectura) ───
+    getEquipment(id) {
+        return apiClient.get(`/customers/${id}/equipment`)
+    },
+
     // ─── Installations ───
     getAllInstallations(params = {}) {
         return apiClient.get('/installations', { params })
