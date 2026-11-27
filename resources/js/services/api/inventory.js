@@ -24,6 +24,10 @@ export default {
     holdings(params = {}) {
         return apiClient.get('/inventory/holdings', { params })
     },
+    // «Mis equipos»: lo que tiene asignado el usuario de la sesión, y nada más.
+    mine() {
+        return apiClient.get('/inventory/mine')
+    },
     // Cuántos equipos y materiales tiene cada bodega o persona (sólo las que tienen algo).
     holdersSummary() {
         return apiClient.get('/inventory/holders-summary')

@@ -3071,6 +3071,19 @@ Para un ISP en otra zona, su personal ve la hora de Bogotá.
 configuración entera) y que el reloj lo lea de la sesión; `/tenants/{id}` sigue siendo de
 administración.
 
+### 📋 P-128 · Quien agenda una orden ve los TOTALES de la empresa por producto, aunque sea técnico
+
+Visto en la bitácora § 138. Desde ese cambio el técnico ve sólo sus equipos en la orden, en el
+ticket y en *Mis equipos*. Queda un sitio con cifras de toda la empresa: el **catálogo de
+planificación** (`/installations/planning-catalog`, el buscador de «Equipo / Materiales
+previstos» al agendar), que muestra a cualquiera con `view_support` cuánto hay de cada producto
+en la empresa —sin serial, sin custodio y sin precio, que siguen siendo sólo de `view_inventory`—.
+Se dejó así a propósito: planificar no es usar, y la oficina que agenda sin administrar inventario
+necesita saber si hay.
+
+**Recomendación.** Si el ISP tampoco quiere que el técnico vea esos totales, condicionar la cifra a
+`view_inventory` (o a un permiso de planificación) y mostrar al resto sólo el catálogo.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3239,6 +3252,7 @@ administración.
 | **P-125** | *Descontar… → Se ingresó de más* baja el saldo del custodio pero no corrige el **gasto automático** de la entrada equivocada (KAN-91) | Con el gasto automático encendido, el gasto de la compra queda inflado hasta que alguien lo ajuste a mano (la pantalla lo avisa) | 🟡 Media | 📋 Pendiente · aceptado conscientemente (§ 136): no se adivina qué entrada fue; candidato: «Corregir cantidad» sobre la línea de entrada, anulando y reemitiendo su gasto |
 | **P-126** | `GET /inventory` y `GET /installations` devuelven todas las filas; buscar, contar y paginar es en el navegador | Primera carga lenta en un ISP de decenas de miles de equipos u órdenes | 🟢 Baja | 📋 Pendiente · paginar en servidor con los conteos por estado en la misma consulta (§ 136) |
 | **P-127** | El reloj del menú lateral usa `America/Bogota` para quien no tiene `manage_tenant` | En un ISP de otra zona, su personal ve una hora que no es la suya | 🟢 Baja | 📋 Pendiente · enviar `zone_tenant` en la sesión (§ 137) |
+| **P-128** | El catálogo de planificación muestra a quien agenda (también a un técnico) los totales de la empresa por producto | El técnico ve cuánto hay en la empresa, aunque no qué ni dónde | 🟢 Baja | 📋 Pendiente · decisión de negocio (§ 138): hoy se deja porque planificar no es usar |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |

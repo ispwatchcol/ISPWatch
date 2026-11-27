@@ -58,6 +58,24 @@ class InventoryAndInstallationsScreensTest extends TestCase
     }
 
     /**
+     * § 138: el técnico ve sólo lo suyo. Su entrada es «Mis equipos», que usa su
+     * propio endpoint; la lista completa (/inventory) es de quien administra.
+     */
+    public function test_el_tecnico_entra_a_mis_equipos_y_no_al_inventario_completo(): void
+    {
+        $sidebar = file_get_contents(resource_path('js/components/Sidebar.vue'));
+        $router  = file_get_contents(resource_path('js/router/index.js'));
+        $mine    = $this->source('InventoryMine.vue');
+
+        $this->assertStringContainsString("name: 'Mis equipos', to: '/inventory/mine'", $sidebar);
+        $this->assertStringContainsString("permission: ['view_own_inventory', 'view_inventory']", $router);
+        // La guarda del router acepta varios permisos con semántica OR.
+        $this->assertStringContainsString('[].concat(to.meta.permission).some(', $router);
+        $this->assertStringContainsString('inventoryApi.mine()', $mine);
+        $this->assertStringNotContainsString('inventoryApi.getAll(', $mine);
+    }
+
+    /**
      * Un tipo nuevo del kardex que la pantalla no conoce sale «crudo» y no se
      * puede filtrar. Movimientos tiene que ofrecer y rotular todos.
      */

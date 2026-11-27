@@ -279,9 +279,9 @@ class InventoryAvailability
         return [
             'code'    => 'not_accessible',
             'message' => "Hay saldo de {$conSaldo} producto(s) por cantidad, pero en bodegas o en poder de "
-                . "personas de las que no puedes tomar en {$where}. Cada quien toma lo suyo y lo del técnico "
-                . 'asignado; las bodegas, sólo con permiso de inventario. Pide que te lo entreguen en '
-                . 'Inventarios → Entregas y traspasos.',
+                . "personas de las que no puedes tomar en {$where}. Cada técnico usa sólo lo que tiene "
+                . 'asignado; las bodegas y lo del técnico de la orden, sólo quien administra el inventario. '
+                . 'Pide que te lo entreguen en Inventarios → Entregas y traspasos.',
             'inaccessible_products' => $conSaldo,
         ];
     }

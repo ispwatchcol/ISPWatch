@@ -5,7 +5,7 @@
 > Cuando algo **no** puede inferirse del código se marca explícitamente como
 > `⚠️ No inferible del código`.
 
-**Última actualización:** 2026-11-26 (autorización sólo por permiso, P-45; inventario: ajuste vs. baja) · Rama: `fix/tickets-roles-por-permiso-y-tecnicos`
+**Última actualización:** 2026-11-26 (el técnico ve sólo lo suyo; autorización sólo por permiso; ajuste vs. baja) · Rama: `feat/tecnico-solo-sus-equipos`
 
 ---
 
@@ -298,13 +298,22 @@ bitácora).
 | Origen | Quién puede tomarlo |
 |---|---|
 | Sus propios equipos | Siempre |
-| Los del **técnico asignado a la orden** | Cualquiera que llene esa hoja |
+| Los del **técnico asignado a la orden o al ticket** | Sólo con `view_inventory` (la captura en oficina) |
 | Una bodega / sucursal | Sólo con `view_inventory` |
 | La mochila de otro técnico | Nadie — hay que traspasar primero |
 
 La excepción del técnico asignado no es un agujero: es lo que permite que la secretaria capture
 en oficina una visita que hizo Juan sin tener que mentir en el kardex traspasándose antes los
-equipos a su nombre.
+equipos a su nombre. **Desde 2026-11-26 es sólo para quien administra inventario** (§ 138 de la
+bitácora): un técnico que abría la orden o el ticket de OTRO técnico veía y podía descargar los
+equipos de ese otro, y el ISP pidió que cada técnico vea únicamente lo suyo.
+
+**Lo que se toma es lo que se ve.** Las listas de «disponible» de la orden y del ticket
+(`allowedSources()` en los dos controladores de equipos) se arman con los mismos custodios que
+autoriza `canTakeFrom()`: un técnico ve sólo «Mis equipos». Su vista de inventario es
+`GET /inventory/mine` (permiso `view_own_inventory`, sin precios); la lista de **todos** los
+equipos (`GET /inventory`, `/inventory/{id}`) exige `view_inventory` — antes también se abría con
+`view_support`, así que cualquiera de soporte podía pedirla por la API.
 
 Las pantallas de **Entregas y traspasos** (`/inventory/transfers`) sí pueden mover equipos de
 cualquier custodio —recoger lo que un técnico no usó es su función— porque exigen

@@ -4,7 +4,7 @@
 > Complementa a [`ARQUITECTURA.md`](ARQUITECTURA.md) (diseño) y
 > [`BITACORA_TECNICA.md`](BITACORA_TECNICA.md) (inventario de código).
 
-**Última actualización:** 2026-11-26 (autorización sólo por permiso, técnico de instalación, reloj del menú; descontar material, `utils/textSearch.js`)
+**Última actualización:** 2026-11-26 (el técnico ve sólo lo suyo, `/inventory/mine`, permisos OR en el router; autorización sólo por permiso, técnico de instalación, reloj del menú; descontar material, `utils/textSearch.js`)
 
 ---
 
@@ -1353,6 +1353,20 @@ debería obligar a abrir un JSON para responderse.
 `technician_id` en una y `staff_id` en el otro (`assignedTechnicianId()` lo resuelve). Si algún
 día aparece una tercera clase de visita, es ese `match` el que hay que ampliar — no duplicar la
 regla de custodia.
+
+**Lo del técnico asignado es sólo para la oficina (2026-11-26, § 138).** `canTakeFrom()` lo concede
+únicamente a quien `managesInventory()` (`view_inventory`); un técnico toma —y VE— sólo lo suyo.
+Las listas de «disponible» (`allowedSources()` de `InstallationEquipmentController` y
+`TicketEquipmentController`) añaden el custodio del técnico asignado **preguntándole a
+`canTakeFrom()`**, no por su cuenta: si agregas otra lista de equipos utilizables, que salga de la
+misma regla, o el técnico verá en pantalla lo que la API le va a rechazar (o peor, al revés).
+La vista de inventario del técnico es `GET /inventory/mine` (`view_own_inventory`, sin precios);
+`GET /inventory` y `/inventory/{id}` son sólo de `view_inventory`.
+
+**`meta.permission` del router admite un arreglo** (semántica OR, como `CheckPermission`):
+`permission: ['view_own_inventory', 'view_inventory']`. La guarda es
+`[].concat(to.meta.permission).some(...)`; una ruta hija hereda el `meta` del padre y lo pisa con el
+suyo.
 
 > **`assertCanHandOverTo()` no es lo mismo que `assertCanTakeFrom()` aunque compartan la
 > comprobación.** Quien **recibe** un equipo retirado responde por él: dejar que cualquiera

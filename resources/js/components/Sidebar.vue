@@ -269,7 +269,10 @@ const canSee = computed(() => ({
     gestion:         authStore.hasPermission('manage_routers')
                   || authStore.hasPermission('view_plans')
                   || authStore.hasPermission('view_sectorials'),
-    inventarios:     authStore.hasPermission('view_inventory'),
+    // Quien administra inventario ve el grupo entero; el técnico con «Ver sólo
+    // mis equipos» ve el grupo con una sola entrada (§ 138).
+    inventarios:     authStore.hasPermission('view_inventory')
+                  || authStore.hasPermission('view_own_inventory'),
     // Show "Finanzas" if the user can see ANY of its children (billing or
     // expenses) — the Contabilidad role has view_expenses but not view_billing.
     finanzas:        authStore.hasPermission('view_billing')
@@ -316,7 +319,17 @@ const inventariosItems = computed(() => {
     // todo lo que entra va por «Ingresar al inventario». Stock / Modelos,
     // Proveedores y Sucursales —que se tocan poco— van juntos en «Catálogo»,
     // con su propia barra de pestañas arriba de cada página.
-    if (!authStore.hasPermission('view_inventory')) return items;
+    //
+    // Sin `view_inventory` pero con «Ver sólo mis equipos» (el técnico): una
+    // sola entrada, lo que tiene asignado. No ve bodegas ni lo de los demás
+    // (§ 138). Quien administra no la necesita: lo suyo sale en Equipos y
+    // existencias buscando su nombre, y así su menú sigue en cinco entradas.
+    if (!authStore.hasPermission('view_inventory')) {
+        if (authStore.hasPermission('view_own_inventory')) {
+            items.push({ name: 'Mis equipos', to: '/inventory/mine', icon: 'bi-hdd-network' });
+        }
+        return items;
+    }
     items.push({ name: 'Equipos y existencias', to: '/inventory', icon: 'bi-hdd-network' });
     items.push({ name: 'Ingresar al inventario', to: '/inventory/ingreso', icon: 'oi-diff-added' });
     items.push({ name: 'Entregas y traspasos', to: '/inventory/transfers', icon: 'bi-arrow-left-right' });

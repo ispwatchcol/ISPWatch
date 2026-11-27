@@ -40,6 +40,11 @@ use Illuminate\Validation\ValidationException;
  * aunque quien esté llenando la hoja sea la secretaria o el administrador.
  * Sin esto, cualquier hoja capturada en oficina obligaría a traspasar antes
  * los equipos a nombre de quien digita, que es una mentira en el kardex.
+ *
+ * Esa excepción es SÓLO para quien administra inventario (la oficina). Un
+ * técnico ve y usa únicamente lo que tiene asignado: antes, si abría la orden
+ * o el ticket de OTRO técnico, veía y podía descargar los equipos de ese otro
+ * (pedido del ISP, 2026-11-26, bitácora § 138).
  */
 class InventoryLedger
 {
@@ -875,8 +880,8 @@ class InventoryLedger
 
     /**
      * Espejo de assertCanTakeFrom para el sentido contrario. Misma regla —lo
-     * mío y lo del técnico de la visita siempre, las bodegas con permiso de
-     * inventario— con el mensaje que corresponde a estar entregando y no
+     * mío siempre; lo del técnico de la visita y las bodegas, sólo con permiso
+     * de inventario— con el mensaje que corresponde a estar entregando y no
      * tomando.
      */
     private function assertCanHandOverTo(
@@ -891,7 +896,7 @@ class InventoryLedger
 
         throw ValidationException::withMessages([
             'destination' => $holderType === InventoryMovement::HOLDER_USER
-                ? 'No puedes dejar el equipo a nombre de otro técnico. Recíbelo tú y traspásalo desde Inventarios → Entregas y traspasos.'
+                ? 'No puedes dejar el equipo a nombre de otro técnico. Recíbelo tú; si debe quedar con otro, quien administra el inventario lo traspasa en Entregas y traspasos.'
                 : 'No tienes permiso para devolver equipos a la bodega. Recíbelo a tu nombre y que lo ingrese quien administre el inventario.',
         ]);
     }
@@ -1008,8 +1013,14 @@ class InventoryLedger
 
     /**
      * ¿Puede este usuario tomar existencias de ese custodio?
-     * Lo suyo siempre; lo del técnico de la orden cuando hay orden; las bodegas
-     * sólo con permiso de inventario.
+     *
+     *  - Lo suyo: siempre.
+     *  - Lo del técnico asignado a la orden o al ticket: sólo quien administra
+     *    inventario (la captura en oficina). Un técnico, únicamente lo suyo.
+     *  - Las bodegas: sólo quien administra inventario.
+     *
+     * Es también la regla de lo que se VE: las listas de «disponible» de la
+     * orden y del ticket se arman con estos mismos custodios.
      */
     public function canTakeFrom(
         User $actor,
@@ -1024,7 +1035,9 @@ class InventoryLedger
 
             $tecnico = $this->assignedTechnicianId($context);
 
-            return $tecnico !== null && (int) $holderId === $tecnico;
+            return $tecnico !== null
+                && (int) $holderId === $tecnico
+                && $this->managesInventory($actor);
         }
 
         if ($holderType === InventoryMovement::HOLDER_BRANCH || $holderType === null) {
@@ -1069,7 +1082,7 @@ class InventoryLedger
 
         throw ValidationException::withMessages([
             'source' => $holderType === InventoryMovement::HOLDER_USER
-                ? 'Ese equipo lo tiene otro técnico. Pídele que te lo traspase desde Inventarios → Entregas y traspasos.'
+                ? 'Ese equipo lo tiene otro técnico: sólo puedes usar lo que tienes asignado. Pide a quien administra el inventario que te lo entregue.'
                 : 'No tienes permiso para tomar equipos de la bodega. Usa los que tengas asignados.',
         ]);
     }

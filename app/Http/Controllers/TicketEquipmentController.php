@@ -517,7 +517,10 @@ class TicketEquipmentController extends Controller
 
         $techId = $ticket->staff_id;
 
-        if ($techId && (int) $techId !== (int) $actor->id) {
+        // Lo del técnico asignado sólo lo ve quien administra inventario (la
+        // captura en oficina). Un técnico ve únicamente lo suyo (§ 138).
+        if ($techId && (int) $techId !== (int) $actor->id
+            && $this->ledger->canTakeFrom($actor, InventoryMovement::HOLDER_USER, (int) $techId, $ticket)) {
             $tech = User::find($techId);
             $sources[] = [
                 'type'  => InventoryMovement::HOLDER_USER,

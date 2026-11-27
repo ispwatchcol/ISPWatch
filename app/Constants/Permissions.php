@@ -73,6 +73,20 @@ class Permissions
     const VIEW_INVENTORY = 'view_inventory';
 
     /**
+     * Ver SÓLO lo que el usuario tiene asignado (pantalla «Mis equipos»).
+     *
+     * `view_inventory` lo abre todo: bodegas, lo de los demás técnicos, entregas
+     * y movimientos. El ISP pidió (2026-11-26, bitácora § 138) que el técnico
+     * vea únicamente sus equipos; sin un permiso así, la única forma de que un
+     * técnico viera lo que carga era darle `view_inventory`, y con él veía todo.
+     *
+     * Es un permiso que CONCEDE, como todos: no restringe a nadie. Para que un
+     * técnico vea sólo lo suyo, su rol tiene que tener éste y NO `view_inventory`.
+     * La migración 2026_11_26_000002 se lo da a los roles `technician`.
+     */
+    const VIEW_OWN_INVENTORY = 'view_own_inventory';
+
+    /**
      * Eliminar equipos, stock, proveedores y sucursales del inventario.
      *
      * Permiso propio y no `view_inventory`, que es el que lo autorizaba hasta
@@ -318,7 +332,8 @@ class Permissions
                 self::VIEW_SECTORIALS => 'Ver Sectoriales',
             ],
             'Inventario' => [
-                self::VIEW_INVENTORY => 'Ver Inventario',
+                self::VIEW_INVENTORY => 'Ver Inventario (todo: bodegas, equipos de todos, entregas y movimientos)',
+                self::VIEW_OWN_INVENTORY => 'Ver sólo mis equipos (lo que tengo asignado)',
                 self::DELETE_INVENTORY => 'Eliminar de Inventario (equipos, stock, proveedores, sucursales)',
             ],
             'Instalaciones' => [
@@ -386,6 +401,8 @@ class Permissions
                 self::EDIT_INTERNET_SERVICE,
                 self::VIEW_CLIENT_TRAFFIC,
                 self::ADD_CLIENTS,
+                // «Mis equipos»: lo que tiene asignado, y nada más (§ 138).
+                self::VIEW_OWN_INVENTORY,
             ],
             'accounting', 'Contabilidad' => [
                 self::EDIT_DISCOUNT,
