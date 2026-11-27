@@ -6,7 +6,7 @@
 > no de las migraciones. Donde el esquema real y las migraciones difieren, manda el esquema real
 > y se indica la diferencia.
 
-**Última actualización:** 2026-11-26 (`role.code` ya no autoriza; backfill `ticket_charge`; `inventory_movements.type = 'ajuste'`) · Motor: PostgreSQL (Supabase) + PostGIS
+**Última actualización:** 2026-11-26 (backfills `view_own_inventory` y `ticket_charge`; `role.code` ya no autoriza; `inventory_movements.type = 'ajuste'`) · Motor: PostgreSQL (Supabase) + PostGIS
 
 ---
 
@@ -1664,6 +1664,11 @@ Agregado permanente.
 > `2026_11_26_000001_grant_ticket_charge_to_staff_roles` (sin cambio de esquema) añadió
 > `ticket_charge` a los roles `admin`/`staff` sin comodín, que eran quienes cobraban; es
 > idempotente y su `down()` lo retira de todos. **Correrla antes de desplegar el código.**
+>
+> `2026_11_26_000002_grant_view_own_inventory_to_technician_roles` (también sólo datos) añadió
+> `view_own_inventory` («Ver sólo mis equipos», § 138) a los roles `technician` sin comodín. No le
+> quita a nadie `view_inventory`: que un técnico vea sólo lo suyo exige que su rol NO lo tenga, y
+> eso lo decide cada ISP en Roles.
 
 ---
 

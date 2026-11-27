@@ -134,9 +134,41 @@ class InventoryMovementController extends Controller
             'holder_id'   => 'nullable|integer',
         ]);
 
-        $type = $data['holder_type'];
-        $id   = $data['holder_id'] ?? null;
+        return response()->json(
+            $this->existenciasDe($data['holder_type'], $data['holder_id'] ?? null, conPrecio: true)
+        );
+    }
 
+    /**
+     * «Mis equipos»: lo que tiene asignado quien pregunta, y nada más.
+     *
+     * El ISP pidió (2026-11-26, bitácora § 138) que el técnico vea sólo sus
+     * equipos. Hasta entonces la única forma de que viera lo que carga era
+     * darle `view_inventory`, que le abría también las bodegas y lo de los
+     * demás. Esta ruta se abre con `view_own_inventory` (o `view_inventory`) y
+     * no acepta custodio: el custodio es siempre el usuario de la sesión.
+     *
+     * Sin precios, salvo para quien administra inventario: el rol Técnico no ve
+     * dinero, y un precio de catálogo es dinero.
+     */
+    public function mine(Request $request)
+    {
+        $actor = $request->user();
+
+        return response()->json($this->existenciasDe(
+            InventoryMovement::HOLDER_USER,
+            (int) $actor->id,
+            conPrecio: $this->ledger->managesInventory($actor),
+        ));
+    }
+
+    /**
+     * Equipos y saldos de material de un custodio (bodega o persona).
+     *
+     * @return array{devices: \Illuminate\Support\Collection, materials: \Illuminate\Support\Collection}
+     */
+    private function existenciasDe(string $type, ?int $id, bool $conPrecio): array
+    {
         $devices = InventoryDevice::with(['stock:id,brand,model,price,unit'])
             ->when(
                 $type === InventoryMovement::HOLDER_USER,
@@ -149,12 +181,12 @@ class InventoryMovementController extends Controller
             ->orderBy('id')
             ->get()
             ->map(fn (InventoryDevice $d) => [
-                'id'     => $d->id,
-                'serial' => $d->serial,
-                'mac'    => $d->mac,
-                'item'   => $d->stock?->label() ?? 'Equipo',
-                'price'  => $d->stock?->price,
-            ]);
+                'id'       => $d->id,
+                'stock_id' => $d->stock_id,
+                'serial'   => $d->serial,
+                'mac'      => $d->mac,
+                'item'     => $d->stock?->label() ?? 'Equipo',
+            ] + ($conPrecio ? ['price' => $d->stock?->price] : []));
 
         $materials = $id === null
             ? collect()
@@ -170,10 +202,10 @@ class InventoryMovementController extends Controller
                     'quantity' => (float) $b->quantity,
                 ]);
 
-        return response()->json([
+        return [
             'devices'   => $devices->values(),
             'materials' => $materials->values(),
-        ]);
+        ];
     }
 
     /**

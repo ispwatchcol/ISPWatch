@@ -417,7 +417,11 @@ class InstallationEquipmentController extends Controller
 
         $techId = $installation->technician_id;
 
-        if ($techId && (int) $techId !== (int) $actor->id) {
+        // Lo del técnico asignado sólo lo ve quien administra inventario (la
+        // captura en oficina). Un técnico ve únicamente lo suyo: antes, en la
+        // orden de OTRO técnico, veía y descargaba lo de ese otro (§ 138).
+        if ($techId && (int) $techId !== (int) $actor->id
+            && $this->ledger->canTakeFrom($actor, InventoryMovement::HOLDER_USER, (int) $techId, $installation)) {
             $tech = User::find($techId);
             $sources[] = [
                 'type'  => InventoryMovement::HOLDER_USER,

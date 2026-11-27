@@ -722,10 +722,11 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
             ->middlewareFor('store', 'permission:ticket_create');
     });
 
-    // Inventario. La lectura se abre a view_support porque la pantalla de
-    // Instalaciones lista equipos para asignarlos en la visita.
+    // Inventario: CATÁLOGOS (modelos, proveedores, sucursales, unidades). Se
+    // abren a view_support porque quien planifica una orden los necesita. La
+    // lista de EQUIPOS (/inventory) ya no está aquí: desde 2026-11-26 sólo la ve
+    // quien administra inventario — un técnico ve lo suyo en /inventory/mine (§ 138).
     Route::middleware('permission:view_inventory,view_support')->group(function () {
-        Route::get('/inventory', [InventoryDeviceController::class, 'index']);
         Route::get('/inventory-stock', [InventoryStockController::class, 'index']);
         Route::get('/inventory-providers', [InventoryProviderController::class, 'index']);
         Route::get('/inventory-branches', [InventoryBranchController::class, 'index']);
@@ -734,6 +735,8 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
     });
     // El kardex y las entregas son gestión de inventario, no consulta de campo.
     Route::middleware('permission:view_inventory')->group(function () {
+        // La lista de todos los equipos, con dónde está cada uno: gestión.
+        Route::get('/inventory', [InventoryDeviceController::class, 'index']);
         Route::get('/inventory/movements', [InventoryMovementController::class, 'index']);
         Route::get('/inventory/holdings', [InventoryMovementController::class, 'holdings']);
         // Qué tiene cada bodega o persona (conteos), para que Entregas abra donde hay algo.
@@ -746,10 +749,17 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         Route::post('/inventory/write-offs', [InventoryMovementController::class, 'writeOff']);
         Route::post('/inventory/{inventory}/retire', [InventoryMovementController::class, 'retire']);
     });
+    // «Mis equipos»: lo que tiene asignado quien pregunta, y nada más. Lo abre
+    // `view_own_inventory` (el técnico) o `view_inventory`. Literal: va antes del
+    // comodín /inventory/{inventory}, que se tragaría «mine» como un id.
+    Route::get('/inventory/mine', [InventoryMovementController::class, 'mine'])
+        ->middleware('permission:view_own_inventory,view_inventory');
     // Va DESPUÉS de las rutas literales de arriba: registrada antes, /inventory/{inventory}
     // se tragaría /inventory/movements y /inventory/holdings como si fueran ids.
+    // Sólo gestión (2026-11-26): con view_support un técnico podía pedir la ficha
+    // de cualquier equipo, de cualquier custodio.
     Route::get('/inventory/{inventory}', [InventoryDeviceController::class, 'show'])
-        ->middleware('permission:view_inventory,view_support');
+        ->middleware('permission:view_inventory');
     Route::middleware('permission:view_inventory')->group(function () {
         Route::post('/inventory', [InventoryDeviceController::class, 'store']);
         Route::match(['put', 'patch'], '/inventory/{inventory}', [InventoryDeviceController::class, 'update']);

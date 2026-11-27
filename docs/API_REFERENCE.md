@@ -5,7 +5,7 @@
 > validación reales de cada `FormRequest` o `$request->validate()`.
 > Cuando un endpoint no declara validación explícita se indica así en lugar de inventar campos.
 
-**Última actualización:** 2026-11-26 (tickets: permisos sin código de rol, `ticket_charge`; técnicos de instalación; inventario: descontar material) · Prefijo base: `/api`
+**Última actualización:** 2026-11-26 (inventario: el técnico ve sólo lo suyo, `/inventory/mine`; tickets: permisos sin código de rol, `ticket_charge`; técnicos de instalación; descontar material) · Prefijo base: `/api`
 
 ---
 
@@ -2038,9 +2038,10 @@ pantalla a propósito, para que se detecte ahí y no en el mostrador.
 
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
-| `GET` | `/api/inventory` | `view_inventory` ∪ `view_support` | Equipos (con serial y MAC). Cada fila trae `holder_label` y, si está instalado, `installed_for` (ver abajo) |
+| `GET` | `/api/inventory` | `view_inventory` | **Todos** los equipos (con serial y MAC). Cada fila trae `holder_label` y, si está instalado, `installed_for` (ver abajo). Hasta 2026-11-26 se abría también con `view_support`: cualquiera de soporte, un técnico incluido, podía pedir el inventario entero (§ 138) |
+| `GET` | `/api/inventory/mine` | `view_own_inventory` ∪ `view_inventory` | **«Mis equipos»**: lo que tiene asignado el usuario de la sesión (`devices` con serial/MAC y `materials` con saldo). No acepta custodio: siempre es quien pregunta. **Sin `price`** salvo para quien administra inventario |
 | `POST` | `/api/inventory` | `view_inventory` | Alta de equipo |
-| `GET` | `/api/inventory/{id}` | `view_inventory` ∪ `view_support` | Detalle |
+| `GET` | `/api/inventory/{id}` | `view_inventory` | Detalle (antes también `view_support`) |
 | `PUT/PATCH` | `/api/inventory/{id}` | `view_inventory` | Actualiza |
 | `DELETE` | `/api/inventory/{id}` | **`delete_inventory`** | Elimina el equipo |
 | `GET` | `/api/inventory-stock` | `view_inventory` ∪ `view_support` | Modelos / stock |
@@ -2275,7 +2276,7 @@ y el kardex reconoce las filas nuevas por rango de `id`— y el candado cierra l
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
 | `GET` | `/api/installations/{id}/equipment` | `view_support,view_clients` | Líneas ya descargadas en la orden |
-| `GET` | `/api/installations/{id}/equipment/available` | `view_support` | Qué puede tomar **este** usuario en **esta** orden |
+| `GET` | `/api/installations/{id}/equipment/available` | `view_support` | Qué puede tomar **este** usuario en **esta** orden: lo suyo; lo del técnico asignado y las bodegas **sólo** si administra inventario (`view_inventory`). Un técnico ve únicamente «Mis equipos» (§ 138) |
 | `POST` | `/api/installations/{id}/equipment` | `view_support` | Descarga un equipo (`device_id`) o un material (`stock_id` + `quantity` + `source_*`) |
 | `DELETE` | `/api/installations/{id}/equipment/{item}` | `view_support` | Quita una línea **capturada por error** y devuelve la existencia a quien la aportó. No es la devolución de material gastado |
 
@@ -2410,7 +2411,7 @@ Cada ruta la gobierna **su permiso y nada más**: desde 2026-11-26 ya no existe 
 | `GET` | `/api/support/{id}/charges` | `ticket_charge` | Cargos del ticket; cada uno trae `installments` (plan de cuotas o `null`) |
 | `PUT` | `/api/support/{id}/charges/{invoice}/installments` | `ticket_charge` | Cambia el acuerdo de pago del cargo: `installments_count` (0 = quitar, máx. 24), `installments_mode` (`monthly` o `separate`), `installments_first_due_date`. 422 si toca lo ya cobrado |
 | `GET` | `/api/support/{id}/equipment` | `ticket_equipment` | Equipos movidos en la visita, **incluidas las líneas revertidas** (ver §16.1) |
-| `GET` | `/api/support/{id}/equipment/available` | `ticket_equipment` | Qué se puede entregar o retirar |
+| `GET` | `/api/support/{id}/equipment/available` | `ticket_equipment` | Qué se puede entregar o retirar. Para entregar: lo suyo; lo del técnico del ticket y las bodegas **sólo** con `view_inventory` (§ 138) |
 | `POST` | `/api/support/{id}/equipment` | `ticket_equipment` | Entrega o **retira** un equipo del cliente |
 | `DELETE` | `/api/support/{id}/equipment/{item}` | `ticket_equipment` | **Revierte** la línea (no la borra). Exige `reason` en el cuerpo |
 

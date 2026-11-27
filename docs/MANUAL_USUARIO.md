@@ -13,7 +13,7 @@
 > seeder: los seeders no corren allí. Va en `database/seeders/content/*.php` —archivo
 > compartido— y una migración lo inserta. Ver § 20.
 
-**Última actualización:** 2026-11-26 (roles: lo que marcas es lo que vale, cobros de la visita; pruebas técnicas opcionales en el simple; técnicos de instalación; inventario y buscador de Instalaciones)
+**Última actualización:** 2026-11-26 (el técnico ve sólo sus equipos, «Mis equipos»; roles: lo que marcas es lo que vale, cobros de la visita; pruebas técnicas opcionales en el simple; técnicos de instalación; inventario y buscador de Instalaciones)
 
 ---
 
@@ -2349,6 +2349,7 @@ empresa (permiso *Administrar empresa*).
 | Entrada del menú | Para qué |
 |---|---|
 | **Equipos y existencias** | **Cada equipo individual**, con su serial y su MAC |
+| **Mis equipos** | Sólo para quien **no** administra inventario (el técnico): lo que tiene asignado, y nada más. Ver 15.4 |
 | **Ingresar al inventario** | **Todo lo que entra a la empresa**: material por cantidad (cable, fibra, conectores) y equipos con serial (ONU, routers, antenas), varios a la vez. Si el producto no existe, se crea ahí mismo. Ver 15.1 |
 | **Entregas y traspasos** | Pasar equipos y material de la bodega a un técnico y recibirlos de vuelta. Ver 15.3 |
 | **Movimientos** | El historial: quién recibió cada equipo y en qué instalación se usó |
@@ -2546,10 +2547,21 @@ Si se cae la conexión justo al descontar, la ventana trae el saldo real y te pi
 
 ### 15.4 Qué equipos puede usar cada quien
 
-Al llenar la hoja de una instalación, el técnico **sólo ve lo que tiene asignado**. No puede usar
-un equipo que carga otro técnico: primero se lo tienen que traspasar. Quien administre inventario
-ve además las bodegas, y en una orden concreta cualquiera puede descargar lo que lleva el técnico
-asignado a esa orden — así la secretaria puede capturar en oficina una visita ya hecha.
+Al llenar la hoja de una instalación o los equipos de un ticket, el técnico **sólo ve lo que tiene
+asignado**. No puede usar un equipo que carga otro técnico: primero se lo tienen que traspasar.
+**Aunque abra la orden o el ticket de otro técnico, ve y usa únicamente lo suyo** (desde noviembre
+de 2026; antes veía también lo del técnico asignado). Quien administre inventario ve además las
+bodegas y, en una orden o ticket concretos, lo que lleva el técnico asignado — así la secretaria
+puede capturar en oficina una visita ya hecha.
+
+**Mis equipos.** El técnico ve su inventario en *Inventarios → Mis equipos*: cuántos tiene de cada
+modelo, cada equipo con su serial y su MAC, y los materiales con su cantidad. No ve bodegas, ni lo
+de los demás, ni precios.
+
+> **Para que tus técnicos vean sólo lo suyo**, en **Roles** el rol Técnico debe tener **Ver sólo
+> mis equipos** y **no** tener **Ver Inventario** (ese abre todo: bodegas, lo de todos, entregas y
+> movimientos). Los roles Técnico ya traen *Ver sólo mis equipos*; si a alguno le marcaste *Ver
+> Inventario*, desmárcalo. El cambio vale al volver a entrar.
 
 Cada equipo o material que se carga a una instalación **se descuenta de quien lo aportó** y queda
 en el historial. Si te equivocaste, el botón **Devolver** lo regresa a su dueño.
@@ -2648,7 +2660,7 @@ aparecen en pantalla:
 | **Facturas** | Dashboard / Estadísticas · Buscar Facturas · Registrar Pagos · **Anular Factura** · Eliminar Factura (sólo borradores) · Editar Total a Pagar · Agregar Gasto · Promesas de Pago |
 | **Contabilidad** | Lista de Gastos · Editar Gasto · Lista de Facturas · Registrar Pagos · Editar Fecha de Pago · Registrar Pago Mayor 3 Días · Agregar Transferencia · Eliminar Transferencia |
 | **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
-| **Inventario** | Ver Inventario · **Eliminar de Inventario** |
+| **Inventario** | Ver Inventario (todo) · **Ver sólo mis equipos** · **Eliminar de Inventario** |
 | **Instalaciones** | Ver Costo de Instalación · Eliminar Instalaciones |
 | **Soporte** | Ver Soporte Técnico · los permisos de tickets (ver, crear, editar, asignar, diagnosticar, adjuntar, cambiar estado, cerrar, reabrir, **generar cobros de la visita**…) |
 | **Facturación** | Ver Facturación |
@@ -2667,7 +2679,7 @@ aparecen en pantalla:
 | Rol | Alcance |
 |---|---|
 | **Administrador** | Todo, sin excepción |
-| **Técnico** | Sólo clientes: verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones. **No ve dinero**: ni facturas, ni pagos, ni gastos. Tampoco el valor de la instalación, salvo que le marques **Ver Costo de Instalación** |
+| **Técnico** | Clientes (verlos, agregarlos, editar su servicio, activar/desactivar, ver su tráfico y eliminar instalaciones) y **sus propios equipos** (*Mis equipos*: sólo lo que tiene asignado). **No ve dinero**: ni facturas, ni pagos, ni gastos. Tampoco el valor de la instalación, salvo que le marques **Ver Costo de Instalación** |
 | **Contabilidad** | Todo lo de plata: facturas, pagos, gastos, transferencias y estadísticas. **No gestiona la red** ni el personal |
 | **Staff** | El operador de mostrador: clientes, planes, sectoriales, inventario, soporte, ver facturación y registrar pagos. **No borra facturas ni toca configuración** |
 | **Cliente** | Sin permisos de gestión. Es el rol de los clientes finales |

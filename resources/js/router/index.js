@@ -377,6 +377,14 @@ const routes = [
         component: () => import('@/pages/Inventory.vue'),
         meta: { title: 'Inventario', permission: 'view_inventory' },
       },
+      // Lo que tiene asignado el usuario, y nada más (§ 138). El técnico entra
+      // con `view_own_inventory`, sin ver bodegas ni lo de los demás.
+      {
+        path: 'mine',
+        name: 'InventoryMine',
+        component: () => import('@/pages/InventoryMine.vue'),
+        meta: { title: 'Mis equipos', permission: ['view_own_inventory', 'view_inventory'] },
+      },
       // Un solo sitio por donde entra mercancía: equipos con serial y material
       // por cantidad, varios a la vez. Reemplaza «Agregar equipo con serial»,
       // «Agregar material» y la «Entrada de material» de Entregas y traspasos.
@@ -529,7 +537,9 @@ router.beforeEach((to, _from, next) => {
     return next({ name: 'Dashboard' });
   }
 
-  if (to.meta.permission && !auth.hasPermission(to.meta.permission)) {
+  // `permission` admite uno o varios (semántica OR, como CheckPermission):
+  // «Mis equipos» se abre con `view_own_inventory` o con `view_inventory`.
+  if (to.meta.permission && ![].concat(to.meta.permission).some((p) => auth.hasPermission(p))) {
     return next({ name: 'Dashboard' });
   }
 

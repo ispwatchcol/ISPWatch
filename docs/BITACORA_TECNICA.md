@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-11-26 · Rama: `fix/tickets-roles-por-permiso-y-tecnicos`
+**Última actualización:** 2026-11-26 · Rama: `feat/tecnico-solo-sus-equipos`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
@@ -11705,3 +11705,72 @@ JSON de roles; el código viejo no lo mira). Al revés, Staff se queda sin cobra
 
 Cambio de permisos compatible (nadie pierde nada; los ISP ganan control) y permiso nuevo:
 **1.4.0**.
+
+---
+
+## 138. El técnico ve sólo sus equipos: en la orden, en el ticket y en «Mis equipos» — 2026-11-26
+
+### Pedido
+
+«Algo súper importante: el rol técnico sólo debe poder ver los equipos que están asignados a él
+cuando los vaya a usar para tickets, instalaciones o ver el inventario.»
+
+### Qué veía el técnico hasta hoy
+
+| Dónde | Qué veía |
+|---|---|
+| Orden o ticket de **otro** técnico | Lo suyo **y lo del técnico asignado**: la excepción pensada para que la secretaria capture en oficina valía para cualquiera que abriera la hoja, y además le dejaba descargarlo |
+| Orden o ticket, con «Ver inventario» en su rol | Además, **todas las bodegas** |
+| Inventario | Nada propio: la única forma de que viera lo que carga era darle «Ver inventario», que le abría **todo** (bodegas, lo de los demás, entregas, movimientos) |
+| API `GET /inventory` y `/inventory/{id}` | Abiertas con `view_support`: cualquiera de soporte podía pedir el inventario entero |
+
+### Qué se hizo
+
+- **`canTakeFrom()`**: lo del técnico asignado a la orden o al ticket, sólo para quien administra
+  inventario (`view_inventory`). Lo suyo, siempre; las bodegas, como antes, sólo con
+  `view_inventory`. Las dos listas de «disponible» (`allowedSources()`) añaden al técnico asignado
+  preguntándole a `canTakeFrom()`, así lo que se ve y lo que se puede tomar no se separan.
+- **Permiso nuevo `view_own_inventory`** («Ver sólo mis equipos») y **`GET /inventory/mine`**:
+  equipos y materiales del usuario de la sesión, sin precios salvo para quien administra. Pantalla
+  **Mis equipos** (`InventoryMine.vue`): cuántos de cada modelo, serial/MAC, materiales con su
+  cantidad, buscador; sólo lectura. En el menú, quien no tiene `view_inventory` ve *Inventarios →
+  Mis equipos* y nada más; quien administra conserva sus cinco entradas.
+- **Backfill `2026_11_26_000002`**: `view_own_inventory` a los roles `technician`, y en la matriz
+  por defecto del técnico.
+- **`GET /inventory` y `/inventory/{id}`** pasan a `view_inventory` (sólo las usaban las pantallas de
+  gestión).
+- El router acepta `meta.permission` como arreglo (OR).
+- Textos: el aviso de «saldo que no puedes tomar» y los mensajes de custodia ya no mandan al
+  técnico a *Entregas y traspasos*, que no puede abrir.
+
+### Decisiones
+
+| Decisión | Por qué |
+|---|---|
+| La excepción del técnico asignado queda **sólo** para `view_inventory` | Es la captura en oficina (secretaria, administrador), que tiene ese permiso en las matrices por defecto. Un rol de soporte sin inventario pierde la captura de lo del técnico: lo registra el técnico, o se le da el permiso |
+| Permiso que **concede** (`view_own_inventory`), no uno que restrinja | Los permisos sólo suman (la unión rol ∪ usuario nunca revoca). Para ver sólo lo suyo, el técnico tiene que tener éste y **no** `view_inventory`: lo ajusta cada ISP en Roles; no se le quitó `view_inventory` a ningún rol |
+| «Mis equipos» es una pantalla propia y sólo para quien no administra | Mezclarla en *Equipos y existencias* con modos haría esa pantalla más difícil; y el menú de quien administra sigue en cinco entradas |
+| El catálogo de planificación conserva los totales de la empresa | Planificar no es usar y la oficina sin `view_inventory` los necesita; sin serial, custodio ni precio. Queda como P-128 por si el ISP no los quiere |
+
+### Pruebas
+
+- `tests/Feature/Inventory/TechnicianSeesOnlyOwnEquipmentTest.php` (8): en la orden y en el ticket
+  de otro técnico, el técnico ve y descarga sólo lo suyo (422 con el equipo ajeno); el asignado no
+  ve la bodega; la oficina conserva lo del asignado y la bodega; *Mis equipos* sin precio para el
+  técnico y con precio para quien administra; `/inventory` y `/inventory/{id}` 403 con soporte; sin
+  ninguno de los dos permisos, 403; y el backfill. Las dos primeras **fallan con el código
+  anterior** (comprobado).
+- Guarda de pantalla en `InventoryAndInstallationsScreensTest`.
+- Suites: `Inventory` 232, `Support` 580, `Auth` 79, `Ui` 26 — ninguna prueba previa dependía de la
+  excepción para un técnico.
+- Recorrido de navegador (scratchpad, SQLite aislado): el técnico ve *Inventarios → Mis equipos* como
+  única entrada, sus 2 ONU y 25 m de cable sin precios, `/inventory` lo devuelve al inicio, y en el
+  ticket de otro técnico el buscador dice «2 a tu alcance».
+
+**Para el ISP que lo pidió:** si su rol Técnico tiene «Ver Inventario», hay que desmarcarlo en Roles
+(el backfill ya le dio «Ver sólo mis equipos»). Sin eso el técnico sigue viendo todo, porque así lo
+dice su rol.
+
+### Versión 1.5.0
+
+Función nueva (Mis equipos) y regla de visibilidad compatible: **1.5.0**.

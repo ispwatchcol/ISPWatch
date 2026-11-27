@@ -17,6 +17,32 @@ y explicada en el [manual del desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
+## [1.5.0] — 2026-11-26
+
+El técnico ve sólo sus equipos. Detalle en la bitácora técnica, sección 138.
+
+### Añadido
+
+- **Mis equipos** (*Inventarios → Mis equipos*): el técnico ve lo que tiene
+  asignado —cuántos de cada modelo, cada equipo con su serial y su MAC, y los
+  materiales con su cantidad—, sin bodegas, sin lo de los demás y sin precios.
+  Permiso nuevo **«Ver sólo mis equipos»**, que ya traen los roles Técnico.
+
+### Cambiado
+
+- En una orden o un ticket, **el técnico ve y usa únicamente lo suyo**, aunque
+  la orden sea de otro técnico. Lo del técnico asignado y las bodegas los ve
+  sólo quien administra el inventario (la captura en oficina).
+- La lista de todos los equipos se abre sólo con **«Ver Inventario»** (antes
+  también con «Ver Soporte Técnico»).
+
+### Importante para cada ISP
+
+- Si a tu rol Técnico le marcaste **«Ver Inventario»**, desmárcalo en Roles:
+  ese permiso abre todo el inventario, y con él el técnico sigue viéndolo.
+
+---
+
 ## [1.4.0] — 2026-11-26
 
 Lo que se marca en **Roles** es lo que vale. Detalle en la bitácora técnica,
