@@ -170,12 +170,17 @@
                                 </div>
                                 <h2 class="text-lg font-bold text-gray-800 dark:text-white">Cobro <span class="text-sm font-normal text-gray-500">(opcional)</span></h2>
                             </div>
-                            <label class="relative inline-flex items-center" :class="noCharge ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'">
+                            <label v-if="canCharge" class="relative inline-flex items-center" :class="noCharge ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'">
                                 <input v-model="addCharge" :disabled="noCharge" type="checkbox" class="sr-only peer" />
                                 <div class="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
                             </label>
                         </div>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Actívalo si la visita lleva un cobro (visita técnica, materiales…). También se puede cobrar después, desde el ticket.</p>
+                        <p v-if="canCharge" class="text-xs text-gray-500 dark:text-gray-400 mb-4">Actívalo si la visita lleva un cobro (visita técnica, materiales…). También se puede cobrar después, desde el ticket.</p>
+                        <!-- Generar el cobro pide «Tickets · generar cobros» (ticket_charge). -->
+                        <p v-else class="text-xs text-gray-500 dark:text-gray-400 mb-4" data-testid="charge-needs-permission">
+                            Tu rol no genera cobros. Si la visita se cobra, lo hace después desde el ticket quien tenga
+                            «Tickets · generar cobros» en Roles.
+                        </p>
 
                         <!-- Sin cobro: no es «hoy no lo cobro», es «este ticket no
                              se puede cobrar». Cierra también el cargo posterior. -->
@@ -412,6 +417,8 @@ const canManageSubjects = computed(() => authStore.hasPermission('ticket_manage_
 const canSetPriority = computed(() => authStore.hasPermission('ticket_set_priority'))
 const canAssign = computed(() => authStore.hasPermission('ticket_assign') || authStore.hasPermission('ticket_create'))
 const canDiagnose = computed(() => authStore.hasPermission('ticket_diagnose'))
+// Generar el cobro: permiso propio desde 2026-11-26 (antes, código de rol en la API).
+const canCharge = computed(() => authStore.hasPermission('ticket_charge'))
 
 // En el alta sólo se ofrece el síntoma. El resto del diagnóstico se registra
 // al cerrar (bitácora § 133): quien atiende la llamada no lo sabe todavía.
@@ -513,7 +520,7 @@ const handleSubmit = async () => {
 
         const newTicketId = ticketRes.data?.id || ticketRes.data?.ticket?.id
 
-        if (addCharge.value && !noCharge.value && newTicketId) {
+        if (addCharge.value && canCharge.value && !noCharge.value && newTicketId) {
             try {
                 await api.support.generateCharge(newTicketId, {
                     items: chargeItems.value.map(i => ({

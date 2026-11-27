@@ -5,7 +5,7 @@
 > Cuando algo **no** puede inferirse del código se marca explícitamente como
 > `⚠️ No inferible del código`.
 
-**Última actualización:** 2026-11-26 (inventario: ajuste vs. baja de material) · Rama: `fix/inventario-conteos-entregas-instalaciones`
+**Última actualización:** 2026-11-26 (autorización sólo por permiso, P-45; inventario: ajuste vs. baja) · Rama: `fix/tickets-roles-por-permiso-y-tecnicos`
 
 ---
 
@@ -224,10 +224,11 @@ sequenceDiagram
 | Alias | Clase | Función |
 |---|---|---|
 | `permission` / `can_do` | `CheckPermission` | Exige uno o varios permisos con **semántica OR** (`permission:a,b`); **bypass si `role_id == 1`** |
-| `staff_profile` | `CheckStaffProfile` | Pese al nombre, comprueba `role.code ∈ {admin, staff}` o `role_id == 1`; **no** exige fila en `staff_profile` |
 | `throttle:<limitador>` | Laravel | Límite de peticiones: `api` (120/min), `router-ops` (10/min), `bulk-ops` (5/min) |
 | *(global)* | `SecurityHeaders` | CSP, HSTS, X-Frame-Options, COOP, `object-src 'none'`, `base-uri`, `form-action`, `frame-src 'self' blob:`, y **`Cache-Control: no-store` en toda respuesta HTML** (KAN-101: el documento del SPA con URL estable hacía que el navegador siguiera pidiendo los chunks viejos; `/build/assets` no pasa por PHP y conserva su caché) (los PDF generados en el navegador se muestran en un `<iframe>`; **sin `data:`**). **Sin `unsafe-eval` ni `unsafe-inline` en `script-src`**. Fijada por `SecurityHeadersTest`: una regresión de CSP no falla en el servidor, falla en el navegador y sin dejar logs |
 | *(api, prepend)* | `EnsureFrontendRequestsAreStateful` | Sanctum SPA |
+
+> **La autorización es sólo por permiso (2026-11-26, P-45).** Existió un alias `staff_profile` (`CheckStaffProfile`) que dejaba pasar por **código de rol** (`admin`/`staff`), no por permiso, sobre las operaciones de ticket. El panel de Roles no podía configurarlo: un técnico con «Tickets · cerrar» marcado recibía 403. Se eliminó; cada ruta exige su `permission:`, y `TicketGranularPermissionsTest::ninguna_ruta_autoriza_por_codigo_de_rol` impide reintroducirlo. Si una regla parece depender del rol, conviértela en un permiso con su backfill.
 
 `trustProxies(at: '*')` está activo (necesario tras el balanceador de DigitalOcean).
 Las `QueryException` se traducen a JSON 422 con mensaje amigable vía `App\Helpers\ErrorMessages`.

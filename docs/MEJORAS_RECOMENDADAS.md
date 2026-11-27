@@ -78,9 +78,12 @@ Se añadió `permission:view_settings` como segunda capa; el control del control
 
 ### ⚠️ Precisión sobre `CheckStaffProfile`
 
-Pese al nombre, **no exige una fila en `staff_profile`**: comprueba
+Pese al nombre, **no exigía una fila en `staff_profile`**: comprobaba
 `role.code ∈ {admin, staff}` o `role_id == 1`. Que `staff_profile` esté vacía en producción
-no bloquea nada. Corregido en `API_REFERENCE.md` y `BITACORA_TECNICA.md`.
+no bloqueaba nada. Corregido en `API_REFERENCE.md` y `BITACORA_TECNICA.md`.
+
+> **2026-11-26:** el middleware se **eliminó** (P-45, § 137 de la bitácora). Toda autorización
+> va ahora por `permission:`.
 
 ---
 
@@ -2361,7 +2364,16 @@ el formulario roto hasta que limpió la caché a mano.
 > de los despliegues corrigen algo sin tocarlo. `GET /api/system/version` publica ahora `build`,
 > la huella del manifiesto de Vite, que cambia siempre que cambia un chunk.
 
-### 🟡 P-44 · Los cargos del ticket siguen sin permiso propio
+### ✅ P-44 · Los cargos del ticket siguen sin permiso propio — RESUELTO 2026-11-26
+
+> **Resolución (§ 137 de la bitácora).** Se creó `ticket_charge` («Tickets · generar cobros de
+> la visita») y las tres rutas de cobro lo exigen. La pregunta de negocio se respondió así: es
+> una capacidad **de soporte, configurable por ISP en Roles**, separada de `ticket_edit` (que
+> tiene el técnico) y de `view_billing` (que se la quitaría a Staff). El backfill
+> `2026_11_26_000001` se la dio exactamente a quien cobraba: los roles `admin` y `staff`. La
+> pantalla muestra «Cobros» y el interruptor de cobro del alta sólo con ese permiso. Lo de abajo
+> es la descripción original.
+
 
 El PR B separó `view_support` en 20 capacidades `ticket_*` y dejó **todas** las rutas de ticket
 detrás de un permiso… salvo dos:
@@ -2394,7 +2406,16 @@ excepción: si mañana alguien agrega otra ruta de ticket sin permiso, falla.
 > borrado está bloqueado y anularlo exige `invoice_void`, motivo y auditoría. La pregunta de
 > negocio —**quién debe poder facturar desde un ticket**— sigue abierta.
 
-### 🟡 P-45 · `staff_profile` decide por código de rol, no por capacidad
+### ✅ P-45 · `staff_profile` decide por código de rol, no por capacidad — RESUELTO 2026-11-26
+
+> **Resolución (§ 137 de la bitácora).** El usuario pidió que lo que puede hacer el técnico con
+> un ticket «se ponga en el panel de roles»: esa es la decisión D-09. `CheckStaffProfile` se
+> eliminó y cada ruta de ticket exige sólo su permiso. **No amplió el acceso de nadie:** el
+> backfill del PR B (`2026_09_11_000001`) sólo había dado `ticket_note`, `ticket_transition`,
+> `ticket_close` y `ticket_export` a los roles `admin`/`staff`, así que los demás reciben esas
+> capacidades sólo si un administrador las marca en Roles. Los cobros, que no tenían permiso,
+> estrenaron `ticket_charge` (P-44). Lo de abajo es la descripción original.
+
 
 `CheckStaffProfile` deja pasar a quien tenga `code` ∈ {`admin`, `staff`} más el superadmin
 global. No mira permisos.
@@ -3038,6 +3059,18 @@ para que las tarjetas sigan respondiendo «cuántos hay» sin traer las filas. P
 conteos al servidor haría que las tarjetas cuenten sólo la página visible (la misma trampa que
 evitó Gastos en la Fase 1).
 
+### 📋 P-127 · El reloj del menú usa la zona horaria por defecto para quien no administra la empresa
+
+Visto en la bitácora § 137. `Sidebar.vue` lee la zona del ISP de `GET /tenants/{id}`, que exige
+`manage_tenant`. Desde el cartel global de permisos (2026-11-13) ese 403 hacía aparecer «No tienes
+permiso» en **cada pantalla** a técnicos, Staff y Contabilidad; ahora el menú no lo pide sin el
+permiso y el reloj se queda en `America/Bogota` — lo mismo que ya pasaba antes, en silencio.
+Para un ISP en otra zona, su personal ve la hora de Bogotá.
+
+**Recomendación.** Enviar `zone_tenant` en la respuesta de login / `/auth/me` (sólo la zona, no la
+configuración entera) y que el reloj lo lea de la sesión; `/tenants/{id}` sigue siendo de
+administración.
+
 ## 8. Tabla consolidada
 
 > **Dos avisos antes de usar esta tabla como índice.**
@@ -3205,6 +3238,7 @@ evitó Gastos en la Fase 1).
 | **P-124** | «Editar ticket» y el recuadro «Atención» del detalle cambian lo mismo | Dos sitios para lo mismo | 🟢 Baja | 📋 Pendiente · reducir *Editar* tras validarlo con los operadores (§ 133) |
 | **P-125** | *Descontar… → Se ingresó de más* baja el saldo del custodio pero no corrige el **gasto automático** de la entrada equivocada (KAN-91) | Con el gasto automático encendido, el gasto de la compra queda inflado hasta que alguien lo ajuste a mano (la pantalla lo avisa) | 🟡 Media | 📋 Pendiente · aceptado conscientemente (§ 136): no se adivina qué entrada fue; candidato: «Corregir cantidad» sobre la línea de entrada, anulando y reemitiendo su gasto |
 | **P-126** | `GET /inventory` y `GET /installations` devuelven todas las filas; buscar, contar y paginar es en el navegador | Primera carga lenta en un ISP de decenas de miles de equipos u órdenes | 🟢 Baja | 📋 Pendiente · paginar en servidor con los conteos por estado en la misma consulta (§ 136) |
+| **P-127** | El reloj del menú lateral usa `America/Bogota` para quien no tiene `manage_tenant` | En un ISP de otra zona, su personal ve una hora que no es la suya | 🟢 Baja | 📋 Pendiente · enviar `zone_tenant` en la sesión (§ 137) |
 | **P-60** | La comparación inicial/final del § 13 empareja por `test_type` **literal**: «RSSI» y «rssi» son tipos distintos y salen en filas separadas | Una comparación partida en dos filas parece que falta la medición final cuando existe | 🟡 Baja | 📋 Pendiente · con texto libre era inevitable sin inventar una normalización que el documento no pide; las sugerencias reducen el problema |
 | **P-49** | Ramas muertas de `pending` en las pantallas de facturación: no es un estado válido de `invoices.status` | Ninguno hoy; sugieren que el estado existe, y de ahí salió el desplegable que mandaba un valor inválido | 🟢 Baja | 📋 Pendiente · el desplegable sí se corrigió (2026-09-19) |
 | **P-48** | Los eventos `charge_created` del historial guardan `invoice_number`, columna que no existe: la de `invoices` se llama `number` | El historial del ticket registra el cargo sin su número; el `invoice_id` sí queda | 🟡 Baja | 📋 Pendiente · detectado en el PR C, no corregido ahí por estar fuera de alcance |
@@ -3216,9 +3250,9 @@ evitó Gastos en la Fase 1).
 | **P-48** | El equipo entregado en una visita sin cobro no genera gasto si el ISP no encendió `inventory_entry_creates_expense` | El mantenimiento gratis no aparece en ningún informe de gastos, y no hay costo interno agregado | 🟡 Media | 📋 Pendiente · decisión contable del ISP + informe de visitas sin cobro |
 | **P-49** | La pantalla de equipos del ticket (KAN-92, sin mergear) no muestra la marca «sin cobro» | El técnico que cambia un router en garantía no vería «no le cobres» donde está trabajando | 🟢 Baja | 📋 Pendiente · costura entre dos ramas, al mergear KAN-92 |
 | **P-50** | `addslashes()` no escapa el `$` del comando que corre en el router | Un nombre de cliente con `$` mete una variable inexistente en medio del comando | 🟢 Baja | 📋 Pendiente · toca el escapado de los nueve managers, exige prueba contra RouterOS real |
-| **P-44** | Los cargos del ticket (`/support/{id}/charge`) siguen sin permiso propio, sólo `staff_profile` | Cualquier usuario con ficha de personal puede generar un cargo facturable desde un ticket | 🟡 Media | 📋 Pendiente · requiere decidir si es capacidad de soporte o de facturación |
+| **P-44** *(tickets)* | Los cargos del ticket (`/support/{id}/charge`) no tenían permiso propio, sólo `staff_profile` | Cualquier usuario con código de rol admin/staff generaba un cargo facturable, y no se podía dar ni quitar en Roles | 🟡 Media | ✅ **Resuelto 2026-11-26 (§ 137)**: permiso `ticket_charge` («Tickets · generar cobros de la visita») en las tres rutas de cobro, con backfill `2026_11_26_000001` a los roles admin/staff (exactamente quien cobraba). Decisión: capacidad de soporte configurable por ISP, separada de `ticket_edit` y de `view_billing` |
 | **P-45** *(inventario)* | `view_inventory` era el único permiso del módulo: ver, crear, editar y borrar eran el mismo | Un permiso de lectura autorizaba vaciar el inventario, y KAN-98 lo dejó a un clic | 🟠 Alta | ⚠️ **Resuelto a medias** (2026-09-11): borrar ya exige `delete_inventory` · **falta partir lectura y escritura** |
-| **P-45** *(tickets)* | `staff_profile` autoriza por código de rol, no por capacidad | Renombrar el `code` de un rol cambia en silencio qué puede hacer su gente | 🟡 Media | 📋 Pendiente · evaluar su retirada tras confirmar la matriz de roles (D-09) |
+| **P-45** *(tickets)* | `staff_profile` autorizaba por código de rol, no por capacidad | Un técnico con «Tickets · cerrar» marcado en Roles recibía 403: el panel no gobernaba lo que decía | 🟡 Media | ✅ **Resuelto 2026-11-26 (§ 137)**: `CheckStaffProfile` eliminado; cada ruta exige sólo su permiso. No amplió el acceso de nadie: el backfill del PR B ya había dado esas capacidades sólo a admin/staff. La decisión D-09 la tomó el usuario: lo gobierna el panel de Roles |
 
 ---
 

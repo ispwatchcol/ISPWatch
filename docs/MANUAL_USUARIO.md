@@ -13,7 +13,7 @@
 > seeder: los seeders no corren allí. Va en `database/seeders/content/*.php` —archivo
 > compartido— y una migración lo inserta. Ver § 20.
 
-**Última actualización:** 2026-11-26 (inventario: conteos por estado, descontar material; buscador de Instalaciones)
+**Última actualización:** 2026-11-26 (roles: lo que marcas es lo que vale, cobros de la visita; pruebas técnicas opcionales en el simple; técnicos de instalación; inventario y buscador de Instalaciones)
 
 ---
 
@@ -571,7 +571,9 @@ Un **prospecto** es alguien interesado que todavía no es cliente.
 1. Ve a **Soporte → Instalaciones**.
 2. Pulsa **Agendar instalación**.
 3. Llena los datos de la persona (nombre, cédula, teléfono, dirección, estrato).
-4. Elige **fecha** y **técnico**.
+4. Elige **fecha** y **técnico**. En la lista salen los técnicos y **también los administradores**
+   (y cualquier rol al que le marques *Tickets · registrar intervenciones técnicas* en **Roles**);
+   debajo de cada nombre se ve su rol. Antes sólo salía el rol Técnico.
 5. En **Equipo / Materiales previstos** pulsa **Buscar producto del inventario…**: se abre un
    buscador donde escribes parte del nombre («amarr», «cable», «LDF») o el sitio donde está
    («chaguani»), y puedes filtrar por *Materiales* o *Equipos con serial*. Al elegir uno ves
@@ -2186,7 +2188,10 @@ posible tomarla. Es una regla del documento del cliente, no una decisión de la 
 Aplica al **flujo formal**; en el simple (ver 14.6) la medición es opcional. La forma más
 rápida de cumplirla es registrarla dentro de **Resolver y cerrar** (ver 14.3).
 
-El aviso aparece en dos sitios, siempre **antes** de intentar cerrar:
+En el **flujo simple** el bloque dice **Opcional** y no muestra el aviso: registra las pruebas si
+las tomaste, pero no hacen falta para cerrar.
+
+En el formal, el aviso aparece en dos sitios, siempre **antes** de intentar cerrar:
 
 - En el bloque de Pruebas técnicas, si todavía no hay ninguna final.
 - En **Para cerrar**, dentro del recuadro **Siguiente paso** del ticket (casilla «Medición final»).
@@ -2323,6 +2328,7 @@ empresa (permiso *Administrar empresa*).
 | Estados | Abierto → En proceso → (En espera) → Resuelto → Cerrado | Radicado → Clasificación → Asignado → (Visita) → Intervención → Restablecido → (Observación) → Cerrado |
 | Desde dónde se cierra | Desde cualquier estado | Sólo desde *Servicio restablecido* (y los equivalentes); *Resolver y cerrar* recorre los pasos |
 | Para cerrar hace falta | Decir **qué se hizo** | Causa confirmada, acción, resultado y **medición final** (o por qué no se pudo) |
+| Pruebas técnicas | **Opcionales** (el bloque lo dice) | La **final** es obligatoria |
 | Solución temporal | Se cierra normal | Exige *cierre especial* |
 | Para quién | La mayoría de los ISP | Mesas de ayuda con proceso formal por contrato o auditoría |
 
@@ -2644,9 +2650,17 @@ aparecen en pantalla:
 | **Infraestructura** | Gestionar Routers · Ver Planes de Internet · Ver Sectoriales |
 | **Inventario** | Ver Inventario · **Eliminar de Inventario** |
 | **Instalaciones** | Ver Costo de Instalación · Eliminar Instalaciones |
-| **Soporte** | Ver Soporte Técnico · los permisos de tickets (ver, crear, editar, asignar, diagnosticar, adjuntar, cerrar…) |
+| **Soporte** | Ver Soporte Técnico · los permisos de tickets (ver, crear, editar, asignar, diagnosticar, adjuntar, cambiar estado, cerrar, reabrir, **generar cobros de la visita**…) |
 | **Facturación** | Ver Facturación |
 | **Sistema** | Ver Personal · Gestionar Roles · Gestionar Configuración de Empresa · Gestionar Plantillas de Documentos · Ver Ajustes del Sistema · Ejecutar Acciones Masivas |
+
+> **Lo que marcas aquí es lo que vale (desde noviembre de 2026).** Antes, cambiar el estado de un
+> ticket, cerrarlo, reabrirlo, agregar notas y cobrar la visita exigía además que el rol fuera
+> *Administrador* o *Staff*: un **Técnico** con «Tickets · cerrar» marcado veía el botón y el
+> sistema le respondía «no tienes permiso». Ya no: si el rol tiene la casilla, puede, sea Técnico,
+> Staff o uno que hayas creado. Nadie ganó permisos con el cambio: los técnicos tienen lo que les
+> hayas marcado. Cobrar la visita es la casilla nueva **Tickets · generar cobros de la visita**,
+> que ya traen Administrador y Staff.
 
 **Los roles que trae el sistema.** Son un punto de partida; puedes editarlos o crear otros:
 

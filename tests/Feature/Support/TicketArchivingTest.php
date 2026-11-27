@@ -93,6 +93,9 @@ class TicketArchivingTest extends TestCase
             Permissions::TICKET_TRANSITION, Permissions::TICKET_CLOSE,
             Permissions::TICKET_EXPORT,
             Permissions::TICKET_ARCHIVE, Permissions::TICKET_RESTORE,
+            // Los cobros pedían el código admin/staff; desde P-45 piden su
+            // permiso, que el backfill 2026_11_26_000001 da a admin y staff.
+            Permissions::TICKET_CHARGE,
         ];
     }
 

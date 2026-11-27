@@ -4,7 +4,7 @@
 > relevante, módulos de negocio y trazabilidad entre componentes.
 > Documento pensado para mantenimiento a largo plazo: **si cambias código, actualiza aquí.**
 
-**Última actualización:** 2026-11-26 · Rama: `fix/inventario-conteos-entregas-instalaciones`
+**Última actualización:** 2026-11-26 · Rama: `fix/tickets-roles-por-permiso-y-tecnicos`
 
 Últimos bloques de trabajo, unificados en esta rama:
 
@@ -11615,3 +11615,93 @@ Sin migraciones: se despliega sin `migrate:both`.
 ### Versión 1.3.0
 
 Función nueva compatible (descontar material, resumen por custodio, buscador): **1.3.0**.
+
+---
+
+## 137. Lo que marca el panel de Roles es lo que vale: técnicos que cierran, cobros con permiso, pruebas opcionales en el simple y administradores como técnicos de instalación — 2026-11-26
+
+### Pedido
+
+Tres puntos del mismo día:
+
+1. «Pruebas técnicas, que sea opcional en el modo fácil.»
+2. «En instalaciones, si voy a asignar un técnico sólo me lista los de rol técnico y no también los
+   administradores.»
+3. «El técnico, si tiene rol técnico, no puede cerrar ni editar un ticket; eso se debe poner en el
+   panel de roles.»
+
+### Causas
+
+- **(3) Una segunda puerta que el panel no ve.** Las operaciones de ticket —notas, cambiar estado,
+  proponer cierre, cerrar, cierre especial, reabrir, cobros y estadísticas— iban dentro del grupo
+  `staff_profile` (`CheckStaffProfile`), que **no miraba permisos**: dejaba pasar los códigos de
+  rol `admin`/`staff`. El PR B les había puesto su permiso **encima** (P-45 lo registró como
+  deuda). Un técnico con «Tickets · cerrar» marcado veía el botón —la pantalla decide por
+  permiso— y la API le respondía 403 «Staff or Admin role required». Editar el contenido
+  (`PUT /support/{id}`) nunca estuvo detrás de esa puerta; lo que el técnico no podía era todo lo
+  demás, empezando por «Iniciar trabajo».
+- **Y al quitarla apareció otro.** El recorrido de navegador con el técnico mostró el cartel rojo
+  «No tienes permiso · manage_tenant» al abrir **cualquier** pantalla: `Sidebar.vue` pide
+  `GET /tenants/{id}` para la zona horaria del reloj, y desde el cartel global de permisos
+  (2026-11-13) ese 403 —que antes se tragaba en silencio— se anunciaba en grande a todo rol sin
+  `manage_tenant`.
+- **(2)** `CustomerInstallationController::technicians()` y su validación exigían
+  `role.code = 'technician'`.
+- **(1)** El backend ya no exige medición final en el simple (`exigePruebaFinal()`), pero el
+  bloque «Pruebas técnicas» decía siempre «para cerrar hace falta una medición final» y mostraba
+  el aviso «sin ella el ticket no se puede cerrar». En el simple eso es falso.
+
+### Qué se hizo
+
+- **Fuera `staff_profile`.** Se eliminó el middleware y su alias; cada ruta queda sólo con su
+  `permission:`. Un test (`ninguna_ruta_autoriza_por_codigo_de_rol`) impide reintroducirlo.
+- **`ticket_charge`** («Tickets · generar cobros de la visita»), nuevo, en las tres rutas de cobro,
+  que eran las únicas sin permiso (P-44). Backfill `2026_11_26_000001` a los roles `admin`/`staff`
+  sin comodín —exactamente quien cobraba— y en la matriz por defecto de Staff para las empresas
+  nuevas. En pantalla: pestaña *Cobros*, «Cobrar» en las líneas de equipo y el interruptor de cobro
+  del alta, con ese permiso (antes, con `ticket_edit`).
+- **Técnico de instalación = la regla del técnico de ticket:** superadministrador, permiso
+  `ticket_intervene` (los administradores lo tienen) **o** código `technician` (para que ningún
+  técnico desaparezca: los roles por defecto de una empresa nueva no traen el permiso). Lista y
+  validación usan el mismo método; el desplegable muestra el rol de cada uno.
+- **Pruebas técnicas:** el componente recibe del detalle si la final es obligatoria
+  (`requires_final_test` del servidor); en el simple dice **Opcional** y no muestra el aviso.
+  Mientras el flujo no ha cargado no afirma nada.
+- **Reloj del menú:** no pide el tenant sin `manage_tenant` (y va con `silentForbidden`); usa la
+  zona por defecto, como ya hacía cuando el 403 era silencioso (P-127).
+
+### Decisiones
+
+| Decisión | Por qué |
+|---|---|
+| Retirar `staff_profile` en vez de dárselo a los técnicos | Es la decisión D-09 que P-45 esperaba: el usuario pidió que lo gobierne el panel. Dar el código `staff` a los técnicos les habría dado además los cobros |
+| Retirarlo **no** amplía el acceso de nadie | El backfill del PR B sólo dio `ticket_note`, `ticket_transition`, `ticket_close` y `ticket_export` a los roles `admin`/`staff`; los demás los reciben sólo si alguien los marca |
+| Cobros con permiso propio, no `ticket_edit` ni `view_billing` | Son dinero: `ticket_edit` lo tiene el técnico; `view_billing` se lo quitaría a Staff, que cobra |
+| El código `technician` sigue entrando en la lista de técnicos | La regla sólo SUMA: un técnico sin `ticket_intervene` no puede desaparecer de la lista |
+| El reloj se queda en la zona por defecto para quien no administra | Ya era así (el 403 era silencioso); hacerlo bien es dar la zona en la sesión (P-127), fuera de este cambio |
+
+### Pruebas
+
+- `tests/Feature/Support/InstallationTechniciansTest.php` (3): quién sale (técnico sin permiso,
+  administrador, rol propio con la casilla; no contabilidad, ni abonados, ni inactivos, ni otra
+  empresa), el rol en la respuesta, y la validación al asignar (201 / 422).
+- `TicketGranularPermissionsTest`: `el_permiso_del_rol_basta_sin_mirar_el_codigo` (reemplaza a la
+  que fijaba la puerta vieja), sin rutas de ticket sin permiso, ninguna ruta por código de rol,
+  cobros con `ticket_charge`, y el backfill (a quién sí, a quién no, idempotente, reversible).
+- `ApiAuthorizationTest`: entran las siete operaciones que esperaban a P-45 (usuario de código
+  `custom`).
+- `tests/Feature/Ui/TicketRolesAndMeasurementsScreensTest.php` (4): guardas de fuente.
+- Suites: `tests/Feature/Support` 580, `Auth` 79, `Ui` 26.
+- Recorrido de navegador (sólo en el scratchpad, backend SQLite aislado, flujo simple): un técnico
+  de código `technician` con «cerrar» y «notas» agrega una nota y cierra con «Resolver y cerrar»
+  sin medición; sin `ticket_charge` no ve *Cobros*; no aparece el cartel de permisos; y el
+  desplegable de Instalaciones lista *Admin Demo*, *Ana Sede* (Administrador sede) y *Técnico
+  Demo*, sin Contabilidad.
+
+**Despliegue:** `migrate:both` **antes** del código (la migración sólo añade `ticket_charge` al
+JSON de roles; el código viejo no lo mira). Al revés, Staff se queda sin cobrar hasta migrar.
+
+### Versión 1.4.0
+
+Cambio de permisos compatible (nadie pierde nada; los ISP ganan control) y permiso nuevo:
+**1.4.0**.

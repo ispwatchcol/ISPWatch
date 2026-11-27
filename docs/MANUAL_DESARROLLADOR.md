@@ -4,7 +4,7 @@
 > Complementa a [`ARQUITECTURA.md`](ARQUITECTURA.md) (diseño) y
 > [`BITACORA_TECNICA.md`](BITACORA_TECNICA.md) (inventario de código).
 
-**Última actualización:** 2026-11-26 (descontar material, `utils/textSearch.js`, recorrido § 136)
+**Última actualización:** 2026-11-26 (autorización sólo por permiso, técnico de instalación, reloj del menú; descontar material, `utils/textSearch.js`)
 
 ---
 
@@ -2257,7 +2257,7 @@ y los **invoca sin argumentos**; un ayudante con parámetros revienta el modelo 
 | 61 | **`permission:a,b` es un OR, no un AND** | `CheckPermission` deja pasar a quien tenga **cualquiera** de los permisos listados, y está documentado en su propio docblock. Las rutas de equipos del ticket nacieron con `permission:view_support,ticket_edit` pensando «hace falta ver soporte **y** poder editar»: lo que decían de verdad era «basta con `view_support`», que lo tiene todo el módulo. Un permiso de **lectura** autorizaba descontar existencias y cambiar la custodia de un bien. Regla: para gobernar una escritura, **un solo permiso**. El OR es para datos de referencia que una pantalla necesita aunque el permiso dueño no sea suyo |
 | 62 | **Un guard que usa «existe la fila» como proxy de «es el estado actual»** | `InventoryDeviceController::destroy` rechazaba borrar un equipo si aparecía en `installation_equipment`. Era correcto mientras la única forma de devolver un equipo fuera **borrar** esa fila. En cuanto el retiro por ticket pasó a **conservarla** como historia, el proxy mintió: un aparato ya devuelto a bodega seguía teniéndola y el guard lo rechazaba para siempre, con un mensaje falso y sin salida. Una tabla que **acumula historia** no puede responder «¿dónde está hoy?»; eso lo responde la fila de estado (`inventory_device.status`). Hermana de la trampa 52 |
 | 63 | **`$table->enum()` no se hace cumplir en SQLite, y sí en PostgreSQL** | En PostgreSQL, Laravel traduce `enum` a `varchar` + un `CHECK` con nombre (`<tabla>_status_check`). En SQLite lo traduce a `varchar` **y nada más**. Un valor fuera de la lista pasa la suite entera en local y revienta únicamente en el job de PostgreSQL, con un error que apunta a la línea del `create()` y no a la causa. Pasó con `customer_installations.status`, que es `enum('pendiente','completada','cancelada')` —en **castellano**, a diferencia de `payments.status`, que es `'completed'` en inglés—: un fixture nuevo escribió `'completed'` y el PR se fue a rojo en CI estando verde en local. **Antes de inventar un valor de estado, mira la migración que creó la columna**; el idioma no es uniforme entre tablas. La corrección de fondo —pendiente, ver P-59— son constantes en el modelo (`CustomerInstallation::STATUS_COMPLETADA`) para que el valor no se teclee nunca a mano |
-| 53 | **Meter una ruta en el grupo `staff_profile` sin mirar quién la va a usar** | Ese middleware no comprueba una capacidad: comprueba que el **código de rol** sea `admin` o `staff`. Todo `/api/support/*` vive ahí, así que la primera versión de los equipos del ticket habría dejado fuera justo al **técnico de campo** (`code = 'technician'`), que es quien carga el equipo en la visita. Las rutas de equipo —de instalación y de ticket— van fuera del grupo, con `permission:` a secas. Antes de añadir una ruta a un grupo, mira qué rol la va a ejecutar en la calle |
+| 53 | **Autorizar por código de rol en vez de por permiso** | Hasta 2026-11-26 existía `staff_profile` (`CheckStaffProfile`), que dejaba pasar los **códigos** `admin`/`staff` y no miraba permisos. Las operaciones de ticket vivían detrás: un técnico con «Tickets · cerrar» marcado en Roles veía el botón y la API le respondía 403, y no había casilla que lo arreglara (P-45, § 137). Se eliminó: **toda** autorización va por `permission:`, que es lo que configura el panel de Roles. Si una regla parece depender del rol («sólo Staff cobra»), conviértela en un permiso nuevo **con su backfill** a los roles que ya la tenían (ej. `ticket_charge`, migración `2026_11_26_000001`). `TicketGranularPermissionsTest::ninguna_ruta_autoriza_por_codigo_de_rol` falla si alguien lo reintroduce |
 | 51 | **Tocar una ruta de `v1/partner` sin tocar el OpenAPI** | `docs/openapi/ispwatch-partner-v1.yaml` es el archivo que el integrador **compila**, no que lee: con él genera su cliente y valida sus respuestas. Un endpoint nuevo sin documentar, uno documentado que ya no existe, o un `ability` que no coincide, rompen su integración semanas después y en su entorno — donde lo primero que se sospecha es su código. `PartnerOpenApiContractTest` compara rutas y `x-ability` en los dos sentidos y falla en el mismo PR |
 | 52 | **Contenido del Centro de Ayuda escrito sólo en el seeder** | `HelpCenterSeeder` es desde KAN-75 un **upsert** (categoría por `name`, artículo por `category_id` + `title`) que no borra lo creado desde la UI. Pero `migrate:both` corre los seeders **sólo en `ispwatch_dev`**. Un artículo escrito únicamente en el seeder nunca llega a producción, que es el único sitio donde un ISP lo lee; escrito sólo en una migración, desaparece la próxima vez que alguien re-siembre en desarrollo. El contenido va en `database/seeders/content/*.php` (archivo compartido) + una migración idempotente **que no sobrescriba**: si alguien editó el texto desde el panel, su versión manda |
 | 43 | **`customer_profile.service_id` NO es un servicio: es el PLAN** | FK a `service_plan.id`, pese al nombre (`Plan::find($customer->service_id)` en `CustomerProvisioningService`). Cualquiera que lo mapee a un "id de servicio" —sobre todo integrando con un sistema externo que sí distingue cliente de servicio— correlaciona clientes contra planes y **no ve ningún error**. El id de servicio de verdad es `user_services.id`. La API pública ya lo expone renombrado como `plan.id` justamente para no propagar la trampa |
@@ -2405,11 +2405,27 @@ pantalla sí necesita: ahí el cartel es justo lo que se quiere.
 > pantalla necesita un dato que vive tras un permiso de administración, la salida es un endpoint
 > propio del módulo con sólo lo necesario, no silenciar el 403.
 
+> **El menú lateral era el peor caso (2026-11-26).** `Sidebar.vue` pide `GET /tenants/{id}` (que
+> exige `manage_tenant`) sólo para la zona horaria del reloj. Desde el cartel (2026-11-13), todo
+> rol sin ese permiso —técnicos, Staff, Contabilidad— veía «No tienes permiso» **en cada
+> pantalla**. Ahora no lo pide si el usuario no tiene `manage_tenant` (y va con
+> `silentForbidden`); el reloj usa la zona por defecto, como ya hacía antes cuando el 403 se
+> tragaba en silencio (P-127). Una petición del **layout** (menú, cabecera) se monta en todas las
+> pantallas: antes de añadir una, comprueba qué permiso exige y quién no lo tiene.
+
 **Personal en los desplegables de soporte → `api.support.getStaffOptions()`** (`GET
 /support/staff-options`, `ticket_view`). Nunca `api.staff.getAll()`. Trae personal activo sin
 abonados y la bandera `can_intervene`; **«técnico» es `can_intervene`**, no el nombre del rol (un
 rol «Técnico de campo» no casa con `'técnico'`). Para inventario y gastos sigue
 `catalogsApi.getUsers({ staff: 1 })`.
+
+**El técnico de una INSTALACIÓN usa la misma regla (2026-11-26).** `GET /installations/technicians`
+y la validación de `technician_id` (`CustomerInstallationController::puedeIrDeTecnico()`) aceptan
+al superadministrador, a quien tenga `ticket_intervene` (los administradores) **y** a los roles de
+código `technician` aunque no lo tengan —los roles por defecto de una empresa nueva no lo traen y
+nadie puede desaparecer de la lista por el cambio—. Antes sólo el código `technician`, así que un
+administrador que también instala no salía. Si cambias quién es «técnico», cambia los dos sitios
+(`SupportStaffOptionsController` y ese método).
 
 **Qué NO es un 403 de permisos** y por tanto no dispara el cartel: reglas de negocio con 403
 («los tickets no se pueden eliminar», «no se puede eliminar un rol en uso»). Si añades un 403 de

@@ -382,9 +382,14 @@ const setTheme = (mode) => {
 
 const loadTenantTimezone = async () => {
     try {
-        if (!authStore.tenantId) return;
-        
-        const response = await apiClient.get(`/tenants/${authStore.tenantId}`);
+        // `GET /tenants/{id}` exige `manage_tenant`. Sin él, la petición daba
+        // 403 en CADA página y, desde el cartel global de permisos
+        // (2026-11-13), un técnico veía «No tienes permiso» al abrir cualquier
+        // pantalla (2026-11-26). El reloj es opcional: sin el permiso se queda
+        // con la zona por defecto, como ya le pasaba antes del cartel (P-127).
+        if (!authStore.tenantId || !authStore.hasPermission('manage_tenant')) return;
+
+        const response = await apiClient.get(`/tenants/${authStore.tenantId}`, { silentForbidden: true });
         
         if (response.data.success && response.data.data) {
             tenantTimezone.value = response.data.data.zone_tenant || 'America/Bogota';

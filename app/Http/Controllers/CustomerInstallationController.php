@@ -76,15 +76,43 @@ class CustomerInstallationController extends Controller
     {
         if (!$technicianId) return null;
 
-        $valid = User::where('id', $technicianId)
+        // La misma regla que la lista (`technicians()`): lo que el desplegable
+        // ofrece, el guardado lo acepta.
+        $user = User::where('id', $technicianId)
             ->where('tenant_id', $tenantId)
-            ->whereHas('role', function ($q) {
-                $q->where('code', 'technician');
-            })
-            ->exists();
+            ->whereDoesntHave('customerProfile')
+            ->with(['role' => fn ($q) => $q->withoutGlobalScope('tenant')])
+            ->first();
 
-        abort_if(!$valid, 422, 'El técnico seleccionado no pertenece al tenant o no tiene rol de técnico.');
+        abort_if(
+            !$user || !$this->puedeIrDeTecnico($user),
+            422,
+            'El técnico seleccionado no es del personal de la empresa o su rol no hace trabajo técnico '
+                . '(en Roles: «Tickets · registrar intervenciones técnicas»).'
+        );
+
         return $technicianId;
+    }
+
+    /**
+     * ¿Se le puede asignar una instalación?
+     *
+     * Antes sólo el código de rol `technician`: un administrador que también
+     * instala no aparecía (Chaguaní, 2026-11-26). Ahora la misma regla que el
+     * «Técnico asignado» de los tickets (`can_intervene`, P-56,
+     * SupportStaffOptionsController): el permiso «Tickets · registrar
+     * intervenciones técnicas», que se da o se quita en Roles, más el
+     * superadministrador.
+     *
+     * El código `technician` sigue entrando siempre, a propósito: los roles por
+     * defecto de una empresa nueva no traen ese permiso, y un técnico no puede
+     * desaparecer de la lista por un cambio de criterio. La regla sólo SUMA.
+     */
+    private function puedeIrDeTecnico(User $user): bool
+    {
+        return (int) $user->role_id === 1
+            || $user->role?->code === 'technician'
+            || $user->hasPermission(Permissions::TICKET_INTERVENE);
     }
 
     /**
@@ -1197,21 +1225,25 @@ class CustomerInstallationController extends Controller
     {
         $tenantId = $this->authTenant($request);
 
-        $techs = User::with('role')
+        $techs = User::query()
             ->where('tenant_id', $tenantId)
             ->where('status', true)
-            ->whereHas('role', function ($q) {
-                $q->where('code', 'technician');
-            })
+            // Los abonados también son `users`: la lista es sólo de personal.
+            ->whereDoesntHave('customerProfile')
+            // El rol propio tiene que resolver aunque sea global (tenant NULL):
+            // ver la trampa del scope `tenant` de Role.
+            ->with(['role' => fn ($q) => $q->withoutGlobalScope('tenant')])
             ->orderBy('user_name')
             ->get()
+            ->filter(fn (User $u) => $this->puedeIrDeTecnico($u))
             ->map(fn($u) => [
                 'id'        => $u->id,
                 'name'      => trim(($u->user_name ?? '') . ' ' . ($u->user_lastname ?? '')) ?: $u->name,
                 'email'     => $u->email,
                 'tel'       => $u->tel,
                 'role_name' => $u->role?->name,
-            ]);
+            ])
+            ->values();
 
         return response()->json($techs);
     }

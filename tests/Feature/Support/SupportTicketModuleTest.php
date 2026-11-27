@@ -48,8 +48,8 @@ class SupportTicketModuleTest extends TestCase
 
         $this->tenant = Tenant::factory()->create();
 
-        // `code` explícito: CheckStaffProfile identifica al personal por código
-        // de rol ('admin'/'staff'), no por id — los ids de rol son por tenant.
+        // `code` explícito por realismo (los ids de rol son por tenant). Ya no
+        // autoriza nada: CheckStaffProfile se retiró en P-45 y deciden los permisos.
         $role = Role::create([
             'name'        => 'Administrador',
             'code'        => 'admin',

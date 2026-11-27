@@ -6,7 +6,7 @@
 > no de las migraciones. Donde el esquema real y las migraciones difieren, manda el esquema real
 > y se indica la diferencia.
 
-**Última actualización:** 2026-11-26 (`inventory_movements.type = 'ajuste'`) · Motor: PostgreSQL (Supabase) + PostGIS
+**Última actualización:** 2026-11-26 (`role.code` ya no autoriza; backfill `ticket_charge`; `inventory_movements.type = 'ajuste'`) · Motor: PostgreSQL (Supabase) + PostGIS
 
 ---
 
@@ -1656,6 +1656,14 @@ Agregado permanente.
 | `audit_logs` | `user_id`, `action`, `model_type`, `model_id`, `old_values`/`new_values` (json), `ip_address`, `user_agent` |
 | `help_categories` / `help_articles` | Centro de ayuda: `title`, `content`, `tips`, `is_published`, `display_order`. **Globales, sin `tenant_id`**: el contenido es del producto, lo ven todos los ISP. Se pueblan por dos caminos: `HelpCenterSeeder` (borra y re-siembra, sólo `ispwatch_dev`) y migraciones de contenido idempotentes por título, que son las que llegan a producción — ver migración `2026_08_19_100000` |
 | `role` | `name`, `code`, `permissions` (json array), `tenant_id` (`NULL` = rol global) |
+
+> **`role.code` ya no autoriza nada (2026-11-26).** Hasta esa fecha el middleware `staff_profile`
+> dejaba pasar las operaciones de ticket por `code ∈ {admin, staff}`; se eliminó (P-45) y sólo
+> cuenta `role.permissions`. El `code` lo siguen leyendo los backfills de permisos y
+> `permissions:sync` para saber a qué rol canónico corresponde cada fila. La migración de datos
+> `2026_11_26_000001_grant_ticket_charge_to_staff_roles` (sin cambio de esquema) añadió
+> `ticket_charge` a los roles `admin`/`staff` sin comodín, que eran quienes cobraban; es
+> idempotente y su `down()` lo retira de todos. **Correrla antes de desplegar el código.**
 
 ---
 

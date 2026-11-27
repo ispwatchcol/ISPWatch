@@ -17,6 +17,38 @@ y explicada en el [manual del desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
+## [1.4.0] — 2026-11-26
+
+Lo que se marca en **Roles** es lo que vale. Detalle en la bitácora técnica,
+sección 137.
+
+### Corregido
+
+- **Un técnico puede cambiar el estado, anotar, cerrar y reabrir tickets si su
+  rol tiene esas casillas.** Antes esas acciones exigían además que el rol
+  fuera Administrador o Staff, y el técnico con «Tickets · cerrar» marcado
+  recibía «no tienes permiso». Nadie ganó permisos con el cambio: los técnicos
+  tienen lo que se les haya marcado.
+- **El aviso rojo «No tienes permiso» ya no aparece al abrir cualquier
+  pantalla** a quien no administra la empresa (técnicos, Staff, Contabilidad).
+  Lo provocaba el reloj del menú.
+- **Pruebas técnicas opcionales en el flujo simple**: el bloque lo dice y ya no
+  avisa que sin medición final no se puede cerrar (eso es del flujo formal).
+
+### Cambiado
+
+- **Instalaciones → Técnico** lista también a los administradores y a
+  cualquier rol con «Tickets · registrar intervenciones técnicas», con el rol a
+  la vista. Antes, sólo el rol Técnico.
+
+### Añadido
+
+- Permiso **«Tickets · generar cobros de la visita»**: cobrar desde un ticket
+  ahora se da o se quita en Roles. Lo traen Administrador y Staff, que eran
+  quienes cobraban.
+
+---
+
 ## [1.3.0] — 2026-11-26
 
 Respuesta a un reporte de un ISP sobre inventario e instalaciones. Detalle en la

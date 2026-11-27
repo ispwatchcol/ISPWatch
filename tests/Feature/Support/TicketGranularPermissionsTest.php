@@ -51,8 +51,7 @@ class TicketGranularPermissionsTest extends TestCase
 
         $this->tenant = Tenant::factory()->create();
 
-        // `CheckPermission` y `CheckStaffProfile` dejan pasar SIEMPRE a
-        // `role_id == 1`. Con `RefreshDatabase` el primer rol creado se lleva
+        // `CheckPermission` deja pasar SIEMPRE a `role_id == 1`. Con `RefreshDatabase` el primer rol creado se lleva
         // ese id, así que se quema uno: si no, cualquier rol de prueba pasaría
         // por el bypass y estos tests serían falsos positivos.
         Role::create([
@@ -77,8 +76,8 @@ class TicketGranularPermissionsTest extends TestCase
     /**
      * Usuario con exactamente los permisos indicados.
      *
-     * `code` importa: `staff_profile` deja pasar sólo a `admin` y `staff`, y
-     * varias rutas lo exigen además del permiso.
+     * El `code` ya no autoriza nada (P-45, se retiró `staff_profile`); se
+     * conserva porque los backfills de permisos sí lo leen.
      *
      * @param  array<int, string>  $permisos
      */
@@ -366,19 +365,22 @@ class TicketGranularPermissionsTest extends TestCase
     }
 
     #[Test]
-    public function staff_profile_sigue_siendo_requisito_ademas_del_permiso(): void
+    public function el_permiso_del_rol_basta_sin_mirar_el_codigo(): void
     {
-        // Tener `ticket_note` no basta si el rol no es de personal: son dos
-        // puertas distintas y quitar una ampliaría el acceso.
+        // P-45, 2026-11-26. Antes un técnico con `ticket_note` recibía 403
+        // porque `staff_profile` sólo dejaba pasar los códigos admin/staff: el
+        // panel de Roles decía una cosa y la API hacía otra. Ahora decide el
+        // permiso, en las dos direcciones.
         $ticket = $this->ticket();
 
         $this->actingAs($this->usuarioCon([Permissions::TICKET_VIEW, Permissions::TICKET_NOTE], 'technician'))
             ->postJson("/api/support/{$ticket->id}/message", ['message' => 'Nota de prueba larga'])
-            ->assertForbidden();
-
-        $this->actingAs($this->usuarioCon([Permissions::TICKET_VIEW, Permissions::TICKET_NOTE], 'staff'))
-            ->postJson("/api/support/{$ticket->id}/message", ['message' => 'Nota de prueba larga'])
             ->assertCreated();
+
+        // Y el código `staff` ya no concede nada por sí solo.
+        $this->actingAs($this->usuarioCon([Permissions::TICKET_VIEW], 'staff'))
+            ->postJson("/api/support/{$ticket->id}/message", ['message' => 'Nota de prueba larga'])
+            ->assertForbidden();
     }
 
     // ── La transición no cambia lo que nadie podía hacer ─────────────────
@@ -606,16 +608,68 @@ class TicketGranularPermissionsTest extends TestCase
             }
         }
 
-        // Los CARGOS son la excepción conocida: son facturación, no operación
-        // del ticket, no aparecen en la matriz del requerimiento y siguen con
-        // `staff_profile`. Queda documentado como pendiente.
+        // Sin excepciones desde 2026-11-26: los CARGOS, que sólo tenían
+        // `staff_profile`, ahora exigen `ticket_charge` (P-45).
         sort($sinPermiso);
 
-        $this->assertSame(
-            ['GET|HEAD api/support/{id}/charges', 'POST api/support/{id}/charge', 'PUT api/support/{id}/charges/{invoice}/installments'],
-            $sinPermiso,
-            'Hay rutas de ticket sin permiso que no son las de cargos.',
-        );
+        $this->assertSame([], $sinPermiso, 'Hay rutas de ticket sin permiso.');
+    }
+
+    #[Test]
+    public function ninguna_ruta_autoriza_por_codigo_de_rol(): void
+    {
+        // `staff_profile` decidía por CÓDIGO de rol y el panel de Roles no lo
+        // podía configurar. Si alguien lo reintroduce, aquí se ve.
+        foreach (\Route::getRoutes() as $ruta) {
+            $this->assertNotContains(
+                'staff_profile',
+                $ruta->gatherMiddleware(),
+                'La ruta ' . $ruta->uri() . ' autoriza por código de rol; usa `permission:`.',
+            );
+        }
+    }
+
+    #[Test]
+    public function los_cobros_exigen_ticket_charge_y_no_el_codigo_de_rol(): void
+    {
+        $ticket = $this->ticket();
+
+        // Staff con todo lo de tickets menos cobrar: ya no pasa por su código.
+        $this->actingAs($this->usuarioCon($this->todasMenos(), 'staff'))
+            ->getJson("/api/support/{$ticket->id}/charges")
+            ->assertForbidden();
+
+        // Un técnico con el permiso, sí.
+        $this->actingAs($this->usuarioCon([Permissions::TICKET_VIEW, Permissions::TICKET_CHARGE], 'technician'))
+            ->getJson("/api/support/{$ticket->id}/charges")
+            ->assertOk();
+    }
+
+    #[Test]
+    public function la_migracion_da_el_cobro_a_quien_ya_cobraba(): void
+    {
+        // Lo que `staff_profile` dejaba pasar: los códigos admin y staff.
+        $admin    = Role::create(['name' => 'Administrador', 'code' => 'admin', 'permissions' => [Permissions::VIEW_SUPPORT], 'tenant_id' => $this->tenant->id]);
+        $staff    = Role::create(['name' => 'Staff', 'code' => 'staff', 'permissions' => [], 'tenant_id' => $this->tenant->id]);
+        $tecnico  = Role::create(['name' => 'Tecnico', 'code' => 'technician', 'permissions' => [Permissions::VIEW_SUPPORT], 'tenant_id' => $this->tenant->id]);
+        $propio   = Role::create(['name' => 'Supervisor', 'code' => null, 'permissions' => [Permissions::TICKET_CLOSE], 'tenant_id' => $this->tenant->id]);
+        $comodin  = Role::create(['name' => 'Dueño', 'code' => 'admin', 'permissions' => ['*'], 'tenant_id' => $this->tenant->id]);
+
+        $migracion = require database_path('migrations/2026_11_26_000001_grant_ticket_charge_to_staff_roles.php');
+        $migracion->up();
+        $migracion->up(); // idempotente
+
+        $permisos = fn (Role $r) => Role::withoutGlobalScopes()->find($r->id)->permissions;
+
+        $this->assertSame([Permissions::VIEW_SUPPORT, Permissions::TICKET_CHARGE], $permisos($admin));
+        $this->assertSame([Permissions::TICKET_CHARGE], $permisos($staff));
+        $this->assertSame([Permissions::VIEW_SUPPORT], $permisos($tecnico), 'El técnico no cobraba: no lo recibe.');
+        $this->assertSame([Permissions::TICKET_CLOSE], $permisos($propio));
+        $this->assertSame(['*'], $permisos($comodin), 'El comodín no se toca.');
+
+        $migracion->down();
+        $this->assertSame([Permissions::VIEW_SUPPORT], $permisos($admin));
+        $this->assertSame([], $permisos($staff));
     }
 
     // ── Interfaz ─────────────────────────────────────────────────────────
