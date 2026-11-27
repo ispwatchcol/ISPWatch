@@ -438,56 +438,64 @@ Route::middleware(['auth:sanctum', 'deny_api_clients', 'saas_active'])->group(fu
         Route::get('/billing/customers/{customer}/credit-movements', [AuditLogController::class, 'creditMovements']);
     });
 
-    // ─── SUPPORT (requires staff profile) ───
+    // ─── SUPPORT: operación del ticket ───
     //
-    // PR B · Estas rutas NO tenían ningún `permission:`: sólo `staff_profile`,
-    // que comprueba el CÓDIGO DE ROL (`admin`/`staff`), no una capacidad. Se
-    // les añade el permiso concreto encima. `staff_profile` se conserva porque
-    // sigue siendo un requisito distinto —tener ficha de personal— y quitarlo
-    // ampliaría el acceso, no lo reduciría.
-    Route::middleware(['staff_profile'])->group(function () {
-        Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
-            ->middleware('permission:ticket_export');
+    // CADA RUTA LA GOBIERNA SU PERMISO, Y NADA MÁS (2026-11-26, P-45).
+    //
+    // Hasta esa fecha estas rutas iban dentro de un grupo `staff_profile`
+    // (CheckStaffProfile, ya eliminado), que NO miraba permisos: dejaba pasar
+    // los códigos de rol `admin` y `staff`. Un técnico con «Tickets · cerrar» marcado en Roles
+    // veía el botón y la API le respondía 403 — el panel decía una cosa y el
+    // servidor hacía otra. Se retiró: lo que puede cada rol se decide en Roles.
+    //
+    // No amplió el acceso de nadie: el backfill del PR B
+    // (2026_09_11_000001) sólo dio `ticket_note`, `ticket_transition`,
+    // `ticket_close` y `ticket_export` a los roles `admin`/`staff`, así que los
+    // demás reciben estas capacidades sólo si alguien se las marca. Los COBROS,
+    // que no tenían permiso propio, estrenan `ticket_charge` con su backfill.
+    Route::get('/support/statistics', [SupportTicketController::class, 'statistics'])
+        ->middleware('permission:ticket_export');
 
-        Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage'])
-            ->middleware('permission:ticket_note');
-        Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage'])
-            ->middleware('permission:ticket_note');
-        Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage'])
-            ->middleware('permission:ticket_note');
+    Route::post('/support/{id}/message', [SupportTicketController::class, 'addMessage'])
+        ->middleware('permission:ticket_note');
+    Route::put('/support/messages/{id}', [SupportTicketController::class, 'updateMessage'])
+        ->middleware('permission:ticket_note');
+    Route::delete('/support/messages/{id}', [SupportTicketController::class, 'deleteMessage'])
+        ->middleware('permission:ticket_note');
 
-        // ── Workflow formal (Solicitud Maestra §7, §15, §18) ──
-        //
-        // El estado SALIÓ del `PUT` genérico: moverlo es una transición con
-        // estado origen válido. Y cerrar, proponer cerrar y reabrir tienen cada
-        // uno su ruta, su permiso y sus requisitos — el requerimiento los
-        // distingue y compartir endpoint los volvía indistinguibles.
-        Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
-            ->middleware('permission:ticket_transition');
+    // ── Workflow formal (Solicitud Maestra §7, §15, §18) ──
+    //
+    // El estado SALIÓ del `PUT` genérico: moverlo es una transición con
+    // estado origen válido. Y cerrar, proponer cerrar y reabrir tienen cada
+    // uno su ruta, su permiso y sus requisitos — el requerimiento los
+    // distingue y compartir endpoint los volvía indistinguibles.
+    Route::patch('/support/{id}/status', [SupportTicketController::class, 'updateStatus'])
+        ->middleware('permission:ticket_transition');
 
-        // Propuesta de cierre: §18 se la da al Técnico de campo. NO cierra.
-        Route::post('/support/{id}/propose-closure', [SupportTicketController::class, 'proposeClosure'])
-            ->middleware('permission:ticket_transition');
+    // Propuesta de cierre: §18 se la da al Técnico de campo. NO cierra.
+    Route::post('/support/{id}/propose-closure', [SupportTicketController::class, 'proposeClosure'])
+        ->middleware('permission:ticket_transition');
 
-        // Cierre ordinario y cierre especial. §18 los da al Supervisor.
-        Route::post('/support/{id}/close', [SupportTicketController::class, 'close'])
-            ->middleware('permission:ticket_close');
-        Route::post('/support/{id}/close-exception', [SupportTicketController::class, 'closeException'])
-            ->middleware('permission:ticket_close_override');
+    // Cierre ordinario y cierre especial. §18 los da al Supervisor.
+    Route::post('/support/{id}/close', [SupportTicketController::class, 'close'])
+        ->middleware('permission:ticket_close');
+    Route::post('/support/{id}/close-exception', [SupportTicketController::class, 'closeException'])
+        ->middleware('permission:ticket_close_override');
 
-        Route::post('/support/{id}/reopen', [SupportTicketController::class, 'reopen'])
-            ->middleware('permission:ticket_reopen');
+    Route::post('/support/{id}/reopen', [SupportTicketController::class, 'reopen'])
+        ->middleware('permission:ticket_reopen');
 
-        // Los CARGOS se quedan como estaban, con `staff_profile` a secas. Son
-        // facturación, no operación del ticket: no aparecen en la matriz de
-        // permisos del requerimiento y atarlos a uno de facturación —
-        // `view_billing`— se lo quitaría a roles que hoy sí pueden. Queda
-        // documentado como pendiente, fuera del alcance de este PR.
-        Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge']);
-        Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges']);
-        // Acuerdo de pago de un cargo (cuotas). Misma puerta que crear el cargo.
-        Route::put('/support/{id}/charges/{invoice}/installments', [SupportTicketController::class, 'updateChargeInstallments']);
-    });
+    // Los COBROS son dinero, no operación del ticket: permiso propio. No se
+    // cuelgan de `ticket_edit` (lo tiene el técnico) ni de `view_billing`
+    // (se lo quitaría a Staff, que hoy cobra). Lo reparte la migración
+    // 2026_11_26_000001 a quien lo tenía por código de rol.
+    Route::post('/support/{id}/charge', [SupportTicketController::class, 'generateCharge'])
+        ->middleware('permission:ticket_charge');
+    Route::get('/support/{id}/charges', [SupportTicketController::class, 'getCharges'])
+        ->middleware('permission:ticket_charge');
+    // Acuerdo de pago de un cargo (cuotas). Misma puerta que crear el cargo.
+    Route::put('/support/{id}/charges/{invoice}/installments', [SupportTicketController::class, 'updateChargeInstallments'])
+        ->middleware('permission:ticket_charge');
 
     // ─── SECTORIAL: photos / notes / history / linked tickets ───
     Route::middleware('permission:view_sectorials')->group(function () {

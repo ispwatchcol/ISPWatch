@@ -315,12 +315,14 @@
                     />
 
                     <!-- Pruebas tecnicas (PR F2 - secciones 12 y 13) -->
+                    <!-- Obligatoria sólo en el flujo formal; opcional en el simple. -->
                     <TicketMeasurements
                         ref="measurementsRef"
                         :ticket-id="ticketId"
                         :puede-medir="canIntervene"
                         :bloqueado="!!ticket.is_archived || workflow.isTerminal"
                         :intervenciones="interventionsForSelect"
+                        :prueba-final-obligatoria="workflow.cargado ? workflow.requiresFinalTest : null"
                         @cambio="alCambiarMedicion"
                     />
 
@@ -470,7 +472,7 @@
                     <!-- Cobros -->
                     <div v-show="pestanaDetalle === 'cobros'" class="space-y-6">
                    <!-- Cargos del Ticket (Staff Only) -->
-                    <div v-if="canEdit" ref="chargesCard" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
+                    <div v-if="canCharge" ref="chargesCard" class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
                             <h2 class="text-xl font-bold text-gray-800 dark:text-white">Cargos del Ticket</h2>
                             <button
@@ -1511,6 +1513,9 @@ const canViewHistory = computed(() => authStore.hasPermission('ticket_view_histo
 const canAttach = computed(() => authStore.hasPermission('ticket_attach'))
 // PR F1 - registrar intervenciones tecnicas (seccion 14).
 const canIntervene = computed(() => authStore.hasPermission('ticket_intervene'))
+// Cobros de la visita: permiso propio desde 2026-11-26 (antes colgaban de
+// `ticket_edit` en pantalla y del código de rol en la API, P-45).
+const canCharge = computed(() => authStore.hasPermission('ticket_charge'))
 
 // Personal del tenant para los desplegables de tecnico y acompanante. El
 // backend valida ademas que el id pertenezca al tenant: esta lista es comodidad
@@ -1701,7 +1706,7 @@ const cancelCharge = () => {
 }
 
 const loadCharges = async () => {
-    if (!canEdit.value) return
+    if (!canCharge.value) return
     try {
         loadingCharges.value = true
         const res = await api.support.getCharges(ticketId)
@@ -1804,7 +1809,7 @@ const cobrablesDisponibles = computed(() => cobrables.value.filter(it => !lineas
 
 // Cobrar no depende del estado del ticket: un ticket cerrado se sigue
 // cobrando. Lo gobiernan los permisos de siempre de Cargos.
-const puedeCobrarLineas = computed(() => canEdit.value && !ticket.value?.no_charge)
+const puedeCobrarLineas = computed(() => canCharge.value && !ticket.value?.no_charge)
 
 // Ticket cerrado o archivado: la hoja se lee pero no se mueve. Lo dice el
 // servidor en /equipment/available; `workflow.isTerminal` cubre el rato en
@@ -2789,7 +2794,7 @@ const pestanaDetalle = ref('resumen')
 const pestanasDetalle = computed(() => [
     { key: 'resumen', label: 'Resumen' },
     { key: 'trabajo', label: 'Trabajo', count: (interventionsForSelect.value?.length || 0) + (equipmentItems.value?.filter((i) => !i.is_reversed).length || 0) },
-    ...(canEdit.value ? [{ key: 'cobros', label: 'Cobros', count: ticketCharges.value?.length || 0 }] : []),
+    ...(canCharge.value ? [{ key: 'cobros', label: 'Cobros', count: ticketCharges.value?.length || 0 }] : []),
     { key: 'notas', label: 'Notas y archivos', count: (ticket.value.messages?.length || 0) + (ticket.value.attachments?.length || 0) },
     ...(canViewHistory.value ? [{ key: 'historial', label: 'Historial' }] : []),
 ])

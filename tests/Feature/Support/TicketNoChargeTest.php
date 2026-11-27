@@ -61,6 +61,9 @@ class TicketNoChargeTest extends TestCase
         $this->staff = $this->usuarioCon([
             Permissions::TICKET_VIEW, Permissions::TICKET_CREATE,
             Permissions::TICKET_EDIT, Permissions::TICKET_VIEW_HISTORY,
+            // Cobrar: antes lo daba el código `staff`, desde P-45 el permiso
+            // (el backfill 2026_11_26_000001 se lo da a los roles staff).
+            Permissions::TICKET_CHARGE,
         ]);
     }
 

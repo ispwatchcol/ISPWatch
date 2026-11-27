@@ -1,7 +1,13 @@
 <template>
     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6">
         <div class="flex justify-between items-center mb-1">
-            <h2 class="text-xl font-bold text-gray-800 dark:text-white">Pruebas técnicas</h2>
+            <h2 class="text-xl font-bold text-gray-800 dark:text-white">
+                Pruebas técnicas
+                <span v-if="pruebaFinalObligatoria === false" data-testid="measurements-optional"
+                    class="ml-1 align-middle px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                    Opcional
+                </span>
+            </h2>
             <button
                 v-if="puedeMedir && !bloqueado"
                 type="button"
@@ -12,9 +18,14 @@
             </button>
         </div>
 
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            Estado técnico antes, durante y después de la atención. Para cerrar el ticket hace
-            falta una medición final o explicar por qué no fue posible tomarla.
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4" data-testid="measurements-help">
+            Estado técnico antes, durante y después de la atención.
+            <template v-if="pruebaFinalObligatoria === true">
+                Para cerrar el ticket hace falta una medición final o explicar por qué no fue posible tomarla.
+            </template>
+            <template v-else-if="pruebaFinalObligatoria === false">
+                En el flujo simple son opcionales: regístralas si las tomaste; no hacen falta para cerrar.
+            </template>
         </p>
 
         <!-- Cargando -->
@@ -31,9 +42,11 @@
         </div>
 
         <template v-else>
-            <!-- Aviso de la regla 5. Se dice ANTES de intentar cerrar, no después. -->
+            <!-- Aviso de la regla 5. Se dice ANTES de intentar cerrar, no después.
+                 Sólo cuando la regla aplica (flujo formal): en el simple sería falso. -->
             <div
-                v-if="!pruebaFinal.present && !pruebaFinal.waiver"
+                v-if="pruebaFinalObligatoria === true && !pruebaFinal.present && !pruebaFinal.waiver"
+                data-testid="measurements-final-required"
                 class="mb-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3"
             >
                 <p class="text-sm text-amber-800 dark:text-amber-200">
@@ -257,6 +270,14 @@ const props = defineProps({
     bloqueado: { type: Boolean, default: false },
     /** Visitas del ticket, para poder colgar la medición de una. */
     intervenciones: { type: Array, default: () => [] },
+    /**
+     * ¿Hace falta la medición final para cerrar? La regla 5 del § 15 es del
+     * flujo FORMAL; en el simple las pruebas son opcionales (lo decide el
+     * servidor: `requires_final_test`). `null` = todavía no se sabe: no se
+     * afirma nada hasta saberlo. Antes el texto decía siempre «sin ella no se
+     * puede cerrar», también en el simple, donde es falso (2026-11-26).
+     */
+    pruebaFinalObligatoria: { type: Boolean, default: null },
 })
 
 const emit = defineEmits(['cambio'])

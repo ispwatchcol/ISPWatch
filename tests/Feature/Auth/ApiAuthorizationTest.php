@@ -148,15 +148,17 @@ class ApiAuthorizationTest extends TestCase
             // `ticket_view`: saber qué acciones existen no es poder ejecutarlas.
             'acciones del ticket'  => ['get',    '/api/support/1/transitions', 'ticket_view'],
             //
-            // Las CINCO operaciones del ciclo de vida —transicionar, proponer
-            // cierre, cerrar, cierre especial y reabrir— no caben en este
-            // proveedor: viven en el grupo `staff_profile`, que autoriza por
-            // CÓDIGO DE ROL (`admin`/`staff`) y no por capacidad, y el usuario
-            // que fabrica `userWithPermissions()` tiene el código `custom`.
-            //
-            // Es la deuda P-45, no un hueco de cobertura: cada una tiene su
-            // caso positivo y negativo en `TicketWorkflowTest`, con roles
-            // reales. Cuando P-45 se resuelva, estas cinco entran aquí.
+            // P-45 resuelta (2026-11-26): las operaciones del ciclo de vida, las
+            // notas y los cobros ya no pasan por `staff_profile` (código de
+            // rol), sólo por su permiso. Por eso caben aquí, con un usuario de
+            // código `custom`, que antes recibía 403 aunque tuviera el permiso.
+            'cambiar estado'       => ['patch',  '/api/support/1/status', 'ticket_transition'],
+            'proponer cierre'      => ['post',   '/api/support/1/propose-closure', 'ticket_transition'],
+            'cerrar ticket'        => ['post',   '/api/support/1/close', 'ticket_close'],
+            'cierre especial'      => ['post',   '/api/support/1/close-exception', 'ticket_close_override'],
+            'reabrir ticket'       => ['post',   '/api/support/1/reopen', 'ticket_reopen'],
+            'nota de ticket'       => ['post',   '/api/support/1/message', 'ticket_note'],
+            'cobrar ticket'        => ['post',   '/api/support/1/charge', 'ticket_charge'],
             'listar instalaciones' => ['get',    '/api/installations', 'view_support'],
             'listar prospectos'    => ['get',    '/api/prospects',   'view_support'],
             'listar facturas'      => ['get',    '/api/billing/invoices', 'view_billing'],

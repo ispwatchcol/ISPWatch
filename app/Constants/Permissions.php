@@ -171,6 +171,20 @@ class Permissions
     const TICKET_EQUIPMENT       = 'ticket_equipment';
 
     /**
+     * Generar y ver los COBROS de un ticket (la factura de la visita y su
+     * acuerdo de cuotas).
+     *
+     * Hasta 2026-11-26 esas tres rutas no tenían permiso: sólo `staff_profile`,
+     * que decidía por CÓDIGO de rol (`admin`/`staff`) y no se podía configurar
+     * en Roles (P-45). Al retirar esa puerta, los cobros necesitaban una
+     * capacidad propia: son dinero, no operación del ticket, así que no se
+     * cuelgan de `ticket_edit` (que tiene el técnico) ni de `view_billing` (que
+     * se lo quitaría a Staff, que hoy sí cobra). La migración
+     * 2026_11_26_000001 se lo da exactamente a quien lo tenía: `admin` y `staff`.
+     */
+    const TICKET_CHARGE          = 'ticket_charge';
+
+    /**
      * Los que todavía NO gobiernan ninguna acción del sistema.
      *
      * Se declaran para que la matriz quede completa y el cliente pueda repartir
@@ -333,6 +347,7 @@ class Permissions
                 self::TICKET_MANAGE_CATALOGS => 'Tickets · administrar asuntos frecuentes',
                 self::TICKET_INTERVENE => 'Tickets · registrar intervenciones técnicas',
                 self::TICKET_EQUIPMENT => 'Tickets · entregar y retirar equipos en la visita',
+                self::TICKET_CHARGE => 'Tickets · generar cobros de la visita (factura y cuotas)',
                 self::TICKET_EXPORT => 'Tickets · métricas y exportación',
                 self::VIEW_SUPPORT => 'Ver Soporte Técnico',
             ],
@@ -408,6 +423,9 @@ class Permissions
                 self::REGISTER_PAYMENTS,
                 self::MANAGE_PAYMENT_PROMISES,
                 self::VIEW_INVOICES,
+                // Staff cobraba las visitas por su código de rol (P-45); al
+                // volverse permiso, la empresa nueva lo recibe igual.
+                self::TICKET_CHARGE,
             ],
             'client', 'Cliente' => [],
             default => [],

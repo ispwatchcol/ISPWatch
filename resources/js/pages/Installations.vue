@@ -245,11 +245,14 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Técnico</label>
-            <SearchableSelect v-model="createForm.technician_id" :items="technicians"
+            <!-- Técnico = rol técnico o quien tenga «Tickets · registrar intervenciones
+                 técnicas» en Roles (los administradores lo tienen): mismo criterio
+                 que el técnico de un ticket. El rol va debajo del nombre. -->
+            <SearchableSelect v-model="createForm.technician_id" :items="technicians" item-sublabel="role_name"
               placeholder="— Sin asignar —" search-placeholder="Buscar técnico…"
               empty-text="No hay técnicos." clearable clear-label="— Sin asignar —" :clear-value="null" size="sm" />
             <p v-if="!technicians.length" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-              No hay usuarios con rol Técnico en el tenant.
+              Nadie del personal tiene rol Técnico ni el permiso «Tickets · registrar intervenciones técnicas».
             </p>
           </div>
           <div class="sm:col-span-2">
@@ -362,7 +365,7 @@
           </div>
           <div class="sm:col-span-2">
             <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1">Técnico</label>
-            <SearchableSelect v-model="editForm.technician_id" :items="technicians"
+            <SearchableSelect v-model="editForm.technician_id" :items="technicians" item-sublabel="role_name"
               placeholder="— Sin asignar —" search-placeholder="Buscar técnico…"
               empty-text="No hay técnicos." clearable clear-label="— Sin asignar —" :clear-value="null" size="sm" />
           </div>

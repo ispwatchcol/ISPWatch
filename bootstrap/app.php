@@ -36,7 +36,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'can_do'           => \App\Http\Middleware\CheckPermission::class,
             'permission'       => \App\Http\Middleware\CheckPermission::class,
-            'staff_profile'    => \App\Http\Middleware\CheckStaffProfile::class,
+            // `staff_profile` (CheckStaffProfile) se eliminó el 2026-11-26: decidía
+            // por CÓDIGO de rol y no por permiso, así que el panel de Roles no lo
+            // podía configurar (P-45). No lo reintroduzcas: usa `permission:`.
 
             // API pública de solo lectura (/api/v1/partner).
             'api_key'          => \App\Http\Middleware\EnsureApiKeyRequest::class,

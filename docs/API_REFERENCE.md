@@ -5,7 +5,7 @@
 > validación reales de cada `FormRequest` o `$request->validate()`.
 > Cuando un endpoint no declara validación explícita se indica así en lugar de inventar campos.
 
-**Última actualización:** 2026-11-26 (inventario: descontar material y resumen por custodio) · Prefijo base: `/api`
+**Última actualización:** 2026-11-26 (tickets: permisos sin código de rol, `ticket_charge`; técnicos de instalación; inventario: descontar material) · Prefijo base: `/api`
 
 ---
 
@@ -76,7 +76,6 @@ Dos mecanismos encadenados:
 | `auth:sanctum` | Debe existir sesión válida |
 | `permission:<nombre>` | El usuario debe tener `<nombre>` entre sus **permisos efectivos** (`role.permissions` ∪ `users.permissions`) o `*`. **`role_id == 1` recibe bypass total.** Admite varios permisos con semántica **OR**: `permission:a,b` |
 | `throttle:<limitador>` | Límite de peticiones. Ver §2 |
-| `staff_profile` | Pese al nombre, **no** exige fila en `staff_profile`: comprueba `role.code ∈ {admin, staff}` o `role_id == 1` |
 
 ---
 
@@ -681,7 +680,7 @@ cliente). El kardex no se reescribe: es append-only y nombra al cliente al leer.
 |---|---|---|---|
 | `GET` | `/api/installations` | auth | Todas las instalaciones |
 | `POST` | `/api/installations` | auth | Crea instalación **junto con** su prospecto |
-| `GET` | `/api/installations/technicians` | auth | Técnicos disponibles |
+| `GET` | `/api/installations/technicians` | `view_support` | A quién se le puede asignar la orden: personal activo (no abonados) con código de rol `technician`, **o** con el permiso `ticket_intervene` («Tickets · registrar intervenciones técnicas»; los administradores lo tienen), **o** el superadministrador. Mismo criterio que el técnico de un ticket desde 2026-11-26 (antes, sólo el código `technician`). Trae `role_name`. El alta y la edición de la orden validan `technician_id` con la misma regla (**422** si no la cumple) |
 | `GET` | `/api/installations/customers` | auth | Clientes elegibles |
 | `GET` | `/api/installations/planning-catalog` | `view_support` | Productos del tenant para **planificar** la orden, con disponibilidad agregada (2026-09-30) |
 | `GET` | `/api/installations/{installation}` | auth | Detalle |
@@ -2386,7 +2385,7 @@ MANUAL_USUARIO §15.1 para sus dos usos).
 ## 16. Soporte
 
 Recurso base `apiResource('support', SupportTicketController::class)` bajo `auth:sanctum`.
-Las operaciones de conversación y cargo exigen además **`staff_profile`**.
+Cada ruta la gobierna **su permiso y nada más**: desde 2026-11-26 ya no existe `staff_profile`, que exigía además el código de rol `admin`/`staff` y no se podía configurar en Roles (P-45). Un técnico con «Tickets · cerrar» marcado cierra; sin él, no — sea cual sea su código de rol.
 
 | Método | Ruta | Requisito | Descripción |
 |---|---|---|---|
@@ -2395,21 +2394,21 @@ Las operaciones de conversación y cargo exigen además **`staff_profile`**.
 | `GET` | `/api/support/{id}` | `ticket_view` | Detalle |
 | `PUT` | `/api/support/{id}` | `ticket_view` + **por campo** | Actualiza (ver abajo). **Ya no mueve el estado**. `staff_id` y `sectorial_id` se acotan al ISP del ticket (**422** si son de otro); el valor que el ticket **ya tiene** pasa siempre, para que reenviar el formulario sin tocarlo no falle |
 | `DELETE` | `/api/support/{id}` | — | **Siempre 403**: los tickets no se eliminan |
-| `GET` | `/api/support/statistics` | `staff_profile` + `ticket_export` | Estadísticas |
-| `POST` | `/api/support/{id}/message` | `staff_profile` + `ticket_note` | Añade mensaje |
-| `PUT` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Edita mensaje |
-| `DELETE` | `/api/support/messages/{id}` | `staff_profile` + `ticket_note` | Elimina mensaje |
-| `PATCH` | `/api/support/{id}/status` | `staff_profile` + `ticket_transition` | **Transición**: valida estado origen contra la matriz |
+| `GET` | `/api/support/statistics` | `ticket_export` | Estadísticas |
+| `POST` | `/api/support/{id}/message` | `ticket_note` | Añade mensaje |
+| `PUT` | `/api/support/messages/{id}` | `ticket_note` | Edita mensaje |
+| `DELETE` | `/api/support/messages/{id}` | `ticket_note` | Elimina mensaje |
+| `PATCH` | `/api/support/{id}/status` | `ticket_transition` | **Transición**: valida estado origen contra la matriz |
 | `GET` | `/api/support/{ticket}/transitions` | `ticket_view` | Qué puede hacer AHORA quien pide. Desde § 133 también `workflow_mode`, `status_group`, `next_step`, `checklist` y `requires_final_test` |
 | `GET` | `/api/support/customer-options` | `ticket_create` **o** `ticket_edit` | Clientes del ISP para el buscador del alta (§ 133). No exige `view_clients` |
 | `GET` | `/api/support/customer-context/{user}` | `ticket_view` | Ficha del cliente para el ticket: datos técnicos, tickets abiertos y, con `view_billing`/`view_invoices`, saldo (§ 133). **404** si es de otro ISP |
-| `POST` | `/api/support/{id}/propose-closure` | `staff_profile` + `ticket_transition` | **Propone** el cierre. NO cierra |
-| `POST` | `/api/support/{id}/close` | `staff_profile` + `ticket_close` | **Cierra**, con los requisitos del §15 |
-| `POST` | `/api/support/{id}/close-exception` | `staff_profile` + `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
-| `POST` | `/api/support/{id}/reopen` | `staff_profile` + `ticket_reopen` | **Reabre** un ticket cerrado |
-| `POST` | `/api/support/{id}/charge` | `staff_profile` | Genera cargo (factura `service_charge`). Opcional en cuotas: `installments_count`, `installments_mode`, `installments_first_due_date` (todo o nada: un plan inválido no deja el cargo) |
-| `GET` | `/api/support/{id}/charges` | `staff_profile` | Cargos del ticket; cada uno trae `installments` (plan de cuotas o `null`) |
-| `PUT` | `/api/support/{id}/charges/{invoice}/installments` | `staff_profile` | Cambia el acuerdo de pago del cargo: `installments_count` (0 = quitar, máx. 24), `installments_mode` (`monthly` o `separate`), `installments_first_due_date`. 422 si toca lo ya cobrado |
+| `POST` | `/api/support/{id}/propose-closure` | `ticket_transition` | **Propone** el cierre. NO cierra |
+| `POST` | `/api/support/{id}/close` | `ticket_close` | **Cierra**, con los requisitos del §15 |
+| `POST` | `/api/support/{id}/close-exception` | `ticket_close_override` | **Cierre especial**: autoriza sin un requisito |
+| `POST` | `/api/support/{id}/reopen` | `ticket_reopen` | **Reabre** un ticket cerrado |
+| `POST` | `/api/support/{id}/charge` | `ticket_charge` | Genera cargo (factura `service_charge`). Opcional en cuotas: `installments_count`, `installments_mode`, `installments_first_due_date` (todo o nada: un plan inválido no deja el cargo) |
+| `GET` | `/api/support/{id}/charges` | `ticket_charge` | Cargos del ticket; cada uno trae `installments` (plan de cuotas o `null`) |
+| `PUT` | `/api/support/{id}/charges/{invoice}/installments` | `ticket_charge` | Cambia el acuerdo de pago del cargo: `installments_count` (0 = quitar, máx. 24), `installments_mode` (`monthly` o `separate`), `installments_first_due_date`. 422 si toca lo ya cobrado |
 | `GET` | `/api/support/{id}/equipment` | `ticket_equipment` | Equipos movidos en la visita, **incluidas las líneas revertidas** (ver §16.1) |
 | `GET` | `/api/support/{id}/equipment/available` | `ticket_equipment` | Qué se puede entregar o retirar |
 | `POST` | `/api/support/{id}/equipment` | `ticket_equipment` | Entrega o **retira** un equipo del cliente |
@@ -2452,7 +2451,7 @@ mensaje también en `errors.ticket`): no se entrega, consume, retira ni revierte
 el ticket (`POST /api/support/{id}/reopen`, con `ticket_reopen` y motivo). `GET .../available`
 añade `materials_status` (mismo contrato que en la instalación, con «esta visita») y
 `locked: { is_locked, reason, message }` (`reason` es `closed`, `archived` o `null`). **El cobro no se bloquea**:
-`POST /api/support/{id}/charge` sigue con sus reglas de siempre (`staff_profile`, `no_charge`).
+`POST /api/support/{id}/charge` sigue con sus reglas (`ticket_charge` desde 2026-11-26, `no_charge`).
 
 **Historial.** Cada movimiento deja un evento propio en `support_ticket_history`:
 `equipment_delivered`, `equipment_returned`, `equipment_scrapped` y `equipment_reversed` —este
@@ -3036,7 +3035,7 @@ Laravel con los eventos más recientes primero. Acepta `per_page` (máx. 100).
 | `POST` | `/api/support/{id}/equipment` | `view_support` **o** `ticket_edit` | Entrega un equipo o material, o **retira** uno del cliente |
 | `DELETE` | `/api/support/{id}/equipment/{item}` | `view_support` **o** `ticket_edit` | Deshace la línea y deja el inventario como estaba |
 
-> **Estas cuatro rutas NO exigen `staff_profile`**, a diferencia del resto de `/api/support/*`.
+> **Estas cuatro rutas nunca exigieron `staff_profile`** (retirado de todo `/api/support/*` el 2026-11-26, P-45).
 > Ese middleware sólo deja pasar los códigos de rol `admin` y `staff`, y quien carga el equipo en
 > la visita es el **técnico de campo**. Metidas en ese grupo, la sección existiría para todos
 > menos para quien tiene que usarla — que es el mismo motivo por el que las de instalación
@@ -3462,7 +3461,7 @@ Todo el bloque exige **`execute_mass_actions`** y va bajo el prefijo `/api/impor
 | `view_audit_log` | `/api/audit-logs*`; extracto de saldo por OR con `view_billing` / `register_payments` |
 | `view_settings` | `/api/settings/cache/clear`, escritura del centro de ayuda (+ `is_superadmin`) |
 | `view_expenses` / `add_expense` / `edit_expense` | Lectura / alta / edición de gastos y categorías |
-| *(sólo `staff_profile`)* | `/api/support/statistics`, mensajes, cambio de estado y cargos de ticket |
+| `ticket_export` / `ticket_note` / `ticket_transition` / `ticket_close` / `ticket_reopen` / `ticket_charge` | Estadísticas, notas, cambios de estado, cierre, reapertura y cobros de ticket. Hasta 2026-11-26 exigían además el código de rol `admin`/`staff` (`staff_profile`, P-45) |
 | *(sólo autenticación)* | `GET /api/roles`, `/api/auth/me`, `/api/dashboard/stats`, `/api/catalogs/*`, `GET /api/help-center`, `/api/tenant/maps-config` |
 
 > **Cobertura completa desde 2026-07-30.** Todos los `apiResource` y sub-recursos llevan ya
